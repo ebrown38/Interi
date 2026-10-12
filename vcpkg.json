@@ -8,6 +8,12 @@
     "benchmark",
     "gtest",
     {
+      "name": "joltphysics",
+      "features": [
+        "rtti"
+      ]
+    },
+    {
       "name": "tracy",
       "default-features": false,
       "features": [

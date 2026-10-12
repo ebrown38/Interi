@@ -34,6 +34,7 @@ include(InteriModule)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
+find_package(Jolt CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 find_package(benchmark CONFIG REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)

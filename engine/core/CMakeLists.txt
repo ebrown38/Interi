@@ -9,6 +9,7 @@ interi_add_module(core
         src/Archive.cpp
         src/Assert.cpp
         src/Hash.cpp
+        src/HeaderCheck.cpp
         src/Log.cpp
         src/StringId.cpp
         src/memory/FrameAllocator.cpp
@@ -28,7 +29,11 @@ interi_add_module(core
         ${_tests}/AllocatorTests.cpp
         ${_tests}/TlsfAllocatorTests.cpp
         ${_tests}/HashTests.cpp
-        ${_tests}/ArchiveTests.cpp)
+        ${_tests}/ArchiveTests.cpp
+        ${_tests}/SlotMapTests.cpp
+        ${_tests}/VectorTests.cpp
+        ${_tests}/HashMapTests.cpp
+        ${_tests}/QueueTests.cpp)
 
 target_compile_definitions(interi_core_tests PRIVATE
     INTERI_TEST_EXPECTED_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
@@ -40,5 +45,6 @@ interi_add_test_executable(interi_core_stress_tests
     SOURCES
         ${_tests}/stress/LoggerStressTests.cpp
         ${_tests}/stress/PoolAllocatorStressTests.cpp
+        ${_tests}/stress/QueueStressTests.cpp
     DEPS interi::core interi::testing
     LABELS stress)

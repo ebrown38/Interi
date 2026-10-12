@@ -64,15 +64,17 @@ struct JobSystemDesc
     bool pinThreads = false;
     /// Jobs that can be queued or running at once. When the pool is full, Submit runs the job inline.
     std::uint32_t maxJobs = 16 * 1024;
-    /// Capacity of each worker's per-priority deque. Overflow goes to the shared injection queue.
+    /// Capacity of each thread's per-priority deque. Overflow goes to the shared injection queue.
     std::uint32_t dequeCapacity = 1024;
 };
 
 INTERI_MSVC_WARNING_PUSH_DISABLE(4324) // structure padded due to alignas
 
-/// Work-stealing job scheduler. Each worker owns one Chase-Lev deque per priority; threads that are not workers
-/// submit through a shared MPMC injection queue per priority. A worker looks for work in priority order, and
-/// within a priority checks its own deque, then the injection queue, then steals from other workers.
+/// Work-stealing job scheduler. Each worker, and the thread that constructed the system (normally the main
+/// thread), owns one Chase-Lev deque per priority; other threads submit through a shared MPMC injection queue per
+/// priority. A thread looks for work in priority order, and within a priority checks its own deque (newest first),
+/// then the injection queue, then steals (oldest first) from the other deques. A constructing thread that already
+/// owns a deque in another live JobSystem is treated like any other non-worker thread.
 ///
 /// Jobs are callables with up to kJobStorageSize bytes of captures, stored inline (Submit never allocates from
 /// the heap). Jobs must not throw: an escaping exception terminates the process.
@@ -108,7 +110,7 @@ public:
     /// Returns once `counter` reaches zero, running other jobs on the calling thread meanwhile. Any thread.
     void WaitFor(const JobCounter& counter);
 
-    [[nodiscard]] std::uint32_t WorkerCount() const noexcept { return static_cast<std::uint32_t>(m_workers.size()); }
+    [[nodiscard]] std::uint32_t WorkerCount() const noexcept { return static_cast<std::uint32_t>(m_threads.size()); }
     /// Threads that can run jobs at once: the workers plus one waiting thread.
     [[nodiscard]] std::uint32_t ThreadCount() const noexcept { return WorkerCount() + 1; }
     /// Index in [0, WorkerCount()) when called on one of this system's worker threads, otherwise nothing.
@@ -122,9 +124,9 @@ private:
         alignas(16) std::byte storage[kJobStorageSize];
     };
 
-    struct Worker
+    struct ThreadQueues
     {
-        explicit Worker(std::size_t dequeCapacity);
+        explicit ThreadQueues(std::size_t dequeCapacity);
         std::array<WorkStealingDeque<Job*>, kJobPriorityCount> deques;
     };
 
@@ -132,14 +134,17 @@ private:
     void Enqueue(Job* job, JobPriority priority) noexcept;
     void Execute(Job* job) noexcept;
     void WakeOneSleeper() noexcept;
-    /// Next job for the calling thread, or nullptr. `ownDequeOnly` restricts a worker to its own deques.
-    [[nodiscard]] Job* FindJob(std::optional<std::uint32_t> workerIndex, bool ownDequeOnly,
+    /// Index into m_queues of the calling thread's deques (a worker's, or the constructing thread's), if any.
+    [[nodiscard]] std::optional<std::uint32_t> CurrentQueueIndex() const noexcept;
+    /// Next job for the calling thread, or nullptr. `ownDequeOnly` restricts the search to the thread's own deques.
+    [[nodiscard]] Job* FindJob(std::optional<std::uint32_t> queueIndex, bool ownDequeOnly,
                                std::size_t priorityCount) noexcept;
     void WorkerMain(std::uint32_t index);
 
+    std::uint64_t m_id; ///< Unique per instance; identifies the system in thread-local state.
     PoolAllocator m_jobPool;
     std::array<std::unique_ptr<MPMCQueue<Job*>>, kJobPriorityCount> m_injection;
-    std::vector<std::unique_ptr<Worker>> m_workers;
+    std::vector<std::unique_ptr<ThreadQueues>> m_queues; ///< Workers' deques, then the constructing thread's.
     std::vector<std::thread> m_threads;
 
     alignas(kCacheLineSize) std::atomic<std::int64_t> m_queued{0};     ///< Jobs queued and not yet taken.

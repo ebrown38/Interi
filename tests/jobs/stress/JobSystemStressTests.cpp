@@ -85,8 +85,22 @@ struct NestedTree
     JobSystem& jobs;
     std::atomic<std::int64_t> waits{0};
     std::atomic<std::int64_t> leaves{0};
+    std::atomic<int> maxStackedVisits{0}; ///< Most Visit calls ever active at once on one thread's stack.
+
+    static inline thread_local int t_stackedVisits = 0;
 
     void Visit(int depth)
+    {
+        const int stacked = ++t_stackedVisits;
+        int seen = maxStackedVisits.load(std::memory_order_relaxed);
+        while (stacked > seen && !maxStackedVisits.compare_exchange_weak(seen, stacked, std::memory_order_relaxed))
+        {
+        }
+        VisitBody(depth);
+        --t_stackedVisits;
+    }
+
+    void VisitBody(int depth)
     {
         if (depth == kDepth)
         {
@@ -126,5 +140,9 @@ TEST(JobSystemStress, WaitFor_NestedJobsWaiting_NoDeadlock)
         }
         EXPECT_EQ(tree.waits.load(), expectedWaits) << workers << " workers"; // 21845 nested waits
         EXPECT_EQ(tree.leaves.load(), level) << workers << " workers";
+        // Stack depth must stay bounded (Windows threads have 1 MB stacks). A waiter that picked up unrelated older
+        // jobs instead of its own children would nest roughly once per queued subtree.
+        EXPECT_LE(tree.maxStackedVisits.load(), static_cast<int>(JobSystem::kMaxWaitNesting) + NestedTree::kDepth + 1)
+            << workers << " workers";
     }
 }

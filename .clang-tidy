@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
 # Applied to engine and tool libraries (not test executables) when INTERI_CLANG_TIDY=ON.
+# modernize-use-designated-initializers is off: positional {x, y, z, w} is the clearer notation for math types.
 Checks: >
   -*,
   bugprone-*,
@@ -12,6 +13,7 @@ Checks: >
   modernize-*,
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
+  -modernize-use-designated-initializers,
   performance-*,
   readability-container-size-empty,
   readability-make-member-function-const,

@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy]
+        preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy, linux-clang-profile]
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
       - uses: actions/checkout@v7
@@ -56,9 +56,9 @@ jobs:
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - name: Unit tests
+      - name: Unit, stress and benchmark smoke tests
         if: matrix.preset != 'linux-clang-tidy'
-        run: ctest --preset ${{ matrix.preset }} -L unit
+        run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark"
       - name: Pending (TDD red) tests, informational
         if: matrix.preset == 'linux-clang-debug' && github.event_name == 'push' && github.ref != 'refs/heads/main'
         continue-on-error: true
@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [windows-msvc-debug, windows-msvc-release]
+        preset: [windows-msvc-debug, windows-msvc-release, windows-msvc-profile]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -95,7 +95,7 @@ jobs:
       - run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - run: ctest --preset ${{ matrix.preset }} -L unit
+      - run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark"
 
   coverage:
     runs-on: ubuntu-24.04

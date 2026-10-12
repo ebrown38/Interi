@@ -118,6 +118,31 @@ class NoticesTests(unittest.TestCase):
             self.assertNotIn("vcpkg-cmake", text)
             self.assertIn("## gtest", text)
 
+    def test_port_name_comes_from_spdx_document_not_directory_case(self):
+        # On case-insensitive file systems (Windows) vcpkg's share/tracy and share/Tracy (CMake config) are one
+        # directory, which may be spelled "Tracy". The SPDX document names the port authoritatively.
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = make_installed_dir(Path(tmp), {"Tracy": "BSD-3-Clause", "benchmark": "Apache-2.0"})
+            spdx_file = installed / "share" / "Tracy" / "vcpkg.spdx.json"
+            spdx = json.loads(spdx_file.read_text())
+            spdx["name"] = "tracy:x64-windows@0.14.1#1 0123abcd"
+            spdx["packages"][0]["name"] = "tracy"
+            spdx_file.write_text(json.dumps(spdx))
+            self.assertEqual(check_licenses.collect_port_licenses(installed),
+                             {"benchmark": "Apache-2.0", "tracy": "BSD-3-Clause"})
+            text = gen_notices.generate_notices(installed)
+            self.assertLess(text.index("## benchmark"), text.index("## tracy"))
+
+    def test_empty_packages_excluded(self):
+        # e.g. vcpkg's `pthreads` on Linux: metadata only, no copyright file, nothing shipped. Listing it would make
+        # the notices differ between platforms where the port is or isn't in the dependency graph.
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = make_installed_dir(Path(tmp), {"pthreads": "Apache-2.0", "gtest": "BSD-3-Clause"})
+            (installed / "share" / "pthreads" / "copyright").unlink()
+            text = gen_notices.generate_notices(installed)
+            self.assertNotIn("pthreads", text)
+            self.assertIn("## gtest", text)
+
     def test_check_mode_detects_stale_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             installed = make_installed_dir(Path(tmp) / "installed", {"gtest": "BSD-3-Clause"})

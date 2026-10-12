@@ -26,7 +26,12 @@ Developer prompt (use `bootstrap-vcpkg.bat`).
 | `linux-clang-tsan` | ThreadSanitizer (required for anything concurrent) |
 | `linux-clang-coverage` | llvm-cov. Run `ctest`, then build the `coverage` target |
 | `linux-clang-tidy` | clang-tidy on engine libraries |
-| `windows-msvc-debug` / `-release` | MSVC |
+| `linux-clang-profile` | Release + [Tracy](https://github.com/wolfpld/tracy) profiling (`INTERI_ZONE` macros) |
+| `windows-msvc-debug` / `-release` / `-profile` | MSVC |
+
+The engine targets x86-64-v3 (AVX2/FMA: Haswell, Zen 1 and newer), the same baseline as PS5 and Xbox Series.
+Benchmarks live in `benchmarks/`; measure with the release preset, e.g.
+`build/linux-clang-release/benchmarks/core/interi_core_benchmarks`.
 
 ## Development workflow (TDD)
 

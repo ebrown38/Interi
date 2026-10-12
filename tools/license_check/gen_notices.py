@@ -7,11 +7,12 @@ Exit codes: 0 = ok/written, 1 = --check found a stale file, 2 = input error.
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_licenses import collect_port_licenses  # noqa: E402
+from check_licenses import collect_port_licenses, collect_ports  # noqa: E402
 
 HEADER = """# Third-Party Notices
 
@@ -28,11 +29,15 @@ def _is_vcpkg_helper(port: str) -> bool:
 
 def generate_notices(installed_dir: Path) -> str:
     parts = [HEADER]
-    for port, license_expr in sorted(collect_port_licenses(installed_dir).items()):
+    for port, (license_expr, share_dir) in collect_ports(installed_dir).items():
         if _is_vcpkg_helper(port):
             continue
-        copyright_file = Path(installed_dir) / "share" / port / "copyright"
-        text = copyright_file.read_text(encoding="utf-8", errors="replace").strip() if copyright_file.exists() else ""
+        copyright_file = share_dir / "copyright"
+        if not copyright_file.exists():
+            # Empty package (e.g. `pthreads` on POSIX): nothing is shipped, so there is nothing to attribute.
+            # check_licenses.py still vets its license metadata.
+            continue
+        text = copyright_file.read_text(encoding="utf-8", errors="replace").strip()
         parts.append(f"\n## {port}\n\nLicense: {license_expr or 'NOASSERTION'}\n\n```text\n{text}\n```\n")
     return "".join(parts)
 
@@ -53,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         if current != notices:
             print(f"{args.output} is out of date. Regenerate with:\n  python3 tools/license_check/gen_notices.py "
                   f"--installed-dir <vcpkg_installed/triplet> --output {args.output}", file=sys.stderr)
+            diff = difflib.unified_diff(current.splitlines(), notices.splitlines(), "committed", "generated", lineterm="")
+            print("\n".join(list(diff)[:60]), file=sys.stderr)
             return 1
         return 0
     args.output.write_text(notices, encoding="utf-8", newline="\n")

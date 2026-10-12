@@ -20,23 +20,28 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 option(INTERI_CLANG_TIDY "Run clang-tidy on engine (non-test) targets" OFF)
 set(INTERI_SANITIZER "" CACHE STRING "Sanitizer build: '', 'asan' (ASan+UBSan), 'tsan'")
 option(INTERI_COVERAGE "Instrument for llvm-cov source coverage (Clang only)" OFF)
+option(INTERI_PROFILING "Link Tracy and enable the INTERI_ZONE profiling macros" OFF)
 
 if(INTERI_CLANG_TIDY)
     find_program(INTERI_CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)
 endif()
 
 include(CTest)
+include(InteriArch)
 include(InteriWarnings)
 include(InteriSanitizers)
 include(InteriModule)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+find_package(benchmark CONFIG REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_subdirectory(testing)
 add_subdirectory(engine)
 add_subdirectory(tests)
+add_subdirectory(benchmarks)
 add_subdirectory(tools)
 
 include(InteriCoverage) # after all test executables are declared

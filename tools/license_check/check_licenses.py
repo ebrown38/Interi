@@ -104,16 +104,23 @@ def is_allowed(expression: str | None, allowed_licenses, allowed_exceptions) -> 
         return False
 
 
-def collect_port_licenses(installed_dir: Path) -> dict[str, str | None]:
-    """Map port name -> licenseConcluded from vcpkg's per-port SPDX documents."""
-    licenses: dict[str, str | None] = {}
+def collect_ports(installed_dir: Path) -> dict[str, tuple[str | None, Path]]:
+    """Map port name -> (licenseConcluded, share directory) from vcpkg's per-port SPDX documents."""
+    ports: dict[str, tuple[str | None, Path]] = {}
     for spdx_file in sorted(Path(installed_dir).glob("share/*/vcpkg.spdx.json")):
-        port = spdx_file.parent.name
         document = json.loads(spdx_file.read_text(encoding="utf-8"))
+        # The document name ("<port>:<triplet>@<version> <hash>") is authoritative; the directory name is not on
+        # case-insensitive file systems, where e.g. share/tracy and share/Tracy are the same directory.
+        port = document.get("name", "").split(":", 1)[0] or spdx_file.parent.name
         packages = document.get("packages", [])
         package = next((p for p in packages if p.get("name") == port), packages[0] if packages else {})
-        licenses[port] = package.get("licenseConcluded")
-    return licenses
+        ports[port] = (package.get("licenseConcluded"), spdx_file.parent)
+    return dict(sorted(ports.items()))
+
+
+def collect_port_licenses(installed_dir: Path) -> dict[str, str | None]:
+    """Map port name -> licenseConcluded from vcpkg's per-port SPDX documents."""
+    return {port: license_expr for port, (license_expr, _) in collect_ports(installed_dir).items()}
 
 
 def find_violations(installed_dir: Path, policy: dict) -> list[Violation]:

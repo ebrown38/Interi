@@ -11,3 +11,10 @@
 /.vscode/
 /.vs/
 __pycache__/
+
+# planning-with-files working state (see CLAUDE.md, "Starting a milestone")
+/task_plan.md
+/findings.md
+/progress.md
+/.planning/
+/.claude/

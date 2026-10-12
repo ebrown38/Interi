@@ -165,9 +165,20 @@ void JobSystem::Enqueue(Job* job, JobPriority priority) noexcept
         INTERI_VERIFY(m_injection[p]->TryPush(job), "injection queue full (it is sized to the job pool)");
     }
 
-    // Dekker with WorkerMain: either a sleeping worker sees m_queued > 0 in its wait predicate, or we see it in
-    // m_sleepers and wake it. Both sides use seq_cst operations (no fences, so TSan can follow it).
+    // Wake a sleeper only when no worker is already searching: a searcher that finds this job wakes the next one
+    // (WorkerMain), so bursts of submits cost one wake-up rather than one per job.
     m_queued.fetch_add(1, std::memory_order_seq_cst);
+    if (m_searching.load(std::memory_order_seq_cst) == 0)
+    {
+        WakeOneSleeper();
+    }
+}
+
+void JobSystem::WakeOneSleeper() noexcept
+{
+    // Dekker with WorkerMain's sleep path: a worker going to sleep increments m_sleepers and then re-checks
+    // m_queued under the mutex, so either it sees the new job or we see it here. seq_cst operations rather than
+    // fences, so ThreadSanitizer can follow the argument.
     if (m_sleepers.load(std::memory_order_seq_cst) > 0)
     {
         const std::scoped_lock lock(m_sleepMutex);
@@ -271,19 +282,28 @@ void JobSystem::WorkerMain(std::uint32_t index)
 
     for (;;)
     {
-        if (Job* job = FindJob(index, false, kJobPriorityCount))
+        Job* job = FindJob(index, false, kJobPriorityCount);
+        if (job == nullptr)
+        {
+            // Search: spin for a while before sleeping, since new work usually arrives soon.
+            m_searching.fetch_add(1, std::memory_order_seq_cst);
+            for (int spin = 0; spin < kSpinsBeforeSleep && job == nullptr; ++spin)
+            {
+                CpuPause();
+                if (spin % 32 == 31 && m_queued.load(std::memory_order_relaxed) > 0)
+                {
+                    job = FindJob(index, false, kJobPriorityCount);
+                }
+            }
+            const std::uint32_t searchers = m_searching.fetch_sub(1, std::memory_order_seq_cst);
+            if (job != nullptr && searchers == 1 && m_queued.load(std::memory_order_seq_cst) > 0)
+            {
+                WakeOneSleeper(); // the last searcher found work and more is queued: hand the search on
+            }
+        }
+        if (job != nullptr)
         {
             Execute(job);
-            continue;
-        }
-        bool workAppeared = false;
-        for (int spin = 0; spin < kSpinsBeforeSleep && !workAppeared; ++spin)
-        {
-            CpuPause();
-            workAppeared = m_queued.load(std::memory_order_relaxed) > 0;
-        }
-        if (workAppeared)
-        {
             continue;
         }
 

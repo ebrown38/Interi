@@ -131,6 +131,7 @@ private:
     [[nodiscard]] Job* AllocateJob() noexcept;
     void Enqueue(Job* job, JobPriority priority) noexcept;
     void Execute(Job* job) noexcept;
+    void WakeOneSleeper() noexcept;
     /// Next job for the calling thread, or nullptr. `ownDequeOnly` restricts a worker to its own deques.
     [[nodiscard]] Job* FindJob(std::optional<std::uint32_t> workerIndex, bool ownDequeOnly,
                                std::size_t priorityCount) noexcept;
@@ -141,7 +142,8 @@ private:
     std::vector<std::unique_ptr<Worker>> m_workers;
     std::vector<std::thread> m_threads;
 
-    alignas(kCacheLineSize) std::atomic<std::int64_t> m_queued{0}; ///< Jobs queued and not yet taken.
+    alignas(kCacheLineSize) std::atomic<std::int64_t> m_queued{0};     ///< Jobs queued and not yet taken.
+    alignas(kCacheLineSize) std::atomic<std::uint32_t> m_searching{0}; ///< Workers spinning for work.
     alignas(kCacheLineSize) std::atomic<std::uint32_t> m_sleepers{0};
     std::atomic<bool> m_stopping{false};
     std::mutex m_sleepMutex;

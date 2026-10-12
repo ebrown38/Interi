@@ -185,12 +185,15 @@ void ParallelPrefixSum(JobSystem& jobs, std::span<const T> in, std::span<T> out,
         priority);
 }
 
+/// Elements per radix sort chunk (one 2 KiB histogram each).
+inline constexpr std::size_t kRadixSortDefaultGrain = std::size_t{16} * 1024;
+
 /// Stable LSD radix sort (8 bits per pass) of `data` by `key(element)`, an unsigned 32- or 64-bit integer. To sort
 /// signed or floating-point keys, map them to unsigned keys with the same order. `scratch` must be as large as
 /// `data`; its contents afterwards are unspecified. The result is in `data`.
 template <typename T, typename KeyFn>
 void ParallelRadixSort(JobSystem& jobs, std::span<T> data, std::span<T> scratch, KeyFn&& key,
-                       std::size_t grain = 16 * 1024, JobPriority priority = JobPriority::Normal)
+                       std::size_t grain = kRadixSortDefaultGrain, JobPriority priority = JobPriority::Normal)
 {
     using Key = std::invoke_result_t<KeyFn&, const T&>;
     static_assert(std::same_as<Key, std::uint32_t> || std::same_as<Key, std::uint64_t>,
@@ -269,8 +272,8 @@ void ParallelRadixSort(JobSystem& jobs, std::span<T> data, std::span<T> scratch,
 /// Radix sort of unsigned 32/64-bit integers by value.
 template <typename T>
     requires std::same_as<T, std::uint32_t> || std::same_as<T, std::uint64_t>
-void ParallelRadixSort(JobSystem& jobs, std::span<T> data, std::span<T> scratch, std::size_t grain = 16 * 1024,
-                       JobPriority priority = JobPriority::Normal)
+void ParallelRadixSort(JobSystem& jobs, std::span<T> data, std::span<T> scratch,
+                       std::size_t grain = kRadixSortDefaultGrain, JobPriority priority = JobPriority::Normal)
 {
     ParallelRadixSort(jobs, data, scratch, [](const T& value) { return value; }, grain, priority);
 }

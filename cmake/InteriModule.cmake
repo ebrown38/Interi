@@ -54,8 +54,11 @@ function(interi_add_test_executable target)
 
     add_executable(${target} ${ARG_SOURCES})
     target_link_libraries(${target} PRIVATE ${ARG_DEPS} GTest::gtest_main GTest::gmock interi::warnings)
+    # Discovery runs the executable (--gtest_list_tests). The 5 s default is too tight for profile builds, where
+    # Tracy calibrates its timer at process start, on slow shared CI runners.
     gtest_discover_tests(${target}
         DISCOVERY_MODE PRE_TEST
+        DISCOVERY_TIMEOUT 60
         PROPERTIES LABELS "${ARG_LABELS}")
     set_property(GLOBAL APPEND PROPERTY INTERI_TEST_EXECUTABLES ${target})
 endfunction()

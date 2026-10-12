@@ -87,7 +87,11 @@ constexpr const char* AssertMessage(const char* message) noexcept
 #define INTERI_ASSERT(condition, ...)                                                                                  \
     do                                                                                                                 \
     {                                                                                                                  \
-        if (!(condition)) [[unlikely]]                                                                                 \
+        /* if/else rather than if (!(condition)) so compound conditions don't trip DeMorgan lint checks */             \
+        if (condition) [[likely]]                                                                                      \
+        {                                                                                                              \
+        }                                                                                                              \
+        else                                                                                                           \
         {                                                                                                              \
             ::interi::detail::ReportAssertFailure(#condition, ::interi::detail::AssertMessage(__VA_ARGS__), __FILE__,  \
                                                   __LINE__);                                                           \

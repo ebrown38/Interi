@@ -15,6 +15,15 @@
 #include <interi/core/containers/SPSCQueue.h>
 #include <interi/core/containers/SlotMap.h>
 #include <interi/core/containers/SmallVector.h>
+#include <interi/core/math/Clipping.h>
+#include <interi/core/math/ConvexHull.h>
+#include <interi/core/math/Geometry.h>
+#include <interi/core/math/Mat4.h>
+#include <interi/core/math/MathKernels.h>
+#include <interi/core/math/MathTypes.h>
+#include <interi/core/math/Quat.h>
+#include <interi/core/math/Transform.h>
+#include <interi/core/math/Vec.h>
 #include <interi/core/memory/Allocator.h>
 #include <interi/core/memory/FrameAllocator.h>
 #include <interi/core/memory/HeapAllocator.h>

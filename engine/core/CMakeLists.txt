@@ -12,6 +12,9 @@ interi_add_module(core
         src/HeaderCheck.cpp
         src/Log.cpp
         src/StringId.cpp
+        src/math/Clipping.cpp
+        src/math/ConvexHull.cpp
+        src/math/Quat.cpp
         src/memory/FrameAllocator.cpp
         src/memory/HeapAllocator.cpp
         src/memory/LinearAllocator.cpp
@@ -34,7 +37,11 @@ interi_add_module(core
         ${_tests}/SlotMapTests.cpp
         ${_tests}/VectorTests.cpp
         ${_tests}/HashMapTests.cpp
-        ${_tests}/QueueTests.cpp)
+        ${_tests}/QueueTests.cpp
+        ${_tests}/MathTests.cpp
+        ${_tests}/SimdParityTests.cpp
+        ${_tests}/GeometryTests.cpp
+        ${_tests}/ConvexHullTests.cpp)
 
 target_compile_definitions(interi_core_tests PRIVATE
     INTERI_TEST_EXPECTED_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}

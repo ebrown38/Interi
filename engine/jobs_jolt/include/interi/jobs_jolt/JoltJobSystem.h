@@ -22,6 +22,9 @@ namespace interi
 /// that contains them is waited on. Jolt's allocator must be registered (JPH::RegisterDefaultAllocator or a custom
 /// one) before constructing this, because Jolt's job objects and this class use Jolt's operator new.
 ///
+/// A queued job keeps its slot until the Interi job that runs it has finished, even if a barrier executed it first.
+/// When all `maxJobs` slots are in use, CreateJob yields until one frees (as JPH::JobSystemThreadPool does).
+///
 /// The Interi JobSystem must outlive this object. The destructor waits until every queued job has been released.
 class JoltJobSystem final : public JPH::JobSystemWithBarrier
 {

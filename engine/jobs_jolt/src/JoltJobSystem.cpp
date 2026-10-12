@@ -30,10 +30,13 @@ JPH::JobHandle JoltJobSystem::CreateJob(const char* name, JPH::ColorArg color, c
     JPH::uint32 index = m_joltJobs.ConstructObject(name, color, this, function, numDependencies);
     if (index == decltype(m_joltJobs)::cInvalidObjectIndex)
     {
-        INTERI_ASSERT(false, "JoltJobSystem: out of Jolt jobs; raise maxJobs");
+        // Every queued job holds a reference until its Interi job has run, even when a barrier already executed it,
+        // so the pool can run dry transiently while workers catch up (JPH::JobSystemThreadPool behaves the same and
+        // also retries). Without workers nothing would ever free a job: that is a sizing error.
+        INTERI_ASSERT(m_jobs.WorkerCount() > 0, "JoltJobSystem: out of Jolt jobs; raise maxJobs");
         do
         {
-            std::this_thread::yield(); // running jobs release theirs eventually (same as JobSystemThreadPool)
+            std::this_thread::yield();
             index = m_joltJobs.ConstructObject(name, color, this, function, numDependencies);
         } while (index == decltype(m_joltJobs)::cInvalidObjectIndex);
     }

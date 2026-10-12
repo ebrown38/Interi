@@ -7,6 +7,7 @@ Exit codes: 0 = ok/written, 1 = --check found a stale file, 2 = input error.
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
 from pathlib import Path
 
@@ -57,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         if current != notices:
             print(f"{args.output} is out of date. Regenerate with:\n  python3 tools/license_check/gen_notices.py "
                   f"--installed-dir <vcpkg_installed/triplet> --output {args.output}", file=sys.stderr)
+            diff = difflib.unified_diff(current.splitlines(), notices.splitlines(), "committed", "generated", lineterm="")
+            print("\n".join(list(diff)[:60]), file=sys.stderr)
             return 1
         return 0
     args.output.write_text(notices, encoding="utf-8", newline="\n")

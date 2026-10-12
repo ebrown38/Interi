@@ -15,7 +15,7 @@ concurrency:
 env:
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
   FEDORA_PACKAGES: >-
-    clang lld llvm clang-tools-extra cmake ninja-build git python3
+    clang lld llvm compiler-rt clang-tools-extra cmake ninja-build git python3
     zip unzip tar curl pkgconf-pkg-config perl-IPC-Cmd mesa-vulkan-drivers vulkan-tools
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
     container: fedora:44
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False clang-tools-extra git python3
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: clang-format
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -41,14 +41,14 @@ jobs:
         preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy]
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - id: vcpkg
         run: |
           git config --global --add safe.directory '*'
           echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
@@ -80,14 +80,14 @@ jobs:
       matrix:
         preset: [windows-msvc-debug, windows-msvc-release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: ilammy/msvc-dev-cmd@v1
       - id: vcpkg
         shell: bash
         run: echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
@@ -102,14 +102,14 @@ jobs:
     container: fedora:44
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - id: vcpkg
         run: |
           git config --global --add safe.directory '*'
           echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
@@ -119,7 +119,7 @@ jobs:
       - run: cmake --build --preset linux-clang-coverage
       - run: ctest --preset linux-clang-coverage
       - run: cmake --build --preset linux-clang-coverage --target coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: build/linux-clang-coverage/coverage/html
@@ -134,14 +134,14 @@ jobs:
         preset: [linux-clang-asan, linux-clang-tsan]
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
       - id: vcpkg
         run: |
           git config --global --add safe.directory '*'
           echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
           key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}

@@ -71,3 +71,60 @@ TEST(JobSystemStress, RepeatedCreateSubmitDestroy_DrainsEveryTime)
         ASSERT_EQ(ran.load(), 100) << "round " << round;
     }
 }
+
+namespace
+{
+
+// Every non-leaf job submits kFanOut children and waits for them, so threads that wait run other waiting jobs
+// (nested waits). Depth stays below kMaxWaitNesting; deeper chains are documented as unsupported.
+struct NestedTree
+{
+    static constexpr int kFanOut = 4;
+    static constexpr int kDepth = 8;
+
+    JobSystem& jobs;
+    std::atomic<std::int64_t> waits{0};
+    std::atomic<std::int64_t> leaves{0};
+
+    void Visit(int depth)
+    {
+        if (depth == kDepth)
+        {
+            leaves.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        JobCounter children;
+        for (int i = 0; i < kFanOut; ++i)
+        {
+            jobs.Submit([this, depth] { Visit(depth + 1); }, &children);
+        }
+        jobs.WaitFor(children);
+        waits.fetch_add(1, std::memory_order_relaxed);
+    }
+};
+
+} // namespace
+
+TEST(JobSystemStress, WaitFor_NestedJobsWaiting_NoDeadlock)
+{
+    static_assert(NestedTree::kDepth < static_cast<int>(JobSystem::kMaxWaitNesting));
+    for (const std::uint32_t workers : {0u, 1u, 7u, 31u})
+    {
+        JobSystemDesc desc;
+        desc.workerCount = workers;
+        desc.maxJobs = 4096; // smaller than the tree, so the pool-exhausted inline path runs too
+        JobSystem jobs(desc);
+        NestedTree tree{jobs};
+        tree.Visit(0);
+
+        std::int64_t expectedWaits = 0;
+        std::int64_t level = 1;
+        for (int d = 0; d < NestedTree::kDepth; ++d)
+        {
+            expectedWaits += level;
+            level *= NestedTree::kFanOut;
+        }
+        EXPECT_EQ(tree.waits.load(), expectedWaits) << workers << " workers"; // 21845 nested waits
+        EXPECT_EQ(tree.leaves.load(), level) << workers << " workers";
+    }
+}

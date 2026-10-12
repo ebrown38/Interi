@@ -234,7 +234,9 @@ void JobSystem::WaitFor(const JobCounter& counter)
     INTERI_ZONE();
     const std::optional<std::uint32_t> workerIndex = CurrentWorkerIndex();
     ++t_thread.waitDepth;
-    const bool ownDequeOnly = t_thread.waitDepth > kMaxWaitNesting;
+    // Past the nesting cap only take our own (usually descendant) jobs, to bound stack depth. Without workers the
+    // caller is the only thread that can run anything, so it never restricts itself.
+    const bool ownDequeOnly = t_thread.waitDepth > kMaxWaitNesting && !m_workers.empty();
     // Helpers skip Low (long background) jobs, unless there are no workers to run them.
     const std::size_t priorityCount = m_workers.empty() ? kJobPriorityCount : kJobPriorityCount - 1;
     int idlePolls = 0;

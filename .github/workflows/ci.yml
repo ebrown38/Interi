@@ -1,0 +1,153 @@
+# SPDX-License-Identifier: MIT
+name: CI
+
+on:
+  push: # all branches: feature-branch pushes tolerate `pending` (TDD red) tests
+  pull_request: # PRs and main must not contain pending tests
+  schedule:
+    - cron: "0 7 * * *" # nightly: sanitizers + long-running test labels
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+  FEDORA_PACKAGES: >-
+    clang lld llvm clang-tools-extra cmake ninja-build git python3
+    zip unzip tar curl pkgconf-pkg-config perl-IPC-Cmd mesa-vulkan-drivers vulkan-tools
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    steps:
+      - run: dnf install -y --setopt=install_weak_deps=False clang-tools-extra git python3
+      - uses: actions/checkout@v4
+      - name: clang-format
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git ls-files -- '*.h' '*.cpp' | xargs clang-format --dry-run --Werror
+      - name: SPDX headers
+        run: python3 tools/license_check/check_spdx_headers.py
+
+  linux:
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy]
+    steps:
+      - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - id: vcpkg
+        run: |
+          git config --global --add safe.directory '*'
+          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
+      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - name: Unit tests
+        if: matrix.preset != 'linux-clang-tidy'
+        run: ctest --preset ${{ matrix.preset }} -L unit
+      - name: Pending (TDD red) tests, informational
+        if: matrix.preset == 'linux-clang-debug' && github.event_name == 'push' && github.ref != 'refs/heads/main'
+        continue-on-error: true
+        run: ctest --test-dir build/${{ matrix.preset }} -L pending --output-on-failure
+      - name: No pending tests may reach main
+        if: matrix.preset == 'linux-clang-debug' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main')
+        run: |
+          extra=$(ctest --test-dir build/${{ matrix.preset }} -N -L pending | grep -E '^ *Test +#' | grep -v 'PendingSample\.' || true)
+          if [ -n "$extra" ]; then
+            echo "::error::Implement these pending (red) tests before merging:"
+            echo "$extra"
+            exit 1
+          fi
+
+  windows:
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [windows-msvc-debug, windows-msvc-release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: ilammy/msvc-dev-cmd@v1
+      - id: vcpkg
+        shell: bash
+        run: echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-
+      - run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - run: ctest --preset ${{ matrix.preset }} -L unit
+
+  coverage:
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    steps:
+      - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - id: vcpkg
+        run: |
+          git config --global --add safe.directory '*'
+          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
+      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+      - run: cmake --preset linux-clang-coverage
+      - run: cmake --build --preset linux-clang-coverage
+      - run: ctest --preset linux-clang-coverage
+      - run: cmake --build --preset linux-clang-coverage --target coverage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: build/linux-clang-coverage/coverage/html
+
+  nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux-clang-asan, linux-clang-tsan]
+    steps:
+      - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - id: vcpkg
+        run: |
+          git config --global --add safe.directory '*'
+          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
+      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+      - run: cmake --preset ${{ matrix.preset }}
+      - run: cmake --build --preset ${{ matrix.preset }}
+      - name: All non-pending tests (unit, integration, stress, golden)
+        run: ctest --preset ${{ matrix.preset }}

@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+PointerAlignment: Left
+BreakTemplateDeclarations: Yes
+NamespaceIndentation: None
+FixNamespaceComments: true
+AccessModifierOffset: -4
+IndentPPDirectives: None
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<interi/'
+    Priority: 1
+  - Regex: '^<(gtest|gmock|benchmark|Jolt|SDL3|xxhash|vulkan|volk|imgui|tracy)'
+    Priority: 2
+  - Regex: '^<[a-z_]+>$'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 2

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Sanitizer and coverage instrumentation. Applied globally so every Interi target links consistently.
+
+if(INTERI_SANITIZER STREQUAL "asan")
+    if(MSVC)
+        add_compile_options(/fsanitize=address)
+    else()
+        add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+elseif(INTERI_SANITIZER STREQUAL "tsan")
+    if(MSVC)
+        message(FATAL_ERROR "ThreadSanitizer is not supported by MSVC")
+    endif()
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+elseif(NOT INTERI_SANITIZER STREQUAL "")
+    message(FATAL_ERROR "Unknown INTERI_SANITIZER '${INTERI_SANITIZER}' (expected '', 'asan' or 'tsan')")
+endif()
+
+if(INTERI_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "INTERI_COVERAGE requires Clang (llvm-cov)")
+    endif()
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate)
+endif()

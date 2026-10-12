@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: MIT
+// Generated from engine/core/src/Version.cpp.in by CMake. Do not edit the generated copy.
+#include <interi/core/Version.h>
+
+namespace interi
+{
+
+Version GetEngineVersion() noexcept
+{
+    return {.major = @PROJECT_VERSION_MAJOR@, .minor = @PROJECT_VERSION_MINOR@, .patch = @PROJECT_VERSION_PATCH@};
+}
+
+std::string_view GetEngineVersionString() noexcept
+{
+    return "@PROJECT_VERSION_MAJOR@.@PROJECT_VERSION_MINOR@.@PROJECT_VERSION_PATCH@";
+}
+
+} // namespace interi

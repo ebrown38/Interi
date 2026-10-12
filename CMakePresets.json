@@ -1,0 +1,71 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/external/vcpkg/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "linux-clang",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_LINKER_TYPE": "LLD"
+      }
+    },
+    { "name": "linux-clang-debug", "inherits": "linux-clang", "displayName": "Linux Clang Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "linux-clang-release", "inherits": "linux-clang", "displayName": "Linux Clang Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" } },
+    { "name": "linux-clang-asan", "inherits": "linux-clang", "displayName": "Linux Clang ASan+UBSan",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "INTERI_SANITIZER": "asan" } },
+    { "name": "linux-clang-tsan", "inherits": "linux-clang", "displayName": "Linux Clang TSan",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "INTERI_SANITIZER": "tsan" } },
+    { "name": "linux-clang-coverage", "inherits": "linux-clang", "displayName": "Linux Clang Coverage",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "INTERI_COVERAGE": "ON" } },
+    { "name": "linux-clang-tidy", "inherits": "linux-clang", "displayName": "Linux Clang + clang-tidy",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "INTERI_CLANG_TIDY": "ON" } },
+    {
+      "name": "windows-msvc",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl" }
+    },
+    { "name": "windows-msvc-debug", "inherits": "windows-msvc", "displayName": "Windows MSVC Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "windows-msvc-release", "inherits": "windows-msvc", "displayName": "Windows MSVC Release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" } }
+  ],
+  "buildPresets": [
+    { "name": "linux-clang-debug", "configurePreset": "linux-clang-debug" },
+    { "name": "linux-clang-release", "configurePreset": "linux-clang-release" },
+    { "name": "linux-clang-asan", "configurePreset": "linux-clang-asan" },
+    { "name": "linux-clang-tsan", "configurePreset": "linux-clang-tsan" },
+    { "name": "linux-clang-coverage", "configurePreset": "linux-clang-coverage" },
+    { "name": "linux-clang-tidy", "configurePreset": "linux-clang-tidy" },
+    { "name": "windows-msvc-debug", "configurePreset": "windows-msvc-debug" },
+    { "name": "windows-msvc-release", "configurePreset": "windows-msvc-release" }
+  ],
+  "testPresets": [
+    { "name": "test-base", "hidden": true, "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" },
+      "filter": { "exclude": { "label": "pending" } } },
+    { "name": "linux-clang-debug", "inherits": "test-base", "configurePreset": "linux-clang-debug" },
+    { "name": "linux-clang-release", "inherits": "test-base", "configurePreset": "linux-clang-release" },
+    { "name": "linux-clang-asan", "inherits": "test-base", "configurePreset": "linux-clang-asan" },
+    { "name": "linux-clang-tsan", "inherits": "test-base", "configurePreset": "linux-clang-tsan" },
+    { "name": "linux-clang-coverage", "inherits": "test-base", "configurePreset": "linux-clang-coverage",
+      "environment": { "LLVM_PROFILE_FILE": "${sourceDir}/build/linux-clang-coverage/profiles/%p-%m.profraw" } },
+    { "name": "windows-msvc-debug", "inherits": "test-base", "configurePreset": "windows-msvc-debug" },
+    { "name": "windows-msvc-release", "inherits": "test-base", "configurePreset": "windows-msvc-release" }
+  ]
+}

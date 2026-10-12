@@ -1,0 +1,19 @@
+{
+  "description": "Interi is MIT-licensed open source. Dependencies must use one of these permissive, MIT-compatible licenses. Copyleft (GPL/LGPL/AGPL/MPL) is not allowed.",
+  "allowed_licenses": [
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "Apache-2.0",
+    "NCSA",
+    "BSL-1.0",
+    "Unlicense",
+    "CC0-1.0"
+  ],
+  "allowed_exceptions": [
+    "LLVM-exception"
+  ],
+  "overrides": {}
+}

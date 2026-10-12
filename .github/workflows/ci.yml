@@ -38,7 +38,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy]
+        preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy, linux-clang-profile]
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
       - uses: actions/checkout@v7
@@ -78,7 +78,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [windows-msvc-debug, windows-msvc-release]
+        preset: [windows-msvc-debug, windows-msvc-release, windows-msvc-profile]
     steps:
       - uses: actions/checkout@v7
         with:

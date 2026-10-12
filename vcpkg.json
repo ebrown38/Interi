@@ -7,6 +7,13 @@
   "dependencies": [
     "benchmark",
     "gtest",
+    {
+      "name": "tracy",
+      "default-features": false,
+      "features": [
+        "on-demand"
+      ]
+    },
     "xxhash"
   ]
 }

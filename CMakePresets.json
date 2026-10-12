@@ -32,6 +32,8 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "INTERI_COVERAGE": "ON" } },
     { "name": "linux-clang-tidy", "inherits": "linux-clang", "displayName": "Linux Clang + clang-tidy",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "INTERI_CLANG_TIDY": "ON" } },
+    { "name": "linux-clang-profile", "inherits": "linux-clang", "displayName": "Linux Clang Release + Tracy profiling",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "INTERI_PROFILING": "ON" } },
     {
       "name": "windows-msvc",
       "hidden": true,
@@ -46,7 +48,9 @@
     { "name": "windows-msvc-debug", "inherits": "windows-msvc", "displayName": "Windows MSVC Debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
     { "name": "windows-msvc-release", "inherits": "windows-msvc", "displayName": "Windows MSVC Release",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" } }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" } },
+    { "name": "windows-msvc-profile", "inherits": "windows-msvc", "displayName": "Windows MSVC Release + Tracy profiling",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "INTERI_PROFILING": "ON" } }
   ],
   "buildPresets": [
     { "name": "linux-clang-debug", "configurePreset": "linux-clang-debug" },
@@ -55,8 +59,10 @@
     { "name": "linux-clang-tsan", "configurePreset": "linux-clang-tsan" },
     { "name": "linux-clang-coverage", "configurePreset": "linux-clang-coverage" },
     { "name": "linux-clang-tidy", "configurePreset": "linux-clang-tidy" },
+    { "name": "linux-clang-profile", "configurePreset": "linux-clang-profile" },
     { "name": "windows-msvc-debug", "configurePreset": "windows-msvc-debug" },
-    { "name": "windows-msvc-release", "configurePreset": "windows-msvc-release" }
+    { "name": "windows-msvc-release", "configurePreset": "windows-msvc-release" },
+    { "name": "windows-msvc-profile", "configurePreset": "windows-msvc-profile" }
   ],
   "testPresets": [
     { "name": "test-base", "hidden": true, "output": { "outputOnFailure": true },
@@ -68,7 +74,9 @@
     { "name": "linux-clang-tsan", "inherits": "test-base", "configurePreset": "linux-clang-tsan" },
     { "name": "linux-clang-coverage", "inherits": "test-base", "configurePreset": "linux-clang-coverage",
       "environment": { "LLVM_PROFILE_FILE": "${sourceDir}/build/linux-clang-coverage/profiles/%p-%m.profraw" } },
+    { "name": "linux-clang-profile", "inherits": "test-base", "configurePreset": "linux-clang-profile" },
     { "name": "windows-msvc-debug", "inherits": "test-base", "configurePreset": "windows-msvc-debug" },
-    { "name": "windows-msvc-release", "inherits": "test-base", "configurePreset": "windows-msvc-release" }
+    { "name": "windows-msvc-release", "inherits": "test-base", "configurePreset": "windows-msvc-release" },
+    { "name": "windows-msvc-profile", "inherits": "test-base", "configurePreset": "windows-msvc-profile" }
   ]
 }

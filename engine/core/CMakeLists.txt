@@ -41,7 +41,17 @@ interi_add_module(core
         ${_tests}/MathTests.cpp
         ${_tests}/SimdParityTests.cpp
         ${_tests}/GeometryTests.cpp
-        ${_tests}/ConvexHullTests.cpp)
+        ${_tests}/ConvexHullTests.cpp
+        ${_tests}/ProfilingTests.cpp
+        ${_tests}/ProfilingDisabledTests.cpp
+        ${_tests}/ProfilingShippingTests.cpp)
+
+# CPU profiling (INTERI_ZONE macros, see Profiling.h): Tracy is linked only when INTERI_PROFILING is ON.
+if(INTERI_PROFILING)
+    find_package(Tracy CONFIG REQUIRED)
+    target_link_libraries(interi_core PUBLIC Tracy::TracyClient)
+    target_compile_definitions(interi_core PUBLIC INTERI_ENABLE_PROFILING=1)
+endif()
 
 target_compile_definitions(interi_core_tests PRIVATE
     INTERI_TEST_EXPECTED_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}

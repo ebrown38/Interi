@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -323,3 +324,47 @@ TEST(JobSystem, PinThreads_EachWorkerOnOneCore)
     (void)onWorker; // the caller may have run every job while waiting; nothing to assert about the split
 }
 #endif
+
+TEST(JobSystem, SubmitCaptureThrows_ReleasesJobAndRethrows)
+{
+    struct ThrowOnCopy
+    {
+        const bool* armed;
+        explicit ThrowOnCopy(const bool* flag)
+            : armed(flag)
+        {
+        }
+        ThrowOnCopy(const ThrowOnCopy& other)
+            : armed(other.armed)
+        {
+            if (*armed)
+            {
+                throw std::runtime_error("capture copy failed");
+            }
+        }
+        ThrowOnCopy& operator=(const ThrowOnCopy&) = delete;
+        ThrowOnCopy(ThrowOnCopy&&) = delete;
+        ThrowOnCopy& operator=(ThrowOnCopy&&) = delete;
+        ~ThrowOnCopy() = default;
+        void operator()() const {}
+    };
+
+    JobSystemDesc desc = Workers(0); // queued jobs only run in WaitFor, so "ran inline" is observable
+    desc.maxJobs = 2;
+    JobSystem jobs(desc);
+    const bool armed = true;
+    const ThrowOnCopy throwing(&armed);
+    JobCounter counter;
+    EXPECT_THROW(jobs.Submit(throwing, &counter), std::runtime_error);
+    EXPECT_EQ(counter.Pending(), 0);
+
+    // Both pool slots must still be free: neither of these may fall back to running inline.
+    bool ran[2] = {false, false};
+    jobs.Submit([&ran] { ran[0] = true; }, &counter);
+    jobs.Submit([&ran] { ran[1] = true; }, &counter);
+    EXPECT_FALSE(ran[0]);
+    EXPECT_FALSE(ran[1]);
+    jobs.WaitFor(counter);
+    EXPECT_TRUE(ran[0]);
+    EXPECT_TRUE(ran[1]);
+}

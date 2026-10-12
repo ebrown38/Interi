@@ -86,6 +86,18 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Serialization.** Each type gets a single `template <class Archive> void Serialize(Archive&, T&)`, found by ADL, that serves both reading and writing. Fields added in later versions are guarded with `archive.Version() >= N`. The format is little-endian and bit-exact.
 - **Profiling.** `INTERI_ZONE*` macros map to Tracy only with `INTERI_PROFILING=ON` (`*-profile` presets), in on-demand mode. Otherwise they compile to nothing.
 
+## Job system (`engine/jobs`, `engine/jobs_jolt`)
+
+- **`JobSystem`** is a plain class; tests create many instances with different worker counts. Workers default to hardware threads − 1. Each worker, plus the thread that constructed the system, owns a Chase-Lev `WorkStealingDeque` per `JobPriority` (High/Normal/Low). Other threads submit through MPMC injection queues. Threads register by a unique system id, not by pointer.
+- **Jobs.** `Submit(fn, &counter, priority)` stores up to 48 bytes of captures inline in a pooled 64-byte `Job`. Jobs must not throw. When the pool is exhausted, `Submit` runs the job inline.
+- **Waiting.** `WaitFor(counter)` never idles: it runs other High/Normal jobs, but not Low ones (IO and cooking), unless there are zero workers. Waits nest up to `kMaxWaitNesting` (32). Past that, a waiter only pops its own deque, which keeps stack depth bounded (Windows threads have 1 MB stacks).
+- **Sleeping.** Idle workers spin, then sleep. A submit wakes a sleeper only when no worker is searching, and the last searcher to find work wakes the next. Both sides use a seq_cst Dekker check on `m_queued`/`m_sleepers`. The code uses seq_cst operations rather than fences everywhere, because TSan doesn't model fences.
+- **Shutdown.** The destructor drains every queued job.
+- **`TaskGraph`.** Build it once and `Run()` it repeatedly. When asserts are enabled, `Run()` asserts on a cycle and runs nothing.
+- **Parallel algorithms.** `ParallelFor`/`ParallelForChunks`/`ParallelReduce`/`ParallelPrefixSum`/`ParallelRadixSort` cut ranges into chunks from range and grain alone, and combine chunk results in order, so results (floats included) are bit-identical at any thread count. Keep it that way.
+- **`interi::JoltJobSystem`** (`jobs_jolt`) implements `JPH::JobSystemWithBarrier` on the engine workers. Only code that needs Jolt links this module. Inside the class, write `interi::JobSystem`, because plain `JobSystem` names Jolt's base class.
+- **TSan.** The `linux-clang-tsan` preset uses the overlay triplet `cmake/triplets/x64-linux-tsan.cmake`, which builds every vcpkg dependency with Clang and `-fsanitize=thread`. Without it, uninstrumented Jolt synchronization produces false race reports.
+
 ## Dependencies and licensing
 
 Interi is MIT open source. Every dependency must be permissive (allowlist in `tools/license_check/license_policy.json`; no GPL/LGPL/AGPL). Add dependencies to `vcpkg.json` in the milestone that first uses them. After changing dependencies:

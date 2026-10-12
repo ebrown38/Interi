@@ -32,6 +32,7 @@ include(InteriModule)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_subdirectory(testing)

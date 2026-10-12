@@ -33,7 +33,8 @@ public:
 
     /// Sum of free payload bytes (O(free blocks); intended for stats and tests).
     [[nodiscard]] std::size_t FreeBytes() const noexcept;
-    /// Largest single allocation (alignment <= 16) that could currently succeed.
+    /// Payload size of the largest free block. An allocation of exactly this size can still fail: TLSF rounds
+    /// requests up to the next size class ("good fit") so it never has to search a list.
     [[nodiscard]] std::size_t LargestFreeBlock() const noexcept;
     /// Walks the heap and checks every structural invariant. O(n^2) worst case; for tests and debugging.
     [[nodiscard]] bool Validate() const noexcept;

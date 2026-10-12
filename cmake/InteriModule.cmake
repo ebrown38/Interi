@@ -59,3 +59,16 @@ function(interi_add_test_executable target)
         PROPERTIES LABELS "${ARG_LABELS}")
     set_property(GLOBAL APPEND PROPERTY INTERI_TEST_EXECUTABLES ${target})
 endfunction()
+
+# interi_add_benchmark(<target> SOURCES <files...> DEPS <targets...>)
+# Builds a Google Benchmark executable (with benchmark_main). It is built in every preset so all compilers check
+# it, and registered as a CTest `benchmark`-labelled smoke test that runs each benchmark for one iteration
+# (--benchmark_dry_run). Measure with the release preset: build/linux-clang-release/benchmarks/<target>.
+function(interi_add_benchmark target)
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "" "" "SOURCES;DEPS")
+    add_executable(${target} ${ARG_SOURCES})
+    target_link_libraries(${target} PRIVATE ${ARG_DEPS} benchmark::benchmark benchmark::benchmark_main
+                                            interi::warnings)
+    add_test(NAME ${target}_DryRun COMMAND ${target} --benchmark_dry_run)
+    set_tests_properties(${target}_DryRun PROPERTIES LABELS benchmark)
+endfunction()

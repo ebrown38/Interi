@@ -23,6 +23,7 @@ interi_add_module(core
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/VersionTests.cpp
+        ${_tests}/BuildConfigTests.cpp
         ${_tests}/AssertTests.cpp
         ${_tests}/ResultTests.cpp
         ${_tests}/LoggerTests.cpp
@@ -38,7 +39,8 @@ interi_add_module(core
 target_compile_definitions(interi_core_tests PRIVATE
     INTERI_TEST_EXPECTED_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
     INTERI_TEST_EXPECTED_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-    INTERI_TEST_EXPECTED_VERSION_PATCH=${PROJECT_VERSION_PATCH})
+    INTERI_TEST_EXPECTED_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    INTERI_TEST_SIMD_REQUESTED=$<BOOL:${INTERI_SIMD}>)
 
 # Long-running and randomized concurrency tests: label `stress`, run nightly (and under TSan).
 interi_add_test_executable(interi_core_stress_tests

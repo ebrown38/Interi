@@ -26,6 +26,7 @@ if(INTERI_CLANG_TIDY)
 endif()
 
 include(CTest)
+include(InteriArch)
 include(InteriWarnings)
 include(InteriSanitizers)
 include(InteriModule)
@@ -33,11 +34,13 @@ include(InteriModule)
 find_package(GTest CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
 find_package(Threads REQUIRED)
+find_package(benchmark CONFIG REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_subdirectory(testing)
 add_subdirectory(engine)
 add_subdirectory(tests)
+add_subdirectory(benchmarks)
 add_subdirectory(tools)
 
 include(InteriCoverage) # after all test executables are declared

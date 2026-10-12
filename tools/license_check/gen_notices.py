@@ -32,7 +32,11 @@ def generate_notices(installed_dir: Path) -> str:
         if _is_vcpkg_helper(port):
             continue
         copyright_file = Path(installed_dir) / "share" / port / "copyright"
-        text = copyright_file.read_text(encoding="utf-8", errors="replace").strip() if copyright_file.exists() else ""
+        if not copyright_file.exists():
+            # Empty package (e.g. `pthreads` on POSIX): nothing is shipped, so there is nothing to attribute.
+            # check_licenses.py still vets its license metadata.
+            continue
+        text = copyright_file.read_text(encoding="utf-8", errors="replace").strip()
         parts.append(f"\n## {port}\n\nLicense: {license_expr or 'NOASSERTION'}\n\n```text\n{text}\n```\n")
     return "".join(parts)
 

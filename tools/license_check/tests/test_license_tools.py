@@ -118,6 +118,16 @@ class NoticesTests(unittest.TestCase):
             self.assertNotIn("vcpkg-cmake", text)
             self.assertIn("## gtest", text)
 
+    def test_empty_packages_excluded(self):
+        # e.g. vcpkg's `pthreads` on Linux: metadata only, no copyright file, nothing shipped. Listing it would make
+        # the notices differ between platforms where the port is or isn't in the dependency graph.
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = make_installed_dir(Path(tmp), {"pthreads": "Apache-2.0", "gtest": "BSD-3-Clause"})
+            (installed / "share" / "pthreads" / "copyright").unlink()
+            text = gen_notices.generate_notices(installed)
+            self.assertNotIn("pthreads", text)
+            self.assertIn("## gtest", text)
+
     def test_check_mode_detects_stale_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             installed = make_installed_dir(Path(tmp) / "installed", {"gtest": "BSD-3-Clause"})

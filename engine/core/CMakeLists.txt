@@ -6,8 +6,11 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/core)
 interi_add_module(core
     SOURCES
         ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.cpp
+        src/Archive.cpp
         src/Assert.cpp
+        src/Hash.cpp
         src/Log.cpp
+        src/StringId.cpp
         src/memory/FrameAllocator.cpp
         src/memory/HeapAllocator.cpp
         src/memory/LinearAllocator.cpp
@@ -15,6 +18,7 @@ interi_add_module(core
         src/memory/PoolAllocator.cpp
         src/memory/TlsfAllocator.cpp
     DEPS Threads::Threads
+    PRIVATE_DEPS xxHash::xxhash
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/VersionTests.cpp
@@ -22,7 +26,9 @@ interi_add_module(core
         ${_tests}/ResultTests.cpp
         ${_tests}/LoggerTests.cpp
         ${_tests}/AllocatorTests.cpp
-        ${_tests}/TlsfAllocatorTests.cpp)
+        ${_tests}/TlsfAllocatorTests.cpp
+        ${_tests}/HashTests.cpp
+        ${_tests}/ArchiveTests.cpp)
 
 target_compile_definitions(interi_core_tests PRIVATE
     INTERI_TEST_EXPECTED_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}

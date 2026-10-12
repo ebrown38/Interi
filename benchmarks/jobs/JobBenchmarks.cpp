@@ -7,6 +7,8 @@
 #include <benchmark/benchmark.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <span>
@@ -127,6 +129,69 @@ void ParallelFor_ComputeScaling(benchmark::State& state)
     state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(kCount));
 }
 BENCHMARK(ParallelFor_ComputeScaling)->Apply(ThreadArgs)->UseRealTime()->Unit(benchmark::kMicrosecond);
+
+/// ParallelFor_ComputeScaling after the workers have gone to sleep (frame-like idle gap), with one worker just
+/// woken and searching. Checks that a burst of work wakes every sleeper rather than only the searcher's next.
+void ParallelFor_ComputeAfterIdle(benchmark::State& state)
+{
+    interi::JobSystem jobs(Threads(state.range(0)));
+    constexpr std::size_t kCount = std::size_t{64} * 1024;
+    std::vector<float> values(kCount, 1.5f);
+    std::vector<std::atomic<bool>> participated(jobs.WorkerCount() + 1);
+    std::vector<std::atomic<std::int64_t>> joinNs(jobs.WorkerCount() + 1);
+    double participants = 0.0;
+    double joinSumUs = 0.0;
+    double joinMaxUs = 0.0;
+    for (auto _ : state)
+    {
+        state.PauseTiming();
+        std::this_thread::sleep_for(std::chrono::milliseconds(3)); // longer than the spin window: workers sleep
+        interi::JobCounter wake;
+        jobs.Submit([] {}, &wake);
+        jobs.WaitFor(wake);
+        for (std::size_t i = 0; i < participated.size(); ++i)
+        {
+            participated[i].store(false, std::memory_order_relaxed);
+            joinNs[i].store(-1, std::memory_order_relaxed);
+        }
+        state.ResumeTiming();
+        const auto start = std::chrono::steady_clock::now();
+        interi::ParallelForChunks(jobs, 0, kCount, 64,
+                                  [&](std::size_t begin, std::size_t end)
+                                  {
+                                      const std::size_t slot = jobs.CurrentWorkerIndex().value_or(jobs.WorkerCount());
+                                      if (!participated[slot].exchange(true, std::memory_order_relaxed))
+                                      {
+                                          joinNs[slot].store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                                 std::chrono::steady_clock::now() - start)
+                                                                 .count(),
+                                                             std::memory_order_relaxed);
+                                      }
+                                      for (std::size_t i = begin; i < end; ++i)
+                                      {
+                                          values[i] = Work(values[i], 256);
+                                      }
+                                  });
+        benchmark::ClobberMemory();
+        state.PauseTiming();
+        for (std::size_t i = 0; i < participated.size(); ++i)
+        {
+            if (participated[i].load())
+            {
+                participants += 1.0;
+                const double us = static_cast<double>(joinNs[i].load()) / 1000.0;
+                joinSumUs += us;
+                joinMaxUs = std::max(joinMaxUs, us);
+            }
+        }
+        state.ResumeTiming();
+    }
+    state.counters["threads_used"] = benchmark::Counter(participants, benchmark::Counter::kAvgIterations);
+    state.counters["join_avg_us"] = participants > 0.0 ? joinSumUs / participants : 0.0;
+    state.counters["join_max_us"] = joinMaxUs;
+    state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(kCount));
+}
+BENCHMARK(ParallelFor_ComputeAfterIdle)->Apply(ThreadArgs)->UseRealTime()->Unit(benchmark::kMicrosecond);
 
 /// ParallelFor scaling on a memory-bound loop over 4M floats (saturates DRAM bandwidth well before 32 threads).
 void ParallelFor_MemoryScaling(benchmark::State& state)

@@ -7,6 +7,7 @@
 #include <format>
 #include <string>
 #include <thread>
+#include <utility>
 
 #if defined(__linux__)
 #include <pthread.h>
@@ -192,10 +193,10 @@ void JobSystem::Enqueue(Job* job, JobPriority priority) noexcept
         INTERI_VERIFY(m_injection[p]->TryPush(job), "injection queue full (it is sized to the job pool)");
     }
 
-    // Wake a sleeper only when no worker is already searching: a searcher that finds this job wakes the next one
-    // (WorkerMain), so bursts of submits cost one wake-up rather than one per job.
-    m_queued.fetch_add(1, std::memory_order_seq_cst);
-    if (m_searching.load(std::memory_order_seq_cst) == 0)
+    // Wake a sleeper only when more jobs are queued than workers are searching for them. Spinning searchers pick
+    // up steady streams of jobs without any wake-up syscalls; a burst after an idle gap wakes sleepers in parallel.
+    const std::int64_t waiting = m_queued.fetch_add(1, std::memory_order_seq_cst) + 1;
+    if (std::cmp_greater(waiting, m_searching.load(std::memory_order_seq_cst)))
     {
         WakeOneSleeper();
     }
@@ -308,27 +309,38 @@ void JobSystem::WorkerMain(std::uint32_t index)
     INTERI_PROFILE_THREAD_NAME(name.c_str());
 #endif
 
-    for (;;)
+    // Searching: registered in m_searching while looking for work. A searcher that finds work while others are
+    // queued and no other searcher remains wakes one more sleeper, so wake-ups propagate (as in Go and Tokio).
+    const auto search = [this, index](int spins) -> Job*
     {
-        Job* job = FindJob(index, false, kJobPriorityCount);
-        if (job == nullptr)
+        m_searching.fetch_add(1, std::memory_order_seq_cst);
+        Job* found = FindJob(index, false, kJobPriorityCount);
+        for (int spin = 0; spin < spins && found == nullptr; ++spin)
         {
-            // Search: spin for a while before sleeping, since new work usually arrives soon.
-            m_searching.fetch_add(1, std::memory_order_seq_cst);
-            for (int spin = 0; spin < kSpinsBeforeSleep && job == nullptr; ++spin)
+            CpuPause();
+            if (spin % 32 == 31 && m_queued.load(std::memory_order_relaxed) > 0)
             {
-                CpuPause();
-                if (spin % 32 == 31 && m_queued.load(std::memory_order_relaxed) > 0)
-                {
-                    job = FindJob(index, false, kJobPriorityCount);
-                }
-            }
-            const std::uint32_t searchers = m_searching.fetch_sub(1, std::memory_order_seq_cst);
-            if (job != nullptr && searchers == 1 && m_queued.load(std::memory_order_seq_cst) > 0)
-            {
-                WakeOneSleeper(); // the last searcher found work and more is queued: hand the search on
+                found = FindJob(index, false, kJobPriorityCount);
             }
         }
+        const std::uint32_t searchers = m_searching.fetch_sub(1, std::memory_order_seq_cst);
+        if (found != nullptr && searchers == 1 && m_queued.load(std::memory_order_seq_cst) > 0)
+        {
+            WakeOneSleeper();
+        }
+        return found;
+    };
+
+    bool woken = false;
+    for (;;)
+    {
+        // A freshly woken worker searches (and so can hand the wake-up on); a busy one just takes its next job.
+        Job* job = woken ? search(0) : FindJob(index, false, kJobPriorityCount);
+        if (job == nullptr)
+        {
+            job = search(kSpinsBeforeSleep);
+        }
+        woken = false;
         if (job != nullptr)
         {
             Execute(job);
@@ -345,6 +357,7 @@ void JobSystem::WorkerMain(std::uint32_t index)
         {
             break;
         }
+        woken = true;
     }
     t_thread = ThreadState{};
 }

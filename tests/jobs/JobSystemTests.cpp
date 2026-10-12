@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -367,4 +368,49 @@ TEST(JobSystem, SubmitCaptureThrows_ReleasesJobAndRethrows)
     jobs.WaitFor(counter);
     EXPECT_TRUE(ran[0]);
     EXPECT_TRUE(ran[1]);
+}
+
+TEST(JobSystem, BurstWhileOneWorkerSearches_WakesEveryWorker)
+{
+    constexpr std::uint32_t kWorkers = 6;
+    JobSystem jobs(Workers(kWorkers));
+    for (int round = 0; round < 20; ++round)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5)); // all workers go to sleep
+        JobCounter warmup;
+        jobs.Submit([] {}, &warmup);
+        while (!warmup.IsDone()) // don't help: a worker must run it, and is then spinning as a searcher
+        {
+            std::this_thread::yield();
+        }
+
+        // Each job waits until all of them run at once, so this only completes if every worker woke up.
+        std::atomic<std::uint32_t> running{0};
+        std::atomic<bool> allMet{true};
+        JobCounter counter;
+        for (std::uint32_t i = 0; i < kWorkers; ++i)
+        {
+            jobs.Submit(
+                [&running, &allMet]
+                {
+                    running.fetch_add(1);
+                    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                    while (running.load() < kWorkers)
+                    {
+                        if (std::chrono::steady_clock::now() > deadline)
+                        {
+                            allMet = false;
+                            return;
+                        }
+                        std::this_thread::yield();
+                    }
+                },
+                &counter);
+        }
+        while (!counter.IsDone()) // the caller must not help, or it would stand in for a sleeping worker
+        {
+            std::this_thread::yield();
+        }
+        ASSERT_TRUE(allMet.load()) << "round " << round << ": not every worker woke for the burst";
+    }
 }

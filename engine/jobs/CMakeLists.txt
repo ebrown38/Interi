@@ -11,7 +11,8 @@ interi_add_module(jobs
     TEST_SOURCES
         ${_tests}/WorkStealingDequeTests.cpp
         ${_tests}/JobSystemTests.cpp
-        ${_tests}/TaskGraphTests.cpp)
+        ${_tests}/TaskGraphTests.cpp
+        ${_tests}/ParallelAlgorithmsTests.cpp)
 
 # Long-running and randomized concurrency tests: label `stress`.
 interi_add_test_executable(interi_jobs_stress_tests

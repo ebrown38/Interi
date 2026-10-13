@@ -9,11 +9,6 @@ namespace interi
 namespace
 {
 
-[[nodiscard]] std::size_t AlignUp(std::size_t value, std::size_t alignment) noexcept
-{
-    return (value + alignment - 1) / alignment * alignment;
-}
-
 /// Bytes needed for `capacity` rows: the entity column, then each component column at its alignment.
 [[nodiscard]] std::size_t LayoutBytes(std::vector<detail::Column>& columns, std::size_t capacity) noexcept
 {

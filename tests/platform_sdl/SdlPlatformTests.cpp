@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -135,4 +136,56 @@ TEST(SdlPlatform, DummyDriver_WindowAndEventsWork)
     mapper.Update(events);
     EXPECT_TRUE(mapper.WasPressed(jump));
     EXPECT_TRUE(mapper.QuitRequested());
+}
+
+TEST(SdlTranslation, EveryKey_ReachableFromExactlyOneScancode)
+{
+    std::vector<int> hits(interi::kKeyCount, 0);
+    for (int scancode = 0; scancode < SDL_SCANCODE_COUNT; ++scancode)
+    {
+        ++hits[static_cast<std::size_t>(interi::KeyFromSdlScancode(scancode))];
+    }
+    for (std::size_t key = 1; key < interi::kKeyCount; ++key) // skip Key::Unknown
+    {
+        EXPECT_EQ(hits[key], 1) << "key " << key;
+    }
+}
+
+TEST(SdlTranslation, EveryGamepadButtonAndAxis_Translated)
+{
+    std::vector<int> buttons(interi::kGamepadButtonCount, 0);
+    for (int button = 0; button < SDL_GAMEPAD_BUTTON_COUNT; ++button)
+    {
+        SDL_Event event = MakeEvent(SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+        event.gbutton.button = static_cast<std::uint8_t>(button);
+        if (const auto translated = interi::TranslateSdlEvent(event))
+        {
+            ++buttons[static_cast<std::size_t>(std::get<interi::GamepadButtonEvent>(*translated).button)];
+        }
+    }
+    EXPECT_TRUE(std::ranges::all_of(buttons, [](int count) { return count == 1; }));
+
+    std::vector<int> axes(interi::kGamepadAxisCount, 0);
+    for (int axis = 0; axis < SDL_GAMEPAD_AXIS_COUNT; ++axis)
+    {
+        SDL_Event event = MakeEvent(SDL_EVENT_GAMEPAD_AXIS_MOTION);
+        event.gaxis.axis = static_cast<std::uint8_t>(axis);
+        if (const auto translated = interi::TranslateSdlEvent(event))
+        {
+            ++axes[static_cast<std::size_t>(std::get<interi::GamepadAxisEvent>(*translated).axis)];
+        }
+    }
+    EXPECT_TRUE(std::ranges::all_of(axes, [](int count) { return count == 1; }));
+
+    std::vector<int> mouse(interi::kMouseButtonCount, 0);
+    for (int button = 0; button <= 8; ++button)
+    {
+        SDL_Event event = MakeEvent(SDL_EVENT_MOUSE_BUTTON_DOWN);
+        event.button.button = static_cast<std::uint8_t>(button);
+        if (const auto translated = interi::TranslateSdlEvent(event))
+        {
+            ++mouse[static_cast<std::size_t>(std::get<interi::MouseButtonEvent>(*translated).button)];
+        }
+    }
+    EXPECT_TRUE(std::ranges::all_of(mouse, [](int count) { return count == 1; }));
 }

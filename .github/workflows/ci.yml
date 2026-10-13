@@ -17,6 +17,8 @@ env:
   FEDORA_PACKAGES: >-
     clang lld llvm compiler-rt clang-tools-extra cmake ninja-build git python3
     zip unzip tar curl pkgconf-pkg-config perl-IPC-Cmd mesa-vulkan-drivers vulkan-tools
+    libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel
+    libXtst-devel wayland-devel wayland-protocols-devel libxkbcommon-devel mesa-libEGL-devel libdecor-devel
 
 jobs:
   lint:

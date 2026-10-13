@@ -3,6 +3,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/platform)
 
 interi_add_module(platform
     SOURCES
+        src/AsyncFileReader.cpp
         src/DynamicLibrary.cpp
         src/FileSystem.cpp
         src/HeaderCheck.cpp
@@ -10,6 +11,7 @@ interi_add_module(platform
     PRIVATE_DEPS ${CMAKE_DL_LIBS}
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/AsyncFileReaderTests.cpp
         ${_tests}/DynamicLibraryTests.cpp
         ${_tests}/FileSystemTests.cpp)
 

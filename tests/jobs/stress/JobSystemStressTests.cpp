@@ -53,6 +53,38 @@ TEST(JobSystemStress, ExternalSubmittersAndNestedJobs_AllRun)
     EXPECT_EQ(ran.load(), static_cast<std::int64_t>(kSubmitters) * (kJobsPerSubmitter + kNested));
 }
 
+// A tiny pool makes the injection queues wrap every few pushes, so producers often reach a cell whose consumer has
+// claimed it but not yet released it. The queue then reports "full" although few jobs are alive; Submit must wait
+// that out rather than fail.
+TEST(JobSystemStress, TinyPoolExternalSubmitters_AllRun)
+{
+    JobSystemDesc desc;
+    desc.workerCount = 6;
+    desc.maxJobs = 2;
+    JobSystem jobs(desc);
+
+    constexpr int kSubmitters = 8;
+    constexpr int kJobsPerSubmitter = 50'000;
+    std::atomic<std::int64_t> ran{0};
+    std::vector<std::jthread> submitters;
+    for (int s = 0; s < kSubmitters; ++s)
+    {
+        submitters.emplace_back(
+            [&jobs, &ran]
+            {
+                JobCounter counter;
+                for (int i = 0; i < kJobsPerSubmitter; ++i)
+                {
+                    jobs.Submit([&ran] { ran.fetch_add(1, std::memory_order_relaxed); }, &counter);
+                }
+                jobs.WaitFor(counter);
+            });
+    }
+    submitters.clear();
+
+    EXPECT_EQ(ran.load(), static_cast<std::int64_t>(kSubmitters) * kJobsPerSubmitter);
+}
+
 TEST(JobSystemStress, RepeatedCreateSubmitDestroy_DrainsEveryTime)
 {
     for (int round = 0; round < 200; ++round)

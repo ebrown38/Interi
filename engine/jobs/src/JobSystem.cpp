@@ -100,7 +100,7 @@ JobSystem::JobSystem(const JobSystemDesc& desc)
 {
     for (auto& queue : m_injection)
     {
-        queue = std::make_unique<MPMCQueue<Job*>>(m_jobPool.BlockCount()); // never full: bounded by the pool
+        queue = std::make_unique<MPMCQueue<Job*>>(m_jobPool.BlockCount()); // fits every pooled job
     }
     const std::uint32_t workerCount =
         desc.workerCount == JobSystemDesc::kAutoWorkerCount ? DefaultWorkerCount() : desc.workerCount;
@@ -190,7 +190,19 @@ void JobSystem::Enqueue(Job* job, JobPriority priority) noexcept
     }
     if (!queued)
     {
-        INTERI_VERIFY(m_injection[p]->TryPush(job), "injection queue full (it is sized to the job pool)");
+        // The queue holds every pooled job, yet TryPush can still fail briefly: a consumer that has claimed a cell
+        // but not yet released it keeps that cell busy for the next lap. That consumer is mid-pop, so just wait.
+        for (int attempt = 0; !m_injection[p]->TryPush(job); ++attempt)
+        {
+            if (attempt < kPausesBeforeYield)
+            {
+                CpuPause();
+            }
+            else
+            {
+                std::this_thread::yield();
+            }
+        }
     }
 
     // Wake a sleeper only when more jobs are queued than workers are searching for them. Spinning searchers pick

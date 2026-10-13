@@ -93,6 +93,14 @@ public:
     using SystemId = std::uint32_t;
     using SystemFunction = std::move_only_function<void(SystemContext&)>;
 
+    Scheduler() = default;
+    ~Scheduler() = default;
+    // Built task-graph nodes point back at this object, so it must stay where it is.
+    Scheduler(const Scheduler&) = delete;
+    Scheduler& operator=(const Scheduler&) = delete;
+    Scheduler(Scheduler&&) = delete;
+    Scheduler& operator=(Scheduler&&) = delete;
+
     SystemId AddSystem(std::string name, SystemAccess access, SystemFunction function);
 
     /// `system` starts only after `dependency` has finished.

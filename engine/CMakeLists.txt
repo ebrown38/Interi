@@ -2,3 +2,4 @@
 add_subdirectory(core)
 add_subdirectory(jobs)
 add_subdirectory(jobs_jolt)
+add_subdirectory(platform)

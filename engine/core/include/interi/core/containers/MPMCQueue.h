@@ -22,7 +22,8 @@ INTERI_MSVC_WARNING_PUSH_DISABLE(4324) // structure padded due to alignas
 /// and consumers only contend on their own position counter. Used by the job system.
 ///
 /// TryPush/TryPop never block; they fail when the queue is full/empty. FIFO per producer. Capacity is rounded up
-/// to a power of two (minimum 2).
+/// to a power of two (minimum 2). TryPush can also fail below capacity, while a consumer that claimed the cell one
+/// lap earlier has not finished popping it.
 template <typename T>
 class MPMCQueue
 {

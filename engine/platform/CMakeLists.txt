@@ -7,13 +7,15 @@ interi_add_module(platform
         src/DynamicLibrary.cpp
         src/FileSystem.cpp
         src/HeaderCheck.cpp
+        src/InputMapper.cpp
     DEPS interi::core interi::jobs
     PRIVATE_DEPS ${CMAKE_DL_LIBS}
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/AsyncFileReaderTests.cpp
         ${_tests}/DynamicLibraryTests.cpp
-        ${_tests}/FileSystemTests.cpp)
+        ${_tests}/FileSystemTests.cpp
+        ${_tests}/InputMapperTests.cpp)
 
 # A real shared library for DynamicLibraryTests to load; its path is baked into the test executable.
 add_library(interi_test_dynlib MODULE ${_tests}/dynlib/TestDynLib.cpp)

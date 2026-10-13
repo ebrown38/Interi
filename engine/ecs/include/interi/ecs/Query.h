@@ -136,8 +136,9 @@ public:
         return With<Ts...>();
     }
 
-    /// Components the filters read (With and Changed); systems count these as reads when ordering.
-    [[nodiscard]] const ComponentMask& FilterReads() const noexcept { return m_with; }
+    /// Components whose change ticks the Changed filters read; a system using the query must declare them as reads
+    /// (With/Without only test archetype membership, which can't change while systems run).
+    [[nodiscard]] const ComponentMask& FilterReads() const noexcept { return m_changed; }
 
     /// Runs `function(ChunkView&)` on each matching chunk with this query's own change tracking: Changed matches
     /// writes since the previous call of this overload.

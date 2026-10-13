@@ -4,6 +4,7 @@
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/Component.h>
 #include <interi/ecs/Query.h>
+#include <interi/ecs/Scheduler.h>
 #include <interi/ecs/World.h>
 
 namespace interi
@@ -47,6 +48,13 @@ struct HeaderCheckTag
     buffer.CreateEntity(0, HeaderCheckComponent{1}, HeaderCheckTag{});
     buffer.Add(1, entity, HeaderCheckComponent{2});
     buffer.Remove<HeaderCheckTag>(2, entity);
+}
+
+// Instantiates the SystemContext templates. Never called.
+[[maybe_unused]] void InstantiateSystemContext(const SystemContext& context, const Query& query)
+{
+    context.ForEachChunk(query, [](ChunkView& view) { (void)view.Count(); });
+    context.ParallelForEachChunk(query, [](ChunkView& view, std::size_t) { (void)view.Count(); });
 }
 
 } // namespace

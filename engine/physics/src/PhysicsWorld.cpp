@@ -35,4 +35,10 @@ void PhysicsWorld::OptimizeBroadPhase()
     m_system.OptimizeBroadPhase();
 }
 
+Entity PhysicsWorld::EntityOf(const JPH::BodyID& body) const
+{
+    const std::uint64_t packed = m_system.GetBodyInterface().GetUserData(body);
+    return Entity::FromParts(static_cast<std::uint32_t>(packed), static_cast<std::uint32_t>(packed >> 32));
+}
+
 } // namespace interi::physics

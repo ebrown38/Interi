@@ -2,6 +2,7 @@
 #pragma once
 
 #include <interi/core/math/Vec.h>
+#include <interi/ecs/World.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/jobs_jolt/JoltJobSystem.h>
 #include <interi/physics/PhysicsLayers.h>
@@ -58,6 +59,10 @@ public:
     [[nodiscard]] JPH::BodyInterface& Bodies() noexcept { return m_system.GetBodyInterface(); }
     /// Non-locking body interface: only when nothing else touches bodies (e.g. between steps on the sim thread).
     [[nodiscard]] JPH::BodyInterface& BodiesNoLock() noexcept { return m_system.GetBodyInterfaceNoLock(); }
+
+    /// The entity a body belongs to (PhysicsSync stores it in the body's user data). Invalid for bodies created
+    /// outside PhysicsSync.
+    [[nodiscard]] Entity EntityOf(const JPH::BodyID& body) const;
 
     [[nodiscard]] std::uint64_t StepCount() const noexcept { return m_stepCount; }
 

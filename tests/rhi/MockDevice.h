@@ -65,6 +65,8 @@ public:
     MOCK_METHOD(std::uint32_t, BindlessIndex, (rhi::BufferHandle buffer), (const, override));
     MOCK_METHOD(std::uint32_t, BindlessIndex, (rhi::TextureHandle texture), (const, override));
     MOCK_METHOD(std::uint32_t, BindlessIndex, (rhi::SamplerHandle sampler), (const, override));
+    MOCK_METHOD(std::uint32_t, BindlessStorageIndex, (rhi::TextureHandle texture, std::uint32_t mip),
+                (const, override));
     MOCK_METHOD(Result<rhi::SamplerHandle>, CreateSampler, (const rhi::SamplerDesc& desc), (override));
     MOCK_METHOD(void, DestroySampler, (rhi::SamplerHandle sampler), (override));
     MOCK_METHOD(rhi::MemoryRequirements, GetTextureMemoryRequirements, (const rhi::TextureDesc& desc),

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // GPU-driven culling: the visible-object counts the culling pass produces, read back from the GPU.
 #include <interi/core/math/Mat4.h>
+#include <interi/core/math/Quat.h>
 #include <interi/render/Camera.h>
 #include <interi/render/Shadows.h>
 
@@ -20,12 +21,16 @@ using interi::testing::VulkanTest;
 namespace
 {
 
+/// Camera, shadow cascades, occluder prepass (see ForwardOutputs::drawCounts).
+constexpr std::size_t kViewCount = 2 + kMaxShadowCascades;
+constexpr std::size_t kOccluderView = kViewCount - 1;
+
 /// Renders `objects` (cubes) and returns the per-view draw counts (camera, then cascades).
-std::array<std::uint32_t, 1 + kMaxShadowCascades> DrawCounts(rhi::IDevice& device, const SceneView& view,
-                                                             const std::vector<SceneObject>& objects,
-                                                             const ForwardSettings& settings)
+std::array<std::uint32_t, kViewCount> DrawCounts(rhi::IDevice& device, const SceneView& view,
+                                                 const std::vector<SceneObject>& objects,
+                                                 const ForwardSettings& settings)
 {
-    std::array<std::uint32_t, 1 + kMaxShadowCascades> counts{};
+    std::array<std::uint32_t, kViewCount> counts{};
     auto readback = device.CreateBuffer(
         {.size = sizeof(counts), .usage = rhi::BufferUsage::CopyDst, .memory = rhi::MemoryUsage::Readback});
     EXPECT_TRUE(readback.has_value());
@@ -45,7 +50,7 @@ std::array<std::uint32_t, 1 + kMaxShadowCascades> DrawCounts(rhi::IDevice& devic
                 [counts = outputs.drawCounts, out](PassContext& context)
                 {
                     context.Commands().CopyBuffer(context.Buffer(counts), 0, context.Buffer(out), 0,
-                                                  sizeof(std::array<std::uint32_t, 1 + kMaxShadowCascades>));
+                                                  sizeof(std::array<std::uint32_t, kViewCount>));
                 });
         });
     std::memcpy(counts.data(), device.MappedMemory(*readback).data(), sizeof(counts));
@@ -111,4 +116,59 @@ TEST_F(VulkanTest, GPUCulling_ShadowViews_SkipNonCasters)
     const auto counts = DrawCounts(*device, MakeView(), objects, ForwardSettings{.cascadeCount = 1});
     EXPECT_EQ(counts[0], 10u);
     EXPECT_EQ(counts[1], 6u);
+}
+
+namespace
+{
+
+/// A 4 x 4 m wall 5 m in front of the camera, 20 cubes hidden behind it and 2 cubes beside it.
+std::vector<SceneObject> WallScene()
+{
+    std::vector<SceneObject> objects{
+        {.mesh = 0,
+         .object = {.transform = Mat4::FromTRS({0.0f, 0.0f, -5.0f}, Quat::Identity(), {4.0f, 4.0f, 0.5f}),
+                    .occluder = true}}};
+    for (int i = 0; i < 20; ++i)
+    {
+        const Vec3 position{-1.5f + 0.75f * float(i % 5), -1.125f + 0.75f * float(i / 5), -15.0f};
+        objects.push_back({.mesh = 0, .object = {.transform = Mat4::Translation(position)}});
+    }
+    for (const float x : {-7.5f, 7.5f})
+    {
+        objects.push_back({.mesh = 0, .object = {.transform = Mat4::Translation({x, 0.0f, -15.0f})}});
+    }
+    return objects;
+}
+
+} // namespace
+
+TEST_F(VulkanTest, GPUCulling_HiddenBehindOccluder_NotDrawn)
+{
+    const auto counts = DrawCounts(*device, MakeView(), WallScene(), ForwardSettings{.cascadeCount = 0});
+    EXPECT_EQ(counts[kOccluderView], 1u); // the wall is drawn into the occlusion prepass
+    EXPECT_EQ(counts[0], 3u);             // the wall and the two cubes beside it
+}
+
+TEST_F(VulkanTest, GPUCulling_OcclusionDisabled_DrawsEverythingInView)
+{
+    const auto counts =
+        DrawCounts(*device, MakeView(), WallScene(), ForwardSettings{.cascadeCount = 0, .occlusionCulling = false});
+    EXPECT_EQ(counts[kOccluderView], 0u);
+    EXPECT_EQ(counts[0], 23u);
+}
+
+TEST_F(VulkanTest, GPUCulling_Occlusion_DoesNotChangeTheImage)
+{
+    // Culling may only remove what cannot be seen: the picture is the same with and without it.
+    SceneView view = MakeView();
+    view.sun = {.direction = {0.3f, -1.0f, -0.4f}};
+    const auto render = [&](bool occlusion)
+    {
+        return interi::testing::RenderScene(*device, 64, view, {MakeCube(0.5f)}, WallScene(),
+                                            ForwardSettings{.cascadeCount = 0, .occlusionCulling = occlusion});
+    };
+    const auto with = render(true);
+    const auto without = render(false);
+    ASSERT_EQ(with.pixels.size(), without.pixels.size());
+    EXPECT_TRUE(with.pixels == without.pixels);
 }

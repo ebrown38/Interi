@@ -38,6 +38,10 @@ void DestroyViews(const VulkanDevice::Impl& state, const TextureData& data)
     {
         state.vk.vkDestroyImageView(state.device, view, nullptr);
     }
+    for (const VkImageView view : data.mipViews)
+    {
+        state.vk.vkDestroyImageView(state.device, view, nullptr);
+    }
 }
 
 /// Loads the Vulkan loader once per process.
@@ -645,9 +649,14 @@ Result<void> CreateBindlessTables(VulkanDevice::Impl& state)
                                              limits.maxDescriptorSetUpdateAfterBindSampledImages});
     const std::uint32_t samplers = std::min({kMaxSamplers, limits.maxPerStageDescriptorUpdateAfterBindSamplers,
                                              limits.maxDescriptorSetUpdateAfterBindSamplers});
+    constexpr std::uint32_t kMaxStorageImages = 4096;
+    const std::uint32_t storageImages =
+        std::min({kMaxStorageImages, limits.maxPerStageDescriptorUpdateAfterBindStorageImages,
+                  limits.maxDescriptorSetUpdateAfterBindStorageImages});
     state.bufferSlots = BindlessSlots(buffers);
     state.textureSlots = BindlessSlots(textures);
     state.samplerSlots = BindlessSlots(samplers);
+    state.storageImageSlots = BindlessSlots(storageImages);
 
     const std::array bindings{
         VkDescriptorSetLayoutBinding{.binding = kBindlessBuffers,
@@ -662,11 +671,15 @@ Result<void> CreateBindlessTables(VulkanDevice::Impl& state)
                                      .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
                                      .descriptorCount = samplers,
                                      .stageFlags = VK_SHADER_STAGE_ALL},
+        VkDescriptorSetLayoutBinding{.binding = kBindlessStorageImages,
+                                     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                     .descriptorCount = storageImages,
+                                     .stageFlags = VK_SHADER_STAGE_ALL},
     };
     constexpr VkDescriptorBindingFlags kFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
                                                 VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
                                                 VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-    const std::array<VkDescriptorBindingFlags, 3> bindingFlags{kFlags, kFlags, kFlags};
+    const std::array<VkDescriptorBindingFlags, 4> bindingFlags{kFlags, kFlags, kFlags, kFlags};
     const VkDescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
         .bindingCount = static_cast<std::uint32_t>(bindingFlags.size()),
@@ -686,7 +699,8 @@ Result<void> CreateBindlessTables(VulkanDevice::Impl& state)
 
     const std::array poolSizes{VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers},
                                VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, textures},
-                               VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, samplers}};
+                               VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, samplers},
+                               VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, storageImages}};
     const VkDescriptorPoolCreateInfo poolInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                               .flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
                                               .maxSets = 1,
@@ -1034,9 +1048,38 @@ Result<TextureHandle> RegisterTexture(VulkanDevice::Impl& state, TextureData dat
             data.layerViews.push_back(view);
         }
     }
+    if (HasFlags(desc.usage, TextureUsage::Storage))
+    {
+        INTERI_ASSERT(desc.format == Format::R32Float && desc.arrayLayers == 1,
+                      "bindless storage images are single-layer R32Float (see Bindless.hlsli)");
+        for (std::uint32_t mip = 0; mip < desc.mipLevels; ++mip)
+        {
+            VkImageViewCreateInfo mipInfo = viewInfo;
+            mipInfo.subresourceRange.baseMipLevel = mip;
+            mipInfo.subresourceRange.levelCount = 1;
+            VkImageView view = VK_NULL_HANDLE;
+            INTERI_VK_CHECK(state.vk.vkCreateImageView(state.device, &mipInfo, nullptr, &view));
+            data.mipViews.push_back(view);
+        }
+    }
     state.SetName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(data.image), desc.debugName);
 
     const std::unique_lock lock(state.resourceMutex);
+    for (const VkImageView mipView : data.mipViews)
+    {
+        const std::uint32_t slot = state.storageImageSlots.Allocate();
+        INTERI_VERIFY(slot != kInvalidBindlessIndex, "bindless storage-image table is full");
+        const VkDescriptorImageInfo info{.imageView = mipView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL};
+        const VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                         .dstSet = state.bindlessSet,
+                                         .dstBinding = kBindlessStorageImages,
+                                         .dstArrayElement = slot,
+                                         .descriptorCount = 1,
+                                         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                         .pImageInfo = &info};
+        state.vk.vkUpdateDescriptorSets(state.device, 1, &write, 0, nullptr);
+        data.storageBindless.push_back(slot);
+    }
     if (HasFlags(desc.usage, TextureUsage::Sampled))
     {
         data.bindless = state.textureSlots.Allocate();
@@ -1242,6 +1285,10 @@ void VulkanDevice::DestroyTexture(TextureHandle texture)
         data = *found;
         state.textures.Remove(Retag<TextureData>(texture));
         state.textureSlots.Release(data.bindless);
+        for (const std::uint32_t slot : data.storageBindless)
+        {
+            state.storageImageSlots.Release(slot);
+        }
     }
     DestroyViews(state, data);
     vmaDestroyImage(state.allocator, data.image, data.allocation);
@@ -1265,6 +1312,12 @@ std::uint32_t VulkanDevice::BindlessIndex(BufferHandle buffer) const
 std::uint32_t VulkanDevice::BindlessIndex(TextureHandle texture) const
 {
     return m_impl->Texture(texture).bindless;
+}
+
+std::uint32_t VulkanDevice::BindlessStorageIndex(TextureHandle texture, std::uint32_t mip) const
+{
+    const TextureData data = m_impl->Texture(texture);
+    return mip < data.storageBindless.size() ? data.storageBindless[mip] : kInvalidBindlessIndex;
 }
 
 std::uint32_t VulkanDevice::BindlessIndex(SamplerHandle sampler) const

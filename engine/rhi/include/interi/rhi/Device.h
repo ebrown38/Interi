@@ -99,6 +99,9 @@ public:
     [[nodiscard]] virtual std::uint32_t BindlessIndex(BufferHandle buffer) const = 0;
     /// Index of a Sampled texture in the bindless texture table (kInvalidBindlessIndex otherwise).
     [[nodiscard]] virtual std::uint32_t BindlessIndex(TextureHandle texture) const = 0;
+    /// Index of one mip of a Storage texture in the bindless storage-image table (kInvalidBindlessIndex otherwise).
+    /// Shaders write it as RWTexture2D (R32Float textures; see Bindless.hlsli).
+    [[nodiscard]] virtual std::uint32_t BindlessStorageIndex(TextureHandle texture, std::uint32_t mip) const = 0;
     /// Index of a sampler in the bindless sampler table.
     [[nodiscard]] virtual std::uint32_t BindlessIndex(SamplerHandle sampler) const = 0;
 

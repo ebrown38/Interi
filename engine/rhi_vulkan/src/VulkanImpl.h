@@ -28,6 +28,7 @@ void CheckVk(VkResult result, const char* call);
 inline constexpr std::uint32_t kBindlessBuffers = 0;
 inline constexpr std::uint32_t kBindlessTextures = 1;
 inline constexpr std::uint32_t kBindlessSamplers = 2;
+inline constexpr std::uint32_t kBindlessStorageImages = 3;
 
 /// Free list of slots in one bindless table.
 class BindlessSlots
@@ -106,6 +107,9 @@ struct TextureData
     bool ownsImage = true; ///< False for swapchain images, which belong to the swapchain.
     /// Single-layer views of array textures that are render targets (e.g. one per shadow cascade).
     std::vector<VkImageView> layerViews;
+    /// Single-mip views of Storage textures, and their slots in the bindless storage-image table.
+    std::vector<VkImageView> mipViews;
+    std::vector<std::uint32_t> storageBindless;
 };
 
 class VulkanCommandList final : public ICommandList
@@ -186,6 +190,7 @@ struct VulkanDevice::Impl
     BindlessSlots bufferSlots;
     BindlessSlots textureSlots;
     BindlessSlots samplerSlots;
+    BindlessSlots storageImageSlots;
 
     [[nodiscard]] BufferData Buffer(BufferHandle handle) const;
     [[nodiscard]] TextureData Texture(TextureHandle handle) const;

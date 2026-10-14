@@ -79,7 +79,7 @@ Result<ShaderReflection> ReflectSpirv(std::span<const std::byte> spirv)
     for (std::uint32_t i = 0; i < module.descriptor_binding_count; ++i)
     {
         const SpvReflectDescriptorBinding& binding = module.descriptor_bindings[i];
-        if (binding.set != 0 || binding.binding > 2)
+        if (binding.set != 0 || binding.binding > 3)
         {
             return MakeError(ErrorCode::InvalidArgument,
                              std::format("resource '{}' uses set {} binding {}; only the bindless tables are allowed",

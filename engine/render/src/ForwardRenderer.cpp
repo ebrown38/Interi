@@ -7,13 +7,17 @@
 #include <interi/rhi/Device.h>
 #include <interi/rhi/ResourceManager.h>
 #include <interi/shaders/Cull.cs.h>
+#include <interi/shaders/DepthOnly.vs.h>
 #include <interi/shaders/Forward.ps.h>
 #include <interi/shaders/Forward.vs.h>
+#include <interi/shaders/HiZ.cs.h>
 #include <interi/shaders/LightCulling.cs.h>
 #include <interi/shaders/Shadow.ps.h>
 #include <interi/shaders/Shadow.vs.h>
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 
@@ -69,6 +73,7 @@ struct ObjectData
 };
 static_assert(sizeof(ObjectData) == 192);
 constexpr std::uint32_t kCastsShadow = 1;
+constexpr std::uint32_t kOccluder = 2;
 
 struct ForwardPush
 {
@@ -94,15 +99,33 @@ struct CullPush
     std::uint32_t scene;
     std::uint32_t objectCount;
     std::uint32_t viewMatrixOffset;
-    std::uint32_t shadowView;
+    std::uint32_t requiredFlags;
     std::uint32_t arguments;
     std::uint32_t argumentsOffset;
     std::uint32_t count;
     std::uint32_t countOffset;
+    std::uint32_t hiZ;
+};
+
+struct DepthOnlyPush
+{
+    std::uint32_t vertices;
+    std::uint32_t scene;
+};
+
+struct HiZPush
+{
+    std::uint32_t mode;
+    std::uint32_t source;
+    std::uint32_t destination;
+    std::uint32_t pad;
+    std::uint32_t sourceSize[2];
+    std::uint32_t destinationSize[2];
 };
 
 constexpr std::uint32_t kDrawCommandSize = 20; // DrawIndexedIndirect: 5 x uint32
-constexpr std::uint32_t kMaxViews = 1 + kMaxShadowCascades;
+constexpr std::uint32_t kOccluderView = 1 + kMaxShadowCascades;
+constexpr std::uint32_t kMaxViews = kOccluderView + 1;
 constexpr std::uint32_t kFrameCascadesOffset = 192; // FrameData::cascades
 
 struct CullingPush
@@ -153,6 +176,14 @@ Result<std::unique_ptr<ForwardRenderer>> ForwardRenderer::Create(rhi::IDevice& d
     INTERI_TRY_ASSIGN(cull,
                       device.CreateComputePipeline({.code = std::as_bytes(std::span(kCullCs)), .debugName = "Cull"}));
     renderer->m_cull = cull;
+    INTERI_TRY_ASSIGN(depthOnly, device.CreateGraphicsPipeline({.vertexCode = std::as_bytes(std::span(kDepthOnlyVs)),
+                                                                .pixelCode = std::as_bytes(std::span(kShadowPs)),
+                                                                .depthFormat = rhi::Format::D32Float,
+                                                                .debugName = "OccluderDepth"}));
+    renderer->m_depthOnly = depthOnly;
+    INTERI_TRY_ASSIGN(hiZ,
+                      device.CreateComputePipeline({.code = std::as_bytes(std::span(kHiZCs)), .debugName = "HiZ"}));
+    renderer->m_hiZ = hiZ;
     INTERI_TRY_ASSIGN(sampler, device.CreateSampler({.filter = rhi::Filter::Linear,
                                                      .address = rhi::AddressMode::ClampToEdge,
                                                      .compare = true,
@@ -171,7 +202,7 @@ Result<std::unique_ptr<ForwardRenderer>> ForwardRenderer::Create(rhi::IDevice& d
 
 ForwardRenderer::~ForwardRenderer()
 {
-    for (const rhi::PipelineHandle pipeline : {m_forward, m_shadow, m_lightCulling, m_cull})
+    for (const rhi::PipelineHandle pipeline : {m_forward, m_shadow, m_lightCulling, m_cull, m_depthOnly, m_hiZ})
     {
         if (pipeline.IsValid())
         {
@@ -248,7 +279,7 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                               .firstIndex = object.mesh.firstIndex,
                               .indexCount = object.mesh.indexCount,
                               .vertexOffset = object.mesh.vertexOffset,
-                              .flags = object.castsShadow ? kCastsShadow : 0u};
+                              .flags = (object.castsShadow ? kCastsShadow : 0u) | (object.occluder ? kOccluder : 0u)};
         std::memcpy(mapped + sizeof(FrameData) + i * sizeof(ObjectData), &data, sizeof(data));
     }
     if (!view.pointLights.empty())
@@ -279,28 +310,138 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
         { outputs.drawCounts = builder.Write(outputs.drawCounts, rhi::ResourceState::CopyDst); },
         [counts = outputs.drawCounts](PassContext& context)
         { context.Commands().FillBuffer(context.Buffer(counts), 0, std::uint64_t{4} * kMaxViews, 0); });
+    const auto cullPush = [this, scene, objectCount](PassContext& context, FGBuffer arguments, FGBuffer counts,
+                                                     std::uint32_t view, std::uint32_t requiredFlags, std::uint32_t hiZ)
+    {
+        return CullPush{.scene = scene,
+                        .objectCount = objectCount,
+                        .viewMatrixOffset =
+                            view == 0 || view == kOccluderView ? 0u : kFrameCascadesOffset + (view - 1) * 64,
+                        .requiredFlags = requiredFlags,
+                        .arguments = m_device.BindlessIndex(context.Buffer(arguments)),
+                        .argumentsOffset = static_cast<std::uint32_t>(kViewArguments * view),
+                        .count = m_device.BindlessIndex(context.Buffer(counts)),
+                        .countOffset = 4 * view,
+                        .hiZ = hiZ};
+    };
+
+    // Occlusion: draw the occluders' depth, reduce it to a min-depth pyramid (Hi-Z) that the camera cull tests.
+    const bool occlusion = m_settings.occlusionCulling &&
+                           std::ranges::any_of(objects, [](const RenderObject& object) { return object.occluder; });
+    if (occlusion)
+    {
+        graph.AddPass(
+            "CullOccluders",
+            [&](PassBuilder& builder)
+            {
+                outputs.drawArguments = builder.Write(outputs.drawArguments, rhi::ResourceState::ShaderWrite);
+                outputs.drawCounts = builder.Write(outputs.drawCounts, rhi::ResourceState::ShaderWrite);
+            },
+            [this, cullPush, objectCount, arguments = outputs.drawArguments,
+             counts = outputs.drawCounts](PassContext& context)
+            {
+                context.Commands().BindPipeline(m_cull);
+                context.Commands().PushConstants(
+                    cullPush(context, arguments, counts, kOccluderView, kOccluder, rhi::kInvalidBindlessIndex));
+                context.Commands().Dispatch((objectCount + 63) / 64, 1, 1);
+            });
+        FGTexture occluderDepth =
+            graph.CreateTexture("Occluder depth", {.width = width,
+                                                   .height = height,
+                                                   .format = rhi::Format::D32Float,
+                                                   .usage = rhi::TextureUsage::DepthTarget | rhi::TextureUsage::Sampled,
+                                                   .debugName = "Occluder depth"});
+        graph.AddPass(
+            "OccluderDepth",
+            [&](PassBuilder& builder)
+            {
+                builder.Read(outputs.drawArguments, rhi::ResourceState::IndirectArgument);
+                builder.Read(outputs.drawCounts, rhi::ResourceState::IndirectArgument);
+                occluderDepth = builder.Write(occluderDepth, rhi::ResourceState::DepthWrite);
+            },
+            [this, scene, vertices, indices, width, height, occluderDepth, outputs](PassContext& context)
+            {
+                rhi::ICommandList& commands = context.Commands();
+                const rhi::DepthAttachment depth{.texture = context.Texture(occluderDepth)};
+                commands.BeginRendering({.depth = &depth, .width = width, .height = height});
+                commands.BindPipeline(m_depthOnly);
+                commands.PushConstants(DepthOnlyPush{.vertices = vertices, .scene = scene});
+                commands.BindIndexBuffer(indices, 0, rhi::IndexFormat::Uint32);
+                commands.DrawIndexedIndirectCount(context.Buffer(outputs.drawArguments), kViewArguments * kOccluderView,
+                                                  context.Buffer(outputs.drawCounts), 4ull * kOccluderView, kMaxObjects,
+                                                  kDrawCommandSize);
+                commands.EndRendering();
+            });
+        const auto levels = static_cast<std::uint32_t>(std::bit_width(std::max(width, height)));
+        outputs.hiZ = graph.CreateTexture("Hi-Z", {.width = width,
+                                                   .height = height,
+                                                   .mipLevels = levels,
+                                                   .format = rhi::Format::R32Float,
+                                                   .usage = rhi::TextureUsage::Storage | rhi::TextureUsage::Sampled,
+                                                   .debugName = "Hi-Z"});
+        graph.AddPass(
+            "BuildHiZ",
+            [&](PassBuilder& builder)
+            {
+                builder.Read(occluderDepth, rhi::ResourceState::ShaderRead);
+                outputs.hiZ = builder.Write(outputs.hiZ, rhi::ResourceState::ShaderWrite);
+            },
+            [this, width, height, levels, occluderDepth, hiZ = outputs.hiZ](PassContext& context)
+            {
+                rhi::ICommandList& commands = context.Commands();
+                const rhi::TextureHandle pyramid = context.Texture(hiZ);
+                commands.BindPipeline(m_hiZ);
+                std::uint32_t sourceWidth = width;
+                std::uint32_t sourceHeight = height;
+                for (std::uint32_t mip = 0; mip < levels; ++mip)
+                {
+                    const std::uint32_t mipWidth = std::max(width >> mip, 1u);
+                    const std::uint32_t mipHeight = std::max(height >> mip, 1u);
+                    if (mip > 0)
+                    {
+                        // Mip n reads what the previous dispatch wrote to mip n - 1.
+                        const std::array between{rhi::TextureBarrier{pyramid, rhi::ResourceState::ShaderWrite,
+                                                                     rhi::ResourceState::ShaderWrite}};
+                        commands.Barriers({}, between);
+                    }
+                    commands.PushConstants(
+                        HiZPush{.mode = mip == 0 ? 0u : 1u,
+                                .source = mip == 0 ? m_device.BindlessIndex(context.Texture(occluderDepth))
+                                                   : m_device.BindlessStorageIndex(pyramid, mip - 1),
+                                .destination = m_device.BindlessStorageIndex(pyramid, mip),
+                                .pad = 0,
+                                .sourceSize = {sourceWidth, sourceHeight},
+                                .destinationSize = {mipWidth, mipHeight}});
+                    commands.Dispatch((mipWidth + 7) / 8, (mipHeight + 7) / 8, 1);
+                    sourceWidth = mipWidth;
+                    sourceHeight = mipHeight;
+                }
+            });
+    }
+
     graph.AddPass(
         "Cull",
         [&](PassBuilder& builder)
         {
+            if (outputs.hiZ.IsValid())
+            {
+                builder.Read(outputs.hiZ, rhi::ResourceState::ShaderRead);
+            }
             outputs.drawArguments = builder.Write(outputs.drawArguments, rhi::ResourceState::ShaderWrite);
             outputs.drawCounts = builder.Write(outputs.drawCounts, rhi::ResourceState::ShaderWrite);
         },
-        [this, scene, objectCount, viewCount, arguments = outputs.drawArguments,
-         counts = outputs.drawCounts](PassContext& context)
+        [this, cullPush, objectCount, viewCount, arguments = outputs.drawArguments, counts = outputs.drawCounts,
+         hiZ = outputs.hiZ](PassContext& context)
         {
             rhi::ICommandList& commands = context.Commands();
             commands.BindPipeline(m_cull);
+            const std::uint32_t pyramid =
+                hiZ.IsValid() ? m_device.BindlessIndex(context.Texture(hiZ)) : rhi::kInvalidBindlessIndex;
             for (std::uint32_t v = 0; v < viewCount; ++v)
             {
-                commands.PushConstants(CullPush{.scene = scene,
-                                                .objectCount = objectCount,
-                                                .viewMatrixOffset = v == 0 ? 0u : kFrameCascadesOffset + (v - 1) * 64,
-                                                .shadowView = v == 0 ? 0u : 1u,
-                                                .arguments = m_device.BindlessIndex(context.Buffer(arguments)),
-                                                .argumentsOffset = static_cast<std::uint32_t>(kViewArguments * v),
-                                                .count = m_device.BindlessIndex(context.Buffer(counts)),
-                                                .countOffset = 4 * v});
+                // Occlusion is tested from the camera only; cascades see the scene from the light.
+                commands.PushConstants(cullPush(context, arguments, counts, v, v == 0 ? 0u : kCastsShadow,
+                                                v == 0 ? pyramid : rhi::kInvalidBindlessIndex));
                 commands.Dispatch((objectCount + 63) / 64, 1, 1);
             }
         });

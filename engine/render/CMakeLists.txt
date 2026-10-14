@@ -24,8 +24,10 @@ interi_add_module(render
 interi_add_shaders(interi_render
     SOURCES
         shaders/Cull.cs.hlsl
+        shaders/DepthOnly.vs.hlsl
         shaders/Forward.ps.hlsl
         shaders/Forward.vs.hlsl
+        shaders/HiZ.cs.hlsl
         shaders/LightCulling.cs.hlsl
         shaders/Shadow.ps.hlsl
         shaders/Shadow.vs.hlsl

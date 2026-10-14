@@ -24,7 +24,7 @@ struct ShaderReflection
 
 /// Reflects a SPIR-V module with a single entry point. Fails with InvalidArgument when the module is not valid
 /// SPIR-V, or when it breaks the engine's binding model: every resource must come from the bindless tables
-/// (descriptor set 0, bindings 0-2) and push constants must fit kMaxPushConstantSize.
+/// (descriptor set 0, bindings 0-3) and push constants must fit kMaxPushConstantSize.
 [[nodiscard]] Result<ShaderReflection> ReflectSpirv(std::span<const std::byte> spirv);
 
 } // namespace interi::rhi

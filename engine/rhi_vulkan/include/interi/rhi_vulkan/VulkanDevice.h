@@ -48,6 +48,7 @@ public:
     [[nodiscard]] std::uint32_t BindlessIndex(BufferHandle buffer) const override;
     [[nodiscard]] std::uint32_t BindlessIndex(TextureHandle texture) const override;
     [[nodiscard]] std::uint32_t BindlessIndex(SamplerHandle sampler) const override;
+    [[nodiscard]] std::uint32_t BindlessStorageIndex(TextureHandle texture, std::uint32_t mip) const override;
     [[nodiscard]] Result<SamplerHandle> CreateSampler(const SamplerDesc& desc) override;
     void DestroySampler(SamplerHandle sampler) override;
 

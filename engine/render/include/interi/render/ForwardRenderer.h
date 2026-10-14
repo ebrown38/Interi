@@ -38,6 +38,8 @@ struct RenderObject
     Mat4 transform = Mat4::Identity();
     Material material{}; // NOLINT(readability-redundant-member-init): lets designated inits omit it
     bool castsShadow = true;
+    /// Drawn into the occlusion prepass: large, simple objects (walls, terrain) that hide others.
+    bool occluder = false;
 };
 
 struct DirectionalLight
@@ -68,6 +70,7 @@ struct ForwardSettings
     float shadowDistance = 50.0f;       ///< View distance beyond which nothing receives sun shadows.
     float cascadeLambda = 0.75f;        ///< Logarithmic vs uniform cascade splits (see CascadeSplits).
     float clusterFar = 100.0f;          ///< Point lights are shaded up to this view distance.
+    bool occlusionCulling = true;       ///< Cull objects hidden behind occluders (needs at least one occluder).
 };
 
 /// Graph resources the forward passes produce, for later passes (and tests) to read.
@@ -76,7 +79,9 @@ struct ForwardOutputs
     FGBuffer clusters;      ///< Per-cluster light lists (ClusterGrid layout).
     FGTexture shadowMap;    ///< Cascade depth array; invalid when shadows are disabled.
     FGBuffer drawArguments; ///< Culled DrawIndexedIndirect commands: view v starts at v * kMaxObjects * 20 bytes.
-    FGBuffer drawCounts;    ///< uint32 draw count per view (view 0 = camera, 1 + i = shadow cascade i).
+    FGBuffer drawCounts;    ///< uint32 draw count per view (view 0 = camera, 1 + i = shadow cascade i, then the
+                            ///< occluder prepass).
+    FGTexture hiZ;          ///< Occluder depth pyramid; invalid when occlusion culling did not run.
 };
 
 /// GPU-driven, physically based forward rendering through the frame graph. Per frame: a compute pass culls every
@@ -118,6 +123,8 @@ private:
     const MeshPool& m_meshes;
     ForwardSettings m_settings;
     rhi::PipelineHandle m_cull;
+    rhi::PipelineHandle m_depthOnly;
+    rhi::PipelineHandle m_hiZ;
     rhi::PipelineHandle m_forward;
     rhi::PipelineHandle m_shadow;
     rhi::PipelineHandle m_lightCulling;

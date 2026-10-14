@@ -5,6 +5,7 @@
 #include <interi/core/math/MathTypes.h>
 #include <interi/core/math/Vec.h>
 #include <interi/ecs/Component.h>
+#include <interi/ecs/World.h>
 #include <interi/physics/PhysicsLayers.h>
 
 // clang-format off: Jolt.h must come first
@@ -70,6 +71,17 @@ struct PhysicsBodyComponent
     JPH::BodyID id;
     bool wasActive = false; ///< Active at the previous transform pull (so the pose it fell asleep at is pulled).
 };
+
+/// A body's user data holds its entity (PhysicsSync sets it; 0, an invalid entity, for other bodies).
+[[nodiscard]] constexpr std::uint64_t BodyUserData(Entity entity) noexcept
+{
+    return entity.Packed();
+}
+
+[[nodiscard]] constexpr Entity EntityFromBodyUserData(std::uint64_t userData) noexcept
+{
+    return Entity::FromParts(static_cast<std::uint32_t>(userData), static_cast<std::uint32_t>(userData >> 32));
+}
 
 static_assert(Component<RigidBodyComponent>);
 static_assert(Component<ColliderComponent>);

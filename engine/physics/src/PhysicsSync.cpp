@@ -46,7 +46,7 @@ JPH::BodyCreationSettings MakeSettings(const RigidBodyComponent& body, const Col
     settings.mLinearDamping = body.linearDamping;
     settings.mAngularDamping = body.angularDamping;
     settings.mMotionQuality = body.continuous ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
-    settings.mUserData = entity.Packed();
+    settings.mUserData = BodyUserData(entity);
     if (body.mass > 0.0f)
     {
         settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;

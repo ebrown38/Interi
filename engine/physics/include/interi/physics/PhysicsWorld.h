@@ -5,6 +5,7 @@
 #include <interi/ecs/World.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/jobs_jolt/JoltJobSystem.h>
+#include <interi/physics/ContactEvents.h>
 #include <interi/physics/PhysicsLayers.h>
 
 // clang-format off: Jolt.h must come first
@@ -16,6 +17,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <vector>
 
 namespace interi::physics
 {
@@ -29,6 +32,8 @@ struct PhysicsWorldDesc
     std::size_t tempAllocatorBytes = std::size_t{32} * 1024 * 1024;
     Vec3 gravity{0.0f, -9.81f, 0.0f};
     int collisionSteps = 1; ///< Jolt collision substeps per Step.
+    /// New contacts with a lower estimated impulse (N·s) produce no ContactEvent.
+    float minContactImpulse = 0.0f;
 };
 
 /// Owns a JPH::PhysicsSystem with the engine's layers, stepping it on the engine's JobSystem through JoltJobSystem.
@@ -47,8 +52,12 @@ public:
     PhysicsWorld(PhysicsWorld&&) = delete;
     PhysicsWorld& operator=(PhysicsWorld&&) = delete;
 
-    /// Advances the simulation by `deltaSeconds`. Must be called from a thread that may wait on the JobSystem.
+    /// Advances the simulation by `deltaSeconds`. Must be called from a thread that may wait on the JobSystem (and,
+    /// for the contact buffers, from no other non-worker thread at the same time).
     void Step(float deltaSeconds);
+
+    /// The new contacts of the last Step, sorted (identical at any thread count). Valid until the next Step.
+    [[nodiscard]] std::span<const ContactEvent> Contacts() const noexcept { return m_contacts; }
 
     /// Rebuilds the broadphase trees; call after adding many bodies at once, before the next Step.
     void OptimizeBroadPhase();
@@ -71,6 +80,8 @@ private:
     JPH::PhysicsSystem m_system;
     JPH::TempAllocatorImpl m_tempAllocator;
     JoltJobSystem m_jolt;
+    ContactCollector m_contactCollector;
+    std::vector<ContactEvent> m_contacts;
     int m_collisionSteps;
     std::uint64_t m_stepCount = 0;
 };

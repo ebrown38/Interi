@@ -5,6 +5,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/physics)
 interi_add_module(physics
     SOURCES
         src/Components.cpp
+        src/ContactEvents.cpp
         src/HeaderCheck.cpp
         src/JoltRuntime.cpp
         src/PhysicsLayers.cpp
@@ -17,6 +18,7 @@ interi_add_module(physics
         ${_tests}/JoltMathTests.cpp
         ${_tests}/JoltRuntimeTests.cpp
         ${_tests}/ColliderTests.cpp
+        ${_tests}/ContactEventTests.cpp
         ${_tests}/PhysicsLayersTests.cpp
         ${_tests}/PhysicsSyncTests.cpp
         ${_tests}/PhysicsWorldTests.cpp)
@@ -25,6 +27,7 @@ interi_add_module(physics
 interi_add_test_executable(interi_physics_stress_tests
     SOURCES
         ${_tests}/PhysicsTestEnvironment.cpp
+        ${_tests}/stress/ContactEventStressTests.cpp
         ${_tests}/stress/PhysicsDeterminismTests.cpp
     DEPS interi::physics interi::testing
     LABELS stress)

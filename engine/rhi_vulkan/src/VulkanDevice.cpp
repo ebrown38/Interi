@@ -641,6 +641,7 @@ Result<void> CreateBindlessTables(VulkanDevice::Impl& state)
                                              limits.maxDescriptorSetUpdateAfterBindSamplers});
     state.bufferSlots = BindlessSlots(buffers);
     state.textureSlots = BindlessSlots(textures);
+    state.samplerSlots = BindlessSlots(samplers);
 
     const std::array bindings{
         VkDescriptorSetLayoutBinding{.binding = kBindlessBuffers,
@@ -879,7 +880,7 @@ VulkanDevice::~VulkanDevice()
         state.vk.vkDeviceWaitIdle(state.device);
         // Anything still alive is a leak in the caller; release it so the validation layer stays quiet about it.
         INTERI_ASSERT(state.buffers.Empty() && state.textures.Empty() && state.pools.Empty() &&
-                          state.pipelines.Empty() && state.heaps.Empty(),
+                          state.pipelines.Empty() && state.heaps.Empty() && state.samplers.Empty(),
                       "VulkanDevice destroyed while it still owns resources");
         for (const BufferData& buffer : state.buffers)
         {
@@ -896,6 +897,10 @@ VulkanDevice::~VulkanDevice()
         for (const auto& pool : state.pools)
         {
             state.vk.vkDestroyCommandPool(state.device, pool->pool, nullptr);
+        }
+        for (const SamplerData& sampler : state.samplers)
+        {
+            state.vk.vkDestroySampler(state.device, sampler.sampler, nullptr);
         }
         for (const HeapData& heap : state.heaps)
         {
@@ -1254,6 +1259,75 @@ std::uint32_t VulkanDevice::BindlessIndex(BufferHandle buffer) const
 std::uint32_t VulkanDevice::BindlessIndex(TextureHandle texture) const
 {
     return m_impl->Texture(texture).bindless;
+}
+
+std::uint32_t VulkanDevice::BindlessIndex(SamplerHandle sampler) const
+{
+    const std::shared_lock lock(m_impl->resourceMutex);
+    const SamplerData* data = m_impl->samplers.Get(Retag<SamplerData>(sampler));
+    INTERI_ASSERT(data != nullptr, "stale or invalid SamplerHandle");
+    return data != nullptr ? data->bindless : kInvalidBindlessIndex;
+}
+
+Result<SamplerHandle> VulkanDevice::CreateSampler(const SamplerDesc& desc)
+{
+    Impl& state = *m_impl;
+    const VkFilter filter = desc.filter == Filter::Linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    const VkSamplerAddressMode address =
+        desc.address == AddressMode::Repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    const VkSamplerCreateInfo info{.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                   .magFilter = filter,
+                                   .minFilter = filter,
+                                   .mipmapMode = desc.filter == Filter::Linear ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                                                                               : VK_SAMPLER_MIPMAP_MODE_NEAREST,
+                                   .addressModeU = address,
+                                   .addressModeV = address,
+                                   .addressModeW = address,
+                                   .compareEnable = desc.compare ? VK_TRUE : VK_FALSE,
+                                   .compareOp = ToVk(desc.compareOp),
+                                   .maxLod = VK_LOD_CLAMP_NONE};
+    SamplerData data;
+    if (const VkResult result = state.vk.vkCreateSampler(state.device, &info, nullptr, &data.sampler);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateSampler"));
+    }
+    const std::unique_lock lock(state.resourceMutex);
+    data.bindless = state.samplerSlots.Allocate();
+    if (data.bindless == kInvalidBindlessIndex)
+    {
+        state.vk.vkDestroySampler(state.device, data.sampler, nullptr);
+        return MakeError(ErrorCode::OutOfMemory, "bindless sampler table is full");
+    }
+    const VkDescriptorImageInfo image{.sampler = data.sampler};
+    const VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                     .dstSet = state.bindlessSet,
+                                     .dstBinding = kBindlessSamplers,
+                                     .dstArrayElement = data.bindless,
+                                     .descriptorCount = 1,
+                                     .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+                                     .pImageInfo = &image};
+    state.vk.vkUpdateDescriptorSets(state.device, 1, &write, 0, nullptr);
+    return Retag<SamplerTag>(state.samplers.Insert(data));
+}
+
+void VulkanDevice::DestroySampler(SamplerHandle sampler)
+{
+    Impl& state = *m_impl;
+    SamplerData data;
+    {
+        const std::unique_lock lock(state.resourceMutex);
+        const SamplerData* found = state.samplers.Get(Retag<SamplerData>(sampler));
+        INTERI_ASSERT(found != nullptr, "stale or invalid SamplerHandle");
+        if (found == nullptr)
+        {
+            return;
+        }
+        data = *found;
+        state.samplers.Remove(Retag<SamplerData>(sampler));
+        state.samplerSlots.Release(data.bindless);
+    }
+    state.vk.vkDestroySampler(state.device, data.sampler, nullptr);
 }
 
 Result<PipelineHandle> VulkanDevice::CreateComputePipeline(const ComputePipelineDesc& desc)

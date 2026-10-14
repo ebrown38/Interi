@@ -1,42 +1,75 @@
 // SPDX-License-Identifier: MIT
-// Shared by the forward pass shaders. Layouts must match engine/render/src/ForwardRenderer.cpp.
+// Shared by the forward renderer's shaders. Layouts must match engine/render/src/ForwardRenderer.cpp.
 #ifndef INTERI_FORWARD_COMMON_HLSLI
 #define INTERI_FORWARD_COMMON_HLSLI
 
 #include <interi/Bindless.hlsli>
 
-struct ForwardPush
-{
-    uint vertices;    ///< Bindless index of the mesh's vertex buffer (24-byte Vertex).
-    uint scene;       ///< Bindless index of this frame's scene buffer.
-    uint objectIndex; ///< Index into the scene buffer's object array.
-    uint pad;
-};
-[[vk::push_constant]] ForwardPush g_Push;
+static const uint kInvalidIndex = 0xFFFFFFFFu;
 
-// Scene buffer: FrameData (128 bytes), then ObjectData[] (160 bytes each).
+// Scene buffer: FrameData (528 bytes), ObjectData[] (160 bytes each), then PointLight[] at kFrameLightsOffset.
 static const uint kFrameViewProjection = 0;
-static const uint kFrameCameraPosition = 64;
-static const uint kFrameSunDirection = 80; ///< float3 direction the light travels, then float intensity.
-static const uint kFrameSunColor = 96;
-static const uint kFrameAmbient = 112;
-static const uint kObjectsOffset = 128;
+static const uint kFrameView = 64;
+static const uint kFrameCameraPosition = 128;
+static const uint kFrameSunDirection = 144; ///< float3 direction the light travels, then float intensity.
+static const uint kFrameSunColor = 160;
+static const uint kFrameAmbient = 176;
+static const uint kFrameCascades = 192; ///< float4x4[4]: world -> shadow clip space per cascade.
+static const uint kFrameCascadeSplits = 448; ///< float4: far view distance of each cascade.
+static const uint kFrameCascadeTexels = 464; ///< float4: world size of a shadow texel per cascade.
+static const uint kFrameLightCount = 480;
+static const uint kFrameLightsOffset = 484;
+static const uint kFrameScreenWidth = 488;
+static const uint kFrameScreenHeight = 492;
+static const uint kFrameClusterNear = 496;
+static const uint kFrameClusterFar = 500;
+static const uint kFrameTanHalfFovY = 504;
+static const uint kFrameAspect = 508;
+static const uint kFrameCascadeCount = 512;
+static const uint kObjectsOffset = 528;
 static const uint kObjectStride = 160;
 static const uint kObjectModel = 0;
 static const uint kObjectNormalMatrix = 64;
 static const uint kObjectBaseColorMetallic = 128;
 static const uint kObjectRoughness = 144;
+static const uint kLightStride = 32; ///< float3 position, float radius, float3 colour, float intensity
 
-uint ObjectOffset()
+// Cluster grid (see engine/render/include/interi/render/Clusters.h).
+static const uint kTilesX = 16;
+static const uint kTilesY = 9;
+static const uint kSlices = 24;
+static const uint kClusterCount = kTilesX * kTilesY * kSlices;
+static const uint kMaxLightsPerCluster = 32;
+static const uint kClusterStride = (1 + kMaxLightsPerCluster) * 4;
+
+uint ObjectOffset(uint objectIndex)
 {
-    return kObjectsOffset + g_Push.objectIndex * kObjectStride;
+    return kObjectsOffset + objectIndex * kObjectStride;
 }
 
-struct ForwardVaryings
+float LoadFloat(uint scene, uint offset)
 {
-    float4 position : SV_Position;
-    float3 worldPosition : POSITION0;
-    float3 normal : NORMAL0;
-};
+    return g_Buffers[scene].Load<float>(offset);
+}
+
+uint LoadUint(uint scene, uint offset)
+{
+    return g_Buffers[scene].Load(offset);
+}
+
+float SliceStart(uint scene, uint z)
+{
+    const float nearPlane = LoadFloat(scene, kFrameClusterNear);
+    const float farPlane = LoadFloat(scene, kFrameClusterFar);
+    return nearPlane * pow(farPlane / nearPlane, float(z) / float(kSlices));
+}
+
+uint SliceOf(uint scene, float depth)
+{
+    const float nearPlane = LoadFloat(scene, kFrameClusterNear);
+    const float farPlane = LoadFloat(scene, kFrameClusterFar);
+    const float slice = log(depth / nearPlane) / log(farPlane / nearPlane) * float(kSlices);
+    return uint(clamp(slice, 0.0, float(kSlices - 1)));
+}
 
 #endif

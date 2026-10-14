@@ -73,6 +73,12 @@ struct BufferData
     std::uint32_t bindless = kInvalidBindlessIndex;
 };
 
+struct SamplerData
+{
+    VkSampler sampler = VK_NULL_HANDLE;
+    std::uint32_t bindless = kInvalidBindlessIndex;
+};
+
 struct HeapData
 {
     VmaAllocation allocation = nullptr;
@@ -174,9 +180,11 @@ struct VulkanDevice::Impl
     SlotMap<TextureData> textures;
     SlotMap<PipelineData> pipelines;
     SlotMap<HeapData> heaps;
+    SlotMap<SamplerData> samplers;
     SlotMap<std::unique_ptr<CommandPoolData>> pools;
     BindlessSlots bufferSlots;
     BindlessSlots textureSlots;
+    BindlessSlots samplerSlots;
 
     [[nodiscard]] BufferData Buffer(BufferHandle handle) const;
     [[nodiscard]] TextureData Texture(TextureHandle handle) const;

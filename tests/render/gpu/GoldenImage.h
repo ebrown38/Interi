@@ -73,9 +73,11 @@ inline void ExpectMatchesGolden(const Image& actual, const std::string& name, Go
     const std::filesystem::path golden = std::filesystem::path(INTERI_GOLDEN_DIR) / (name + ".ppm");
     const std::filesystem::path output = std::filesystem::path(INTERI_GOLDEN_OUTPUT_DIR);
 #if defined(_MSC_VER)
-#pragma warning(suppress : 4996)
-#endif
+#pragma warning(suppress : 4996) // read-only use during single-threaded test setup
     const char* update = std::getenv("INTERI_UPDATE_GOLDEN");
+#else
+    const char* update = std::getenv("INTERI_UPDATE_GOLDEN");
+#endif
     if (update != nullptr && std::string(update) == "1")
     {
         ASSERT_TRUE(WritePpm(golden, actual));

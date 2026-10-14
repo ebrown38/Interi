@@ -6,27 +6,35 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/render)
 interi_add_module(render
     SOURCES
         src/Camera.cpp
+        src/Clusters.cpp
         src/ForwardRenderer.cpp
         src/FrameGraph.cpp
         src/HeaderCheck.cpp
         src/Mesh.cpp
+        src/Shadows.cpp
     DEPS interi::rhi
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/CameraTests.cpp
+        ${_tests}/ClustersTests.cpp
         ${_tests}/FrameGraphTests.cpp
-        ${_tests}/MeshTests.cpp)
+        ${_tests}/MeshTests.cpp
+        ${_tests}/ShadowsTests.cpp)
 interi_add_shaders(interi_render
     SOURCES
         shaders/Forward.ps.hlsl
         shaders/Forward.vs.hlsl
+        shaders/LightCulling.cs.hlsl
+        shaders/Shadow.ps.hlsl
+        shaders/Shadow.vs.hlsl
     INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 
 interi_add_test_executable(interi_render_gpu_tests
     SOURCES
+        ${_tests}/gpu/ClusteredLightingGpuTests.cpp
         ${_tests}/gpu/ConventionTests.cpp
         ${_tests}/gpu/FrameGraphGpuTests.cpp
-    DEPS interi::render interi::rhi_vulkan interi::vulkan_testing
+    DEPS interi::render interi::rhi_vulkan interi::vulkan_testing interi::testing
     LABELS integration)
 interi_add_shaders(interi_render_gpu_tests
     SOURCES
@@ -39,6 +47,8 @@ interi_add_test_executable(interi_render_golden_tests
     SOURCES ${_tests}/gpu/LitCubeGoldenTests.cpp
     DEPS interi::render interi::rhi_vulkan interi::vulkan_testing
     LABELS golden)
-target_compile_definitions(interi_render_golden_tests PRIVATE
-    INTERI_GOLDEN_DIR="${_tests}/golden"
-    INTERI_GOLDEN_OUTPUT_DIR="${PROJECT_BINARY_DIR}/golden-output")
+foreach(_target interi_render_golden_tests interi_render_gpu_tests)
+    target_compile_definitions(${_target} PRIVATE
+        INTERI_GOLDEN_DIR="${_tests}/golden"
+        INTERI_GOLDEN_OUTPUT_DIR="${PROJECT_BINARY_DIR}/golden-output")
+endforeach()

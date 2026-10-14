@@ -18,6 +18,7 @@ struct TextureTag;
 struct PipelineTag;
 struct CommandPoolTag;
 struct HeapTag;
+struct SamplerTag;
 
 /// Backend objects are referred to by generational handles; using a destroyed handle is a programming error.
 using BufferHandle = Handle<BufferTag>;
@@ -25,6 +26,7 @@ using TextureHandle = Handle<TextureTag>;
 using PipelineHandle = Handle<PipelineTag>;
 using CommandPoolHandle = Handle<CommandPoolTag>;
 using HeapHandle = Handle<HeapTag>;
+using SamplerHandle = Handle<SamplerTag>;
 
 /// Enables |, & and ~ on a flags enum.
 template <typename E>
@@ -243,6 +245,28 @@ struct GraphicsPipelineDesc
     float depthBiasConstant = 0.0f;
     float depthBiasSlope = 0.0f;
     std::string_view debugName{}; // NOLINT(readability-redundant-member-init)
+};
+
+enum class Filter : std::uint8_t
+{
+    Nearest,
+    Linear,
+};
+
+enum class AddressMode : std::uint8_t
+{
+    Repeat,
+    ClampToEdge,
+};
+
+struct SamplerDesc
+{
+    Filter filter = Filter::Linear;
+    AddressMode address = AddressMode::Repeat;
+    /// Depth-comparison sampler (shadow maps): SampleCmp returns the fraction of texels where
+    /// `reference compareOp texel` holds.
+    bool compare = false;
+    CompareOp compareOp = CompareOp::GreaterEqual;
 };
 
 struct ColorAttachment

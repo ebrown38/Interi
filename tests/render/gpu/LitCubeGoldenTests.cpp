@@ -3,104 +3,29 @@
 #include <interi/core/math/Mat4.h>
 #include <interi/core/math/Quat.h>
 #include <interi/render/Camera.h>
-#include <interi/render/ForwardRenderer.h>
-#include <interi/render/FrameGraph.h>
-#include <interi/render/Mesh.h>
-#include <interi/rhi/ResourceManager.h>
-#include <interi/rhi/UploadQueue.h>
 
 #include "GoldenImage.h"
+#include "RenderScene.h"
 #include "VulkanTestDevice.h"
 #include <gtest/gtest.h>
 
-#include <array>
-#include <cstring>
 #include <numbers>
+#include <vector>
 
 using namespace interi;
 using namespace interi::render;
 using interi::testing::Image;
+using interi::testing::SceneObject;
 using interi::testing::VulkanTest;
 
 namespace
 {
-
-constexpr std::uint32_t kSize = 128;
-constexpr std::uint32_t kRowPitch = kSize * 4; // already a multiple of kTextureRowPitchAlignment
-
-/// Renders `objects` (uploading `meshes` first) to a kSize x kSize sRGB image through the frame graph.
-Image RenderScene(rhi::IDevice& device, const SceneView& view, const std::vector<MeshData>& meshes,
-                  const std::vector<std::pair<std::size_t, RenderObject>>& objects)
-{
-    auto color = device.CreateTexture({.width = kSize,
-                                       .height = kSize,
-                                       .format = rhi::Format::R8G8B8A8Srgb,
-                                       .usage = rhi::TextureUsage::ColorTarget | rhi::TextureUsage::CopySrc});
-    auto readback = device.CreateBuffer(
-        {.size = kRowPitch * kSize, .usage = rhi::BufferUsage::CopyDst, .memory = rhi::MemoryUsage::Readback});
-    auto pool = device.CreateCommandPool();
-    EXPECT_TRUE(color && readback && pool);
-
-    Image image{kSize, kSize, {}};
-    {
-        rhi::ResourceManager resources(device);
-        rhi::UploadQueue uploads(device, 1024 * 1024);
-        auto renderer = ForwardRenderer::Create(device, resources, rhi::Format::R8G8B8A8Srgb, 1);
-        EXPECT_TRUE(renderer.has_value()) << renderer.error().message;
-        rhi::ICommandList& commands = device.BeginCommandList(*pool);
-
-        std::vector<GpuMesh> gpuMeshes;
-        for (const MeshData& mesh : meshes)
-        {
-            auto uploaded = UploadMesh(device, uploads, commands, mesh);
-            EXPECT_TRUE(uploaded.has_value());
-            gpuMeshes.push_back(*uploaded);
-        }
-        std::vector<RenderObject> drawList;
-        for (const auto& [meshIndex, object] : objects)
-        {
-            drawList.push_back(object);
-            drawList.back().mesh = &gpuMeshes[meshIndex];
-        }
-
-        FrameGraph graph(device, resources);
-        FGTexture target =
-            graph.ImportTexture("target", *color, rhi::ResourceState::Undefined, rhi::ResourceState::CopySrc);
-        (*renderer)->AddPasses(graph, target, kSize, kSize, view, drawList, {0.10f, 0.12f, 0.15f});
-        EXPECT_TRUE(graph.Compile().has_value());
-        EXPECT_TRUE(graph.Execute(commands).has_value());
-
-        const std::array toCopy{
-            rhi::BufferBarrier{*readback, rhi::ResourceState::Undefined, rhi::ResourceState::CopyDst}};
-        commands.Barriers(toCopy, {});
-        commands.CopyTextureToBuffer(*color, *readback, 0, kRowPitch);
-        const std::array toHost{
-            rhi::BufferBarrier{*readback, rhi::ResourceState::CopyDst, rhi::ResourceState::HostRead}};
-        commands.Barriers(toHost, {});
-        rhi::ICommandList* const lists[] = {&commands};
-        const std::uint64_t value = device.Submit(lists);
-        uploads.Submitted(value);
-        device.WaitForValue(value);
-
-        image.pixels.resize(std::size_t{kSize} * kSize);
-        std::memcpy(image.pixels.data(), device.MappedMemory(*readback).data(), image.pixels.size() * 4);
-        for (const GpuMesh& mesh : gpuMeshes)
-        {
-            DestroyMesh(resources, mesh);
-        }
-    }
-    device.DestroyCommandPool(*pool);
-    device.DestroyBuffer(*readback);
-    device.DestroyTexture(*color);
-    return image;
-}
 
 SceneView MakeView(Vec3 eye)
 {
     SceneView view;
     view.cameraPosition = eye;
     view.view = LookAt(eye, {0, 0, 0}, {0, 1, 0});
-    view.projection = PerspectiveReverseZ(std::numbers::pi_v<float> / 3.0f, 1.0f, 0.1f);
     view.sun = {.direction = {-0.4f, -1.0f, -0.6f}, .color = {1.0f, 0.97f, 0.9f}, .intensity = 3.0f};
     return view;
 }
@@ -109,10 +34,33 @@ SceneView MakeView(Vec3 eye)
 
 TEST_F(VulkanTest, Render_LitCube_MatchesGolden)
 {
-    const RenderObject cube{.mesh = nullptr,
-                            .transform =
-                                Mat4::Rotation(Quat::FromAxisAngle({0, 1, 0}, -std::numbers::pi_v<float> / 9.0f)),
-                            .material = {.baseColor = {0.8f, 0.3f, 0.2f}, .metallic = 0.0f, .roughness = 0.4f}};
-    const Image image = RenderScene(*device, MakeView({2.2f, 1.8f, 3.0f}), {MakeCube(0.6f)}, {{0, cube}});
+    const SceneObject cube{
+        .mesh = 0,
+        .object = {.transform = Mat4::Rotation(Quat::FromAxisAngle({0, 1, 0}, -std::numbers::pi_v<float> / 9.0f)),
+                   .material = {.baseColor = {0.8f, 0.3f, 0.2f}, .metallic = 0.0f, .roughness = 0.4f}}};
+    const Image image =
+        interi::testing::RenderScene(*device, 128, MakeView({2.2f, 1.8f, 3.0f}), {MakeCube(0.6f)}, {cube});
     interi::testing::ExpectMatchesGolden(image, "lit_cube");
+}
+
+TEST_F(VulkanTest, Render_ShadowsAndPointLights_MatchesGolden)
+{
+    // A cube on a ground plane: the sun casts its shadow onto the plane, and two coloured point lights light the
+    // plane through the clusters.
+    const std::vector<PointLight> lights{
+        {.position = {-1.6f, 0.4f, 1.2f}, .radius = 3.0f, .color = {0.2f, 0.4f, 1.0f}, .intensity = 6.0f},
+        {.position = {1.5f, 0.4f, 1.6f}, .radius = 3.0f, .color = {1.0f, 0.5f, 0.1f}, .intensity = 6.0f},
+    };
+    SceneView view = MakeView({3.5f, 3.0f, 4.5f});
+    view.sun = {.direction = {0.6f, -1.0f, 0.5f}, .color = {1.0f, 0.97f, 0.9f}, .intensity = 2.5f};
+    view.pointLights = lights;
+    const std::vector<SceneObject> objects{
+        {.mesh = 0,
+         .object = {.transform = Mat4::Translation({0, 0.5f, 0}), .material = {.baseColor = {0.7f, 0.7f, 0.7f}}}},
+        {.mesh = 1,
+         .object = {.material = {.baseColor = {0.5f, 0.55f, 0.5f}, .roughness = 0.8f}, .castsShadow = false}},
+    };
+    const Image image = interi::testing::RenderScene(*device, 128, view, {MakeCube(0.5f), MakePlane(4.0f)}, objects,
+                                                     ForwardSettings{.shadowMapSize = 512});
+    interi::testing::ExpectMatchesGolden(image, "shadows_point_lights");
 }

@@ -32,6 +32,7 @@ public:
     void DestroyBuffer(BufferHandle buffer);
     void DestroyTexture(TextureHandle texture);
     void DestroyPipeline(PipelineHandle pipeline);
+    void DestroySampler(SamplerHandle sampler);
     /// Resources placed in the heap must be released (to this manager or directly) first.
     void DestroyHeap(HeapHandle heap);
 
@@ -43,11 +44,11 @@ public:
 private:
     struct Pending
     {
-        std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle> resource;
+        std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle, SamplerHandle> resource;
         std::uint64_t retireValue;
     };
 
-    void Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle> resource);
+    void Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle, SamplerHandle> resource);
     void Destroy(const Pending& pending);
 
     IDevice& m_device;

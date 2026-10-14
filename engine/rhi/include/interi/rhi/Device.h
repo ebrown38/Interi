@@ -97,6 +97,11 @@ public:
     [[nodiscard]] virtual std::uint32_t BindlessIndex(BufferHandle buffer) const = 0;
     /// Index of a Sampled texture in the bindless texture table (kInvalidBindlessIndex otherwise).
     [[nodiscard]] virtual std::uint32_t BindlessIndex(TextureHandle texture) const = 0;
+    /// Index of a sampler in the bindless sampler table.
+    [[nodiscard]] virtual std::uint32_t BindlessIndex(SamplerHandle sampler) const = 0;
+
+    [[nodiscard]] virtual Result<SamplerHandle> CreateSampler(const SamplerDesc& desc) = 0;
+    virtual void DestroySampler(SamplerHandle sampler) = 0;
 
     [[nodiscard]] virtual MemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) const = 0;
     [[nodiscard]] virtual MemoryRequirements GetBufferMemoryRequirements(const BufferDesc& desc) const = 0;

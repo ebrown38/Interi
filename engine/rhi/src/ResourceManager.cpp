@@ -45,12 +45,18 @@ void ResourceManager::DestroyPipeline(PipelineHandle pipeline)
     Defer(pipeline);
 }
 
+void ResourceManager::DestroySampler(SamplerHandle sampler)
+{
+    Defer(sampler);
+}
+
 void ResourceManager::DestroyHeap(HeapHandle heap)
 {
     Defer(heap);
 }
 
-void ResourceManager::Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle> resource)
+void ResourceManager::Defer(
+    std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle, SamplerHandle> resource)
 {
     const std::scoped_lock lock(m_mutex);
     m_pending.push_back(Pending{.resource = resource, .retireValue = m_device.LastSubmittedValue() + 1});
@@ -96,6 +102,10 @@ void ResourceManager::Destroy(const Pending& pending)
     else if (const auto* heap = std::get_if<HeapHandle>(&pending.resource))
     {
         m_device.DestroyHeap(*heap);
+    }
+    else if (const auto* sampler = std::get_if<SamplerHandle>(&pending.resource))
+    {
+        m_device.DestroySampler(*sampler);
     }
 }
 

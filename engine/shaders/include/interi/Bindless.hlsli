@@ -6,7 +6,9 @@
 
 [[vk::binding(0, 0)]] RWByteAddressBuffer g_Buffers[];
 [[vk::binding(1, 0)]] Texture2D g_Textures[];
+[[vk::binding(1, 0)]] Texture2DArray g_TextureArrays[]; ///< Same table: array textures (e.g. shadow cascades).
 [[vk::binding(2, 0)]] SamplerState g_Samplers[];
+[[vk::binding(2, 0)]] SamplerComparisonState g_ComparisonSamplers[]; ///< Same table: depth-compare samplers.
 
 /// Loads an engine Mat4 (16 floats, column after column) and returns the HLSL matrix M for which mul(M, v) equals
 /// the engine's M * v. float4x4(a, b, c, d) takes rows, so the stored columns are transposed into place.

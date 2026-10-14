@@ -47,6 +47,9 @@ public:
     [[nodiscard]] std::span<std::byte> MappedMemory(BufferHandle buffer) override;
     [[nodiscard]] std::uint32_t BindlessIndex(BufferHandle buffer) const override;
     [[nodiscard]] std::uint32_t BindlessIndex(TextureHandle texture) const override;
+    [[nodiscard]] std::uint32_t BindlessIndex(SamplerHandle sampler) const override;
+    [[nodiscard]] Result<SamplerHandle> CreateSampler(const SamplerDesc& desc) override;
+    void DestroySampler(SamplerHandle sampler) override;
 
     [[nodiscard]] MemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) const override;
     [[nodiscard]] MemoryRequirements GetBufferMemoryRequirements(const BufferDesc& desc) const override;

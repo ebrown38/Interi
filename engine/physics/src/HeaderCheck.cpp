@@ -8,3 +8,4 @@
 #include <interi/physics/PhysicsLayers.h>
 #include <interi/physics/PhysicsSync.h>
 #include <interi/physics/PhysicsWorld.h>
+#include <interi/physics/Queries.h>

@@ -11,6 +11,7 @@ interi_add_module(physics
         src/PhysicsLayers.cpp
         src/PhysicsSync.cpp
         src/PhysicsWorld.cpp
+        src/Queries.cpp
     DEPS interi::core interi::jobs_jolt interi::ecs Jolt::Jolt
     TEST_DEPS interi::testing
     TEST_SOURCES
@@ -21,7 +22,8 @@ interi_add_module(physics
         ${_tests}/ContactEventTests.cpp
         ${_tests}/PhysicsLayersTests.cpp
         ${_tests}/PhysicsSyncTests.cpp
-        ${_tests}/PhysicsWorldTests.cpp)
+        ${_tests}/PhysicsWorldTests.cpp
+        ${_tests}/QueryTests.cpp)
 
 # Whole simulations compared across thread counts (seconds each): label `stress`.
 interi_add_test_executable(interi_physics_stress_tests

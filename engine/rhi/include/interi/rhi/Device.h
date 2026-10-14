@@ -40,6 +40,27 @@ public:
     virtual void PushConstants(std::span<const std::byte> data) = 0;
     virtual void Dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) = 0;
 
+    /// Starts rendering to the attachments. Sets the viewport and scissor to the full render area.
+    virtual void BeginRendering(const RenderingDesc& desc) = 0;
+    virtual void EndRendering() = 0;
+    /// Viewport in pixels from the top-left corner; depth range 0..1.
+    virtual void SetViewport(float x, float y, float width, float height) = 0;
+    virtual void SetScissor(std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height) = 0;
+    virtual void BindIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) = 0;
+    virtual void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
+                      std::uint32_t firstInstance) = 0;
+    virtual void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
+                             std::int32_t vertexOffset, std::uint32_t firstInstance) = 0;
+    /// Draws whose arguments (indexCount, instanceCount, firstIndex, vertexOffset, firstInstance as 5 x 32 bits,
+    /// `stride` apart) are in `arguments`, and whose count is the uint32 at `countOffset` in `count`, at most
+    /// `maxDraws`.
+    virtual void DrawIndexedIndirectCount(BufferHandle arguments, std::uint64_t argumentOffset, BufferHandle count,
+                                          std::uint64_t countOffset, std::uint32_t maxDraws, std::uint32_t stride) = 0;
+    /// Copies mip 0 / layer 0 of `texture` (CopySrc) to `buffer` (CopyDst), rows `rowPitch` bytes apart. rowPitch
+    /// must be a multiple of kTextureRowPitchAlignment.
+    virtual void CopyTextureToBuffer(TextureHandle texture, BufferHandle buffer, std::uint64_t bufferOffset,
+                                     std::uint32_t rowPitch) = 0;
+
     /// PushConstants for a trivially copyable struct.
     template <typename T>
     void PushConstants(const T& value)
@@ -90,6 +111,7 @@ public:
                                                                   std::uint64_t offset) = 0;
 
     [[nodiscard]] virtual Result<PipelineHandle> CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
+    [[nodiscard]] virtual Result<PipelineHandle> CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) = 0;
     virtual void DestroyPipeline(PipelineHandle pipeline) = 0;
 
     [[nodiscard]] virtual Result<CommandPoolHandle> CreateCommandPool() = 0;

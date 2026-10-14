@@ -3,6 +3,7 @@
 
 #include <interi/core/containers/SlotMap.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -157,8 +158,118 @@ enum class ShaderStage : std::uint8_t
 /// Push constants available to every pipeline (the guaranteed Vulkan minimum; D3D12 root constants are larger).
 inline constexpr std::uint32_t kMaxPushConstantSize = 128;
 
+/// Texture-to-buffer copies need row pitches aligned to this (the D3D12 placement rule, adopted everywhere).
+inline constexpr std::uint32_t kTextureRowPitchAlignment = 256;
+
+/// Bytes per pixel of uncompressed formats.
+[[nodiscard]] constexpr std::uint32_t BytesPerPixel(Format format) noexcept
+{
+    switch (format)
+    {
+    case Format::R8G8B8A8Unorm:
+    case Format::R8G8B8A8Srgb:
+    case Format::B8G8R8A8Unorm:
+    case Format::B8G8R8A8Srgb:
+    case Format::R32Float:
+    case Format::R32Uint:
+    case Format::D32Float:
+        return 4;
+    case Format::R16G16B16A16Float:
+    case Format::R32G32Float:
+        return 8;
+    case Format::R32G32B32Float:
+        return 12;
+    case Format::R32G32B32A32Float:
+        return 16;
+    case Format::Unknown:
+        return 0;
+    }
+    return 0;
+}
+
 /// Sentinel for "no bindless slot", e.g. a resource created without Storage or Sampled usage.
 inline constexpr std::uint32_t kInvalidBindlessIndex = 0xFFFF'FFFFu;
+
+enum class IndexFormat : std::uint8_t
+{
+    Uint16,
+    Uint32,
+};
+
+enum class CompareOp : std::uint8_t
+{
+    Never,
+    Less,
+    LessEqual,
+    Equal,
+    GreaterEqual,
+    Greater,
+    Always,
+};
+
+enum class CullMode : std::uint8_t
+{
+    None,
+    Back,
+    Front,
+};
+
+enum class LoadOp : std::uint8_t
+{
+    Load,
+    Clear,
+    DontCare,
+};
+
+enum class StoreOp : std::uint8_t
+{
+    Store,
+    DontCare,
+};
+
+/// Rasterization pipeline. Conventions: counter-clockwise triangles (seen in clip space with +Y up) are front
+/// faces; clip-space depth is 0..1. Vertices are pulled by the shaders from bindless buffers, so there is no vertex
+/// input layout.
+struct GraphicsPipelineDesc
+{
+    std::span<const std::byte> vertexCode{}; // NOLINT(readability-redundant-member-init)
+    std::span<const std::byte> pixelCode{};  // NOLINT(readability-redundant-member-init)
+    std::span<const Format> colorFormats{};  // NOLINT(readability-redundant-member-init)
+    Format depthFormat = Format::Unknown;
+    CullMode cullMode = CullMode::Back;
+    bool depthTest = true;
+    bool depthWrite = true;
+    CompareOp depthCompare = CompareOp::Greater; ///< Reverse-Z: larger depth is nearer.
+    float depthBiasConstant = 0.0f;
+    float depthBiasSlope = 0.0f;
+    std::string_view debugName{}; // NOLINT(readability-redundant-member-init)
+};
+
+struct ColorAttachment
+{
+    TextureHandle texture;
+    LoadOp load = LoadOp::Clear;
+    StoreOp store = StoreOp::Store;
+    std::array<float, 4> clearColor{};
+};
+
+struct DepthAttachment
+{
+    TextureHandle texture;
+    LoadOp load = LoadOp::Clear;
+    StoreOp store = StoreOp::Store;
+    float clearDepth = 0.0f; ///< Reverse-Z: 0 is the far plane.
+    std::uint32_t arrayLayer = 0;
+};
+
+/// A rendering pass with dynamic rendering: attachments in ColorTarget / DepthWrite state.
+struct RenderingDesc
+{
+    std::span<const ColorAttachment> colors{}; // NOLINT(readability-redundant-member-init)
+    const DepthAttachment* depth = nullptr;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
 
 struct ComputePipelineDesc
 {

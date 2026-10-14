@@ -27,6 +27,29 @@ public:
     MOCK_METHOD(void, PushConstants, (std::span<const std::byte> data), (override));
     MOCK_METHOD(void, Dispatch, (std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ), (override));
     using rhi::ICommandList::PushConstants;
+    MOCK_METHOD(void, BeginRendering, (const rhi::RenderingDesc& desc), (override));
+    MOCK_METHOD(void, EndRendering, (), (override));
+    MOCK_METHOD(void, SetViewport, (float x, float y, float width, float height), (override));
+    MOCK_METHOD(void, SetScissor, (std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height),
+                (override));
+    MOCK_METHOD(void, BindIndexBuffer, (rhi::BufferHandle buffer, std::uint64_t offset, rhi::IndexFormat format),
+                (override));
+    MOCK_METHOD(void, Draw,
+                (std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
+                 std::uint32_t firstInstance),
+                (override));
+    MOCK_METHOD(void, DrawIndexed,
+                (std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
+                 std::int32_t vertexOffset, std::uint32_t firstInstance),
+                (override));
+    MOCK_METHOD(void, DrawIndexedIndirectCount,
+                (rhi::BufferHandle arguments, std::uint64_t argumentOffset, rhi::BufferHandle count,
+                 std::uint64_t countOffset, std::uint32_t maxDraws, std::uint32_t stride),
+                (override));
+    MOCK_METHOD(void, CopyTextureToBuffer,
+                (rhi::TextureHandle texture, rhi::BufferHandle buffer, std::uint64_t bufferOffset,
+                 std::uint32_t rowPitch),
+                (override));
 };
 
 class MockDevice : public rhi::IDevice
@@ -49,6 +72,8 @@ public:
     MOCK_METHOD(Result<rhi::BufferHandle>, CreatePlacedBuffer,
                 (const rhi::BufferDesc& desc, rhi::HeapHandle heap, std::uint64_t offset), (override));
     MOCK_METHOD(Result<rhi::PipelineHandle>, CreateComputePipeline, (const rhi::ComputePipelineDesc& desc), (override));
+    MOCK_METHOD(Result<rhi::PipelineHandle>, CreateGraphicsPipeline, (const rhi::GraphicsPipelineDesc& desc),
+                (override));
     MOCK_METHOD(void, DestroyPipeline, (rhi::PipelineHandle pipeline), (override));
     MOCK_METHOD(Result<rhi::CommandPoolHandle>, CreateCommandPool, (), (override));
     MOCK_METHOD(void, DestroyCommandPool, (rhi::CommandPoolHandle pool), (override));

@@ -5,14 +5,40 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/render)
 # interi_render_gpu_tests runs the same code on a real Vulkan device.
 interi_add_module(render
     SOURCES
+        src/Camera.cpp
+        src/ForwardRenderer.cpp
         src/FrameGraph.cpp
         src/HeaderCheck.cpp
+        src/Mesh.cpp
     DEPS interi::rhi
     TEST_DEPS interi::testing
     TEST_SOURCES
-        ${_tests}/FrameGraphTests.cpp)
+        ${_tests}/CameraTests.cpp
+        ${_tests}/FrameGraphTests.cpp
+        ${_tests}/MeshTests.cpp)
+interi_add_shaders(interi_render
+    SOURCES
+        shaders/Forward.ps.hlsl
+        shaders/Forward.vs.hlsl
+    INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 
 interi_add_test_executable(interi_render_gpu_tests
-    SOURCES ${_tests}/gpu/FrameGraphGpuTests.cpp
+    SOURCES
+        ${_tests}/gpu/ConventionTests.cpp
+        ${_tests}/gpu/FrameGraphGpuTests.cpp
     DEPS interi::render interi::rhi_vulkan interi::vulkan_testing
     LABELS integration)
+interi_add_shaders(interi_render_gpu_tests
+    SOURCES
+        ${_tests}/shaders/ClipSpace.vs.hlsl
+        ${_tests}/shaders/Solid.ps.hlsl)
+
+# Golden image tests (label `golden`): renders compared with tests/render/golden/*.ppm. Mismatches write the actual
+# image and a diff to build/<preset>/golden-output (uploaded by CI on failure).
+interi_add_test_executable(interi_render_golden_tests
+    SOURCES ${_tests}/gpu/LitCubeGoldenTests.cpp
+    DEPS interi::render interi::rhi_vulkan interi::vulkan_testing
+    LABELS golden)
+target_compile_definitions(interi_render_golden_tests PRIVATE
+    INTERI_GOLDEN_DIR="${_tests}/golden"
+    INTERI_GOLDEN_OUTPUT_DIR="${PROJECT_BINARY_DIR}/golden-output")

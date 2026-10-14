@@ -192,6 +192,7 @@ Result<void> VulkanSwapchain::Recreate()
     {
         TextureData data{.image = image,
                          .format = surfaceFormat.format,
+                         .rhiFormat = FromVk(surfaceFormat.format),
                          .aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                          .width = extent.width,
                          .height = extent.height,

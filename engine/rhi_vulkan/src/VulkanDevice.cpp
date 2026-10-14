@@ -31,6 +31,15 @@ template <typename To, typename From>
     return Handle<To>::FromParts(handle.Index(), handle.Generation());
 }
 
+void DestroyViews(const VulkanDevice::Impl& state, const TextureData& data)
+{
+    state.vk.vkDestroyImageView(state.device, data.view, nullptr);
+    for (const VkImageView view : data.layerViews)
+    {
+        state.vk.vkDestroyImageView(state.device, view, nullptr);
+    }
+}
+
 /// Loads the Vulkan loader once per process.
 [[nodiscard]] bool LoaderAvailable()
 {
@@ -113,6 +122,9 @@ struct FeatureChain
     {
         core.features.multiDrawIndirect = VK_TRUE;
         core.features.drawIndirectFirstInstance = VK_TRUE;
+        // Every stage sees the bindless buffer table as read/write storage buffers.
+        core.features.vertexPipelineStoresAndAtomics = VK_TRUE;
+        core.features.fragmentStoresAndAtomics = VK_TRUE;
         v11.shaderDrawParameters = VK_TRUE;
         v12.timelineSemaphore = VK_TRUE;
         v12.bufferDeviceAddress = VK_TRUE;
@@ -134,13 +146,14 @@ struct FeatureChain
     /// True when every feature Require() asks for is present.
     [[nodiscard]] bool Supports() const
     {
-        return core.features.multiDrawIndirect && core.features.drawIndirectFirstInstance && v11.shaderDrawParameters &&
-               v12.timelineSemaphore && v12.bufferDeviceAddress && v12.drawIndirectCount && v12.scalarBlockLayout &&
-               v12.descriptorIndexing && v12.runtimeDescriptorArray && v12.descriptorBindingPartiallyBound &&
-               v12.descriptorBindingUpdateUnusedWhilePending && v12.descriptorBindingSampledImageUpdateAfterBind &&
-               v12.descriptorBindingStorageImageUpdateAfterBind && v12.descriptorBindingStorageBufferUpdateAfterBind &&
-               v12.shaderSampledImageArrayNonUniformIndexing && v12.shaderStorageBufferArrayNonUniformIndexing &&
-               v13.dynamicRendering && v13.synchronization2;
+        return core.features.multiDrawIndirect && core.features.drawIndirectFirstInstance &&
+               core.features.vertexPipelineStoresAndAtomics && core.features.fragmentStoresAndAtomics &&
+               v11.shaderDrawParameters && v12.timelineSemaphore && v12.bufferDeviceAddress && v12.drawIndirectCount &&
+               v12.scalarBlockLayout && v12.descriptorIndexing && v12.runtimeDescriptorArray &&
+               v12.descriptorBindingPartiallyBound && v12.descriptorBindingUpdateUnusedWhilePending &&
+               v12.descriptorBindingSampledImageUpdateAfterBind && v12.descriptorBindingStorageImageUpdateAfterBind &&
+               v12.descriptorBindingStorageBufferUpdateAfterBind && v12.shaderSampledImageArrayNonUniformIndexing &&
+               v12.shaderStorageBufferArrayNonUniformIndexing && v13.dynamicRendering && v13.synchronization2;
     }
 };
 
@@ -209,6 +222,28 @@ struct FeatureChain
         return VK_FORMAT_D32_SFLOAT;
     }
     return VK_FORMAT_UNDEFINED;
+}
+
+[[nodiscard]] VkCompareOp ToVk(CompareOp op)
+{
+    switch (op)
+    {
+    case CompareOp::Never:
+        return VK_COMPARE_OP_NEVER;
+    case CompareOp::Less:
+        return VK_COMPARE_OP_LESS;
+    case CompareOp::LessEqual:
+        return VK_COMPARE_OP_LESS_OR_EQUAL;
+    case CompareOp::Equal:
+        return VK_COMPARE_OP_EQUAL;
+    case CompareOp::GreaterEqual:
+        return VK_COMPARE_OP_GREATER_OR_EQUAL;
+    case CompareOp::Greater:
+        return VK_COMPARE_OP_GREATER;
+    case CompareOp::Always:
+        return VK_COMPARE_OP_ALWAYS;
+    }
+    return VK_COMPARE_OP_ALWAYS;
 }
 
 [[nodiscard]] VkBufferUsageFlags ToVk(BufferUsage usage)
@@ -458,6 +493,124 @@ void VulkanCommandList::PushConstants(std::span<const std::byte> data)
 void VulkanCommandList::Dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ)
 {
     m_impl.vk.vkCmdDispatch(m_commandBuffer, groupsX, groupsY, groupsZ);
+}
+
+[[nodiscard]] VkAttachmentLoadOp ToVk(LoadOp op)
+{
+    switch (op)
+    {
+    case LoadOp::Load:
+        return VK_ATTACHMENT_LOAD_OP_LOAD;
+    case LoadOp::Clear:
+        return VK_ATTACHMENT_LOAD_OP_CLEAR;
+    case LoadOp::DontCare:
+        return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    }
+    return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+}
+
+[[nodiscard]] VkAttachmentStoreOp ToVk(StoreOp op)
+{
+    return op == StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+}
+
+void VulkanCommandList::BeginRendering(const RenderingDesc& desc)
+{
+    std::vector<VkRenderingAttachmentInfo> colors;
+    colors.reserve(desc.colors.size());
+    for (const ColorAttachment& color : desc.colors)
+    {
+        VkClearValue clear{};
+        clear.color = {{color.clearColor[0], color.clearColor[1], color.clearColor[2], color.clearColor[3]}};
+        colors.push_back(VkRenderingAttachmentInfo{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                                                   .imageView = m_impl.Texture(color.texture).view,
+                                                   .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                                   .loadOp = ToVk(color.load),
+                                                   .storeOp = ToVk(color.store),
+                                                   .clearValue = clear});
+    }
+    VkRenderingAttachmentInfo depth{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    if (desc.depth != nullptr)
+    {
+        const TextureData texture = m_impl.Texture(desc.depth->texture);
+        INTERI_ASSERT(desc.depth->arrayLayer < texture.arrayLayers);
+        depth.imageView = texture.arrayLayers > 1 ? texture.layerViews[desc.depth->arrayLayer] : texture.view;
+        depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depth.loadOp = ToVk(desc.depth->load);
+        depth.storeOp = ToVk(desc.depth->store);
+        depth.clearValue.depthStencil = {desc.depth->clearDepth, 0};
+    }
+    const VkRenderingInfo info{.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+                               .renderArea = {{0, 0}, {desc.width, desc.height}},
+                               .layerCount = 1,
+                               .colorAttachmentCount = static_cast<std::uint32_t>(colors.size()),
+                               .pColorAttachments = colors.data(),
+                               .pDepthAttachment = desc.depth != nullptr ? &depth : nullptr};
+    m_impl.vk.vkCmdBeginRendering(m_commandBuffer, &info);
+    SetViewport(0.0f, 0.0f, static_cast<float>(desc.width), static_cast<float>(desc.height));
+    SetScissor(0, 0, desc.width, desc.height);
+}
+
+void VulkanCommandList::EndRendering()
+{
+    m_impl.vk.vkCmdEndRendering(m_commandBuffer);
+}
+
+void VulkanCommandList::SetViewport(float x, float y, float width, float height)
+{
+    // Negative height flips Vulkan's y-down clip space so the engine's clip space is +Y up, as in D3D.
+    const VkViewport viewport{
+        .x = x, .y = y + height, .width = width, .height = -height, .minDepth = 0.0f, .maxDepth = 1.0f};
+    m_impl.vk.vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
+}
+
+void VulkanCommandList::SetScissor(std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height)
+{
+    const VkRect2D scissor{{x, y}, {width, height}};
+    m_impl.vk.vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
+}
+
+void VulkanCommandList::BindIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format)
+{
+    m_impl.vk.vkCmdBindIndexBuffer(m_commandBuffer, m_impl.Buffer(buffer).buffer, offset,
+                                   format == IndexFormat::Uint16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+}
+
+void VulkanCommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
+                             std::uint32_t firstInstance)
+{
+    m_impl.vk.vkCmdDraw(m_commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+}
+
+void VulkanCommandList::DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
+                                    std::int32_t vertexOffset, std::uint32_t firstInstance)
+{
+    m_impl.vk.vkCmdDrawIndexed(m_commandBuffer, indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
+}
+
+void VulkanCommandList::DrawIndexedIndirectCount(BufferHandle arguments, std::uint64_t argumentOffset,
+                                                 BufferHandle count, std::uint64_t countOffset, std::uint32_t maxDraws,
+                                                 std::uint32_t stride)
+{
+    m_impl.vk.vkCmdDrawIndexedIndirectCount(m_commandBuffer, m_impl.Buffer(arguments).buffer, argumentOffset,
+                                            m_impl.Buffer(count).buffer, countOffset, maxDraws, stride);
+}
+
+void VulkanCommandList::CopyTextureToBuffer(TextureHandle texture, BufferHandle buffer, std::uint64_t bufferOffset,
+                                            std::uint32_t rowPitch)
+{
+    const TextureData data = m_impl.Texture(texture);
+    const std::uint32_t pixelSize = BytesPerPixel(data.rhiFormat);
+    INTERI_ASSERT(rowPitch % kTextureRowPitchAlignment == 0 && pixelSize != 0 && rowPitch % pixelSize == 0);
+    const VkBufferImageCopy region{
+        .bufferOffset = bufferOffset,
+        .bufferRowLength = rowPitch / pixelSize,
+        .bufferImageHeight = data.height,
+        .imageSubresource = {.aspectMask = data.aspect, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {data.width, data.height, 1}};
+    m_impl.vk.vkCmdCopyImageToBuffer(m_commandBuffer, data.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                     m_impl.Buffer(buffer).buffer, 1, &region);
 }
 
 // --- Device ------------------------------------------------------------------------------------------------------
@@ -734,7 +887,7 @@ VulkanDevice::~VulkanDevice()
         }
         for (const TextureData& texture : state.textures)
         {
-            state.vk.vkDestroyImageView(state.device, texture.view, nullptr);
+            DestroyViews(state, texture);
             if (texture.ownsImage)
             {
                 vmaDestroyImage(state.allocator, texture.image, texture.allocation);
@@ -835,6 +988,7 @@ Result<TextureHandle> RegisterTexture(VulkanDevice::Impl& state, TextureData dat
     data.aspect = desc.format == Format::D32Float ? VkImageAspectFlags{VK_IMAGE_ASPECT_DEPTH_BIT}
                                                   : VkImageAspectFlags{VK_IMAGE_ASPECT_COLOR_BIT};
     data.format = ToVk(desc.format);
+    data.rhiFormat = desc.format;
     data.width = desc.width;
     data.height = desc.height;
     data.mipLevels = desc.mipLevels;
@@ -855,6 +1009,20 @@ Result<TextureHandle> RegisterTexture(VulkanDevice::Impl& state, TextureData dat
         vmaDestroyImage(state.allocator, data.image, data.allocation);
         return std::unexpected(VkError(result, "vkCreateImageView"));
     }
+    if (desc.arrayLayers > 1 &&
+        (HasFlags(desc.usage, TextureUsage::ColorTarget) || HasFlags(desc.usage, TextureUsage::DepthTarget)))
+    {
+        for (std::uint32_t layer = 0; layer < desc.arrayLayers; ++layer)
+        {
+            VkImageViewCreateInfo layerInfo = viewInfo;
+            layerInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            layerInfo.subresourceRange.baseArrayLayer = layer;
+            layerInfo.subresourceRange.layerCount = 1;
+            VkImageView view = VK_NULL_HANDLE;
+            INTERI_VK_CHECK(state.vk.vkCreateImageView(state.device, &layerInfo, nullptr, &view));
+            data.layerViews.push_back(view);
+        }
+    }
     state.SetName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(data.image), desc.debugName);
 
     const std::unique_lock lock(state.resourceMutex);
@@ -863,7 +1031,7 @@ Result<TextureHandle> RegisterTexture(VulkanDevice::Impl& state, TextureData dat
         data.bindless = state.textureSlots.Allocate();
         if (data.bindless == kInvalidBindlessIndex)
         {
-            state.vk.vkDestroyImageView(state.device, data.view, nullptr);
+            DestroyViews(state, data);
             vmaDestroyImage(state.allocator, data.image, data.allocation);
             return MakeError(ErrorCode::OutOfMemory, "bindless texture table is full");
         }
@@ -1064,7 +1232,7 @@ void VulkanDevice::DestroyTexture(TextureHandle texture)
         state.textures.Remove(Retag<TextureData>(texture));
         state.textureSlots.Release(data.bindless);
     }
-    state.vk.vkDestroyImageView(state.device, data.view, nullptr);
+    DestroyViews(state, data);
     vmaDestroyImage(state.allocator, data.image, data.allocation);
 }
 
@@ -1121,6 +1289,130 @@ Result<PipelineHandle> VulkanDevice::CreateComputePipeline(const ComputePipeline
     if (result != VK_SUCCESS)
     {
         return std::unexpected(VkError(result, "vkCreateComputePipelines"));
+    }
+    state.SetName(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(data.pipeline), desc.debugName);
+
+    const std::unique_lock lock(state.resourceMutex);
+    return Retag<PipelineTag>(state.pipelines.Insert(data));
+}
+
+Result<PipelineHandle> VulkanDevice::CreateGraphicsPipeline(const GraphicsPipelineDesc& desc)
+{
+    Impl& state = *m_impl;
+    INTERI_TRY_ASSIGN(vertex, ReflectSpirv(desc.vertexCode));
+    INTERI_TRY_ASSIGN(pixel, ReflectSpirv(desc.pixelCode));
+    if (vertex.stage != ShaderStage::Vertex || pixel.stage != ShaderStage::Pixel)
+    {
+        return MakeError(ErrorCode::InvalidArgument, "CreateGraphicsPipeline needs a vertex and a pixel shader");
+    }
+    std::array<VkShaderModule, 2> modules{};
+    const std::array<std::span<const std::byte>, 2> code{desc.vertexCode, desc.pixelCode};
+    for (std::size_t i = 0; i < modules.size(); ++i)
+    {
+        const VkShaderModuleCreateInfo moduleInfo{.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                                                  .codeSize = code[i].size(),
+                                                  .pCode = reinterpret_cast<const std::uint32_t*>(code[i].data())};
+        if (const VkResult result = state.vk.vkCreateShaderModule(state.device, &moduleInfo, nullptr, &modules[i]);
+            result != VK_SUCCESS)
+        {
+            for (const VkShaderModule module : modules)
+            {
+                state.vk.vkDestroyShaderModule(state.device, module, nullptr);
+            }
+            return std::unexpected(VkError(result, "vkCreateShaderModule"));
+        }
+    }
+    const std::array stages{
+        VkPipelineShaderStageCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+                                        .module = modules[0],
+                                        .pName = "main"},
+        VkPipelineShaderStageCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+                                        .module = modules[1],
+                                        .pName = "main"}};
+
+    std::vector<VkFormat> colorFormats;
+    for (const Format format : desc.colorFormats)
+    {
+        colorFormats.push_back(ToVk(format));
+    }
+    const VkPipelineRenderingCreateInfo rendering{.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+                                                  .colorAttachmentCount =
+                                                      static_cast<std::uint32_t>(colorFormats.size()),
+                                                  .pColorAttachmentFormats = colorFormats.data(),
+                                                  .depthAttachmentFormat = ToVk(desc.depthFormat)};
+    const VkPipelineVertexInputStateCreateInfo vertexInput{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    const VkPipelineInputAssemblyStateCreateInfo inputAssembly{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+    const VkPipelineViewportStateCreateInfo viewport{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO, .viewportCount = 1, .scissorCount = 1};
+    VkCullModeFlags cull = VK_CULL_MODE_NONE;
+    if (desc.cullMode == CullMode::Back)
+    {
+        cull = VK_CULL_MODE_BACK_BIT;
+    }
+    else if (desc.cullMode == CullMode::Front)
+    {
+        cull = VK_CULL_MODE_FRONT_BIT;
+    }
+    const bool depthBias = desc.depthBiasConstant != 0.0f || desc.depthBiasSlope != 0.0f;
+    // With the y-flipped viewport, VK_FRONT_FACE_COUNTER_CLOCKWISE makes triangles that are counter-clockwise in the
+    // engine's +Y-up clip space front-facing (pinned by tests/render/gpu/ConventionTests.cpp).
+    const VkPipelineRasterizationStateCreateInfo rasterization{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = cull,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .depthBiasEnable = depthBias ? VK_TRUE : VK_FALSE,
+        .depthBiasConstantFactor = desc.depthBiasConstant,
+        .depthBiasSlopeFactor = desc.depthBiasSlope,
+        .lineWidth = 1.0f};
+    const VkPipelineMultisampleStateCreateInfo multisample{.sType =
+                                                               VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                                                           .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
+    const VkPipelineDepthStencilStateCreateInfo depthStencil{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = desc.depthTest ? VK_TRUE : VK_FALSE,
+        .depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE,
+        .depthCompareOp = ToVk(desc.depthCompare)};
+    const std::vector<VkPipelineColorBlendAttachmentState> blends(
+        colorFormats.size(),
+        VkPipelineColorBlendAttachmentState{.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT});
+    const VkPipelineColorBlendStateCreateInfo blend{.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                                                    .attachmentCount = static_cast<std::uint32_t>(blends.size()),
+                                                    .pAttachments = blends.data()};
+    const std::array dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    const VkPipelineDynamicStateCreateInfo dynamic{.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+                                                   .dynamicStateCount =
+                                                       static_cast<std::uint32_t>(dynamicStates.size()),
+                                                   .pDynamicStates = dynamicStates.data()};
+    const VkGraphicsPipelineCreateInfo pipelineInfo{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                                                    .pNext = &rendering,
+                                                    .stageCount = static_cast<std::uint32_t>(stages.size()),
+                                                    .pStages = stages.data(),
+                                                    .pVertexInputState = &vertexInput,
+                                                    .pInputAssemblyState = &inputAssembly,
+                                                    .pViewportState = &viewport,
+                                                    .pRasterizationState = &rasterization,
+                                                    .pMultisampleState = &multisample,
+                                                    .pDepthStencilState = &depthStencil,
+                                                    .pColorBlendState = &blend,
+                                                    .pDynamicState = &dynamic,
+                                                    .layout = state.pipelineLayout};
+    PipelineData data{.bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS};
+    const VkResult result =
+        state.vk.vkCreateGraphicsPipelines(state.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &data.pipeline);
+    for (const VkShaderModule module : modules)
+    {
+        state.vk.vkDestroyShaderModule(state.device, module, nullptr);
+    }
+    if (result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateGraphicsPipelines"));
     }
     state.SetName(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(data.pipeline), desc.debugName);
 

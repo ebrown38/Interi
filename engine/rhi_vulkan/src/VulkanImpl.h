@@ -90,6 +90,7 @@ struct TextureData
     VkImageView view = VK_NULL_HANDLE;
     VmaAllocation allocation = nullptr;
     VkFormat format = VK_FORMAT_UNDEFINED;
+    Format rhiFormat = Format::Unknown;
     VkImageAspectFlags aspect = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
@@ -97,6 +98,8 @@ struct TextureData
     std::uint32_t arrayLayers = 1;
     std::uint32_t bindless = kInvalidBindlessIndex;
     bool ownsImage = true; ///< False for swapchain images, which belong to the swapchain.
+    /// Single-layer views of array textures that are render targets (e.g. one per shadow cascade).
+    std::vector<VkImageView> layerViews;
 };
 
 class VulkanCommandList final : public ICommandList
@@ -116,6 +119,19 @@ public:
     void PushConstants(std::span<const std::byte> data) override;
     using ICommandList::PushConstants;
     void Dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) override;
+    void BeginRendering(const RenderingDesc& desc) override;
+    void EndRendering() override;
+    void SetViewport(float x, float y, float width, float height) override;
+    void SetScissor(std::int32_t x, std::int32_t y, std::uint32_t width, std::uint32_t height) override;
+    void BindIndexBuffer(BufferHandle buffer, std::uint64_t offset, IndexFormat format) override;
+    void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount, std::uint32_t firstVertex,
+              std::uint32_t firstInstance) override;
+    void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
+                     std::int32_t vertexOffset, std::uint32_t firstInstance) override;
+    void DrawIndexedIndirectCount(BufferHandle arguments, std::uint64_t argumentOffset, BufferHandle count,
+                                  std::uint64_t countOffset, std::uint32_t maxDraws, std::uint32_t stride) override;
+    void CopyTextureToBuffer(TextureHandle texture, BufferHandle buffer, std::uint64_t bufferOffset,
+                             std::uint32_t rowPitch) override;
 
     [[nodiscard]] VkCommandBuffer Native() const noexcept { return m_commandBuffer; }
 

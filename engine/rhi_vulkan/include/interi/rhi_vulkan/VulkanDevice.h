@@ -58,6 +58,7 @@ public:
                                                           std::uint64_t offset) override;
 
     [[nodiscard]] Result<PipelineHandle> CreateComputePipeline(const ComputePipelineDesc& desc) override;
+    [[nodiscard]] Result<PipelineHandle> CreateGraphicsPipeline(const GraphicsPipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle pipeline) override;
 
     [[nodiscard]] Result<CommandPoolHandle> CreateCommandPool() override;

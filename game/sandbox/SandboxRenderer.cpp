@@ -101,7 +101,7 @@ Result<std::unique_ptr<SandboxRenderer>> SandboxRenderer::Create(SdlPlatform& pl
     return std::unique_ptr<SandboxRenderer>(new SandboxRenderer(std::move(state)));
 }
 
-bool SandboxRenderer::Render(std::span<const Vec3> debris, double seconds)
+bool SandboxRenderer::Render(std::span<const Transform> debris, double seconds)
 {
     State& state = *m_state;
     state.commandPools->BeginFrame();
@@ -133,7 +133,7 @@ bool SandboxRenderer::Render(std::span<const Vec3> debris, double seconds)
     for (std::size_t i = 0; i < debrisCount; ++i)
     {
         state.objects.push_back({.mesh = state.cube,
-                                 .transform = Mat4::Translation(debris[i]),
+                                 .transform = Mat4::FromTRS(debris[i].position, debris[i].rotation, Vec3(1.0f)),
                                  .material = {.baseColor = {0.75f, 0.35f, 0.2f}, .roughness = 0.5f}});
     }
 

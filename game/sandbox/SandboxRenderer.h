@@ -2,7 +2,7 @@
 #pragma once
 
 #include <interi/core/Result.h>
-#include <interi/core/math/Vec.h>
+#include <interi/core/math/Transform.h>
 #include <interi/platform/Window.h>
 
 #include <memory>
@@ -32,9 +32,9 @@ public:
     SandboxRenderer(SandboxRenderer&&) = delete;
     SandboxRenderer& operator=(SandboxRenderer&&) = delete;
 
-    /// Renders and presents one frame. `debris` are cube positions; `seconds` animates the camera. Returns whether a
-    /// frame was presented (false while minimised or on errors, which are logged).
-    bool Render(std::span<const interi::Vec3> debris, double seconds);
+    /// Renders and presents one frame. `debris` are cube poses (scale ignored); `seconds` animates the camera.
+    /// Returns whether a frame was presented (false while minimised or on errors, which are logged).
+    bool Render(std::span<const interi::Transform> debris, double seconds);
 
 private:
     struct State;

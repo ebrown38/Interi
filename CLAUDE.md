@@ -129,7 +129,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 - **`FixedStepClock`** takes the elapsed time from the caller and never reads a clock. It uses integer nanoseconds, clamps substeps after a hitch (dropping whole steps but keeping the fraction), and exposes `Alpha()` for `Interpolate(previous, current, alpha)`.
 - **`FramePipeline<Snapshot>`** double-buffers: render prep of frame N runs as a job while frame N+1 simulates on the calling thread. Neither side writes what the other reads. The TSan stress test lives in `interi_runtime_stress_tests`.
-- **`interi_sandbox`** (`game/sandbox`) is the window + input + ECS + rendering demo. Run `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` for a headless rendering smoke run on lavapipe. `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+- **`interi_sandbox`** (`game/sandbox`) is the window + input + ECS + physics + rendering demo. Its debris are Jolt bodies that fall onto a static ground and pillars matching the rendered scene. Run `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` for a headless rendering smoke run on lavapipe. `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
 
 ## RHI (`engine/rhi`, `engine/rhi_vulkan`, namespace `interi::rhi`)
 
@@ -189,6 +189,26 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - Regenerate with `INTERI_UPDATE_GOLDEN=1`, then look at the image before committing.
   - Mismatches write the actual and diff images to `build/<preset>/golden-output`, which CI uploads on failure.
   - Commit goldens only after CI's lavapipe agrees.
+
+## Physics (`engine/physics`, namespace `interi::physics`)
+
+- **Jolt build.** Jolt comes from the overlay port `cmake/ports/joltphysics`, a copy of vcpkg's port with `CROSS_PLATFORM_DETERMINISTIC=ON` (`-ffp-contract=off`, `/fp:precise`, no `JPH_USE_FMADD`). Simulations are bit-identical on Linux and Windows. `JoltDeterminism.Pile_MatchesCrossPlatformGoldenHash` pins this, and a Jolt version bump changes that constant. Re-sync the overlay when the vcpkg baseline moves.
+- **`JoltRuntime`** does Jolt's process-wide setup (default allocator, Factory, types; traces go to the log, Jolt asserts to the Interi handler). Create exactly one for the process lifetime: in `main`, or a gtest Environment (`tests/physics/PhysicsTestEnvironment.cpp`). It is not ref-counted. Jolt keeps its own allocator, because its free hooks don't pass a size.
+- **`JoltMath.h`** converts math types by plain copy. Both libraries use column vectors, translation in column 3 and (x,y,z,w) quaternions. Jolt is single precision, so `RVec3` is `Vec3`.
+- **Layers** (`PhysicsLayers.h`): Static, Structure, Debris, DebrisSmall, Character, Vehicle, Projectile, all from one `ShouldCollide` table.
+  - DebrisSmall collides with neither itself, characters nor projectiles.
+  - Broadphase trees: Static+Structure, Debris+DebrisSmall, and Moving.
+  - Jolt's three table filters are built from that one table, so they can't disagree.
+- **`PhysicsWorld`** owns the `JPH::PhysicsSystem` and steps it through `JoltJobSystem`. It requires a live `JoltRuntime`.
+  - `Contacts()` returns the last step's new contacts, merged from per-thread buffers and fully sorted, so they are identical at any thread count.
+  - `ContactEvent::impulse` is an estimate (effective mass × approach speed × (1+e)), because Jolt's callbacks run before the solver. `PhysicsWorldDesc::minContactImpulse` filters out weak contacts.
+- **ECS sync.** `RigidBodyComponent` + `ColliderComponent` + `interi::Transform` give an entity a body, and `PhysicsSync` maintains it.
+  - Every `PhysicsSync` call is a sync point, not a Scheduler system. Bodies are created and removed serially in query order, which keeps body IDs deterministic.
+  - Only `PullTransforms` is parallel, over chunks. It writes only chunks that contain an active body, or a body that fell asleep in the last step (`PhysicsBodyComponent::wasActive`).
+  - Kinematic bodies get `MoveKinematic` every step.
+  - A body's user data is its entity (`PhysicsWorld::EntityOf`, `EntityFromBodyUserData`).
+- **Queries** (`Queries.h`): `Raycast`, `SphereCast` and `OverlapSphere`, filtered by a `LayerMask`. They lock bodies, so they may run on any thread, but not during `Step`.
+- **Determinism tests** hash `PhysicsSystem::SaveState` (`tests/physics/PhysicsTestUtil.h`) and compare it across 1/8/32 threads (stress label).
 
 ## Dependencies and licensing
 

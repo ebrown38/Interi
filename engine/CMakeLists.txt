@@ -2,3 +2,7 @@
 add_subdirectory(core)
 add_subdirectory(jobs)
 add_subdirectory(jobs_jolt)
+add_subdirectory(platform)
+add_subdirectory(ecs)
+add_subdirectory(runtime)
+add_subdirectory(platform_sdl)

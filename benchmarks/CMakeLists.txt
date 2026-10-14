@@ -3,3 +3,4 @@
 # alongside its tests (engine plan: Definition of Done).
 add_subdirectory(core)
 add_subdirectory(jobs)
+add_subdirectory(ecs)

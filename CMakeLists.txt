@@ -44,5 +44,6 @@ add_subdirectory(engine)
 add_subdirectory(tests)
 add_subdirectory(benchmarks)
 add_subdirectory(tools)
+add_subdirectory(game)
 
 include(InteriCoverage) # after all test executables are declared

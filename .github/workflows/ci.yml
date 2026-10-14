@@ -55,7 +55,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
           restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
@@ -103,7 +103,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
           restore-keys: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-
       - run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
           restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset linux-clang-coverage
@@ -159,7 +159,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
           restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}

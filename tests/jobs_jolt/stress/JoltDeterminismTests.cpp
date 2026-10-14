@@ -167,3 +167,12 @@ TEST(JoltDeterminism, InteriAdapter_MatchesJoltThreadPool)
         EXPECT_EQ(SimulateWithInteri(threads), reference) << threads << " threads";
     }
 }
+
+// Jolt is built cross-platform deterministic (cmake/ports/joltphysics), so the pile ends in the same state on every
+// compiler, build type and sanitizer. A Jolt version bump or a change to SimulatePile changes this constant.
+TEST(JoltDeterminism, Pile_MatchesCrossPlatformGoldenHash)
+{
+    constexpr std::uint64_t kGoldenHash = 0xd407'f0f2'b37f'7ecb;
+    const std::uint64_t hash = SimulateWithInteri(4);
+    EXPECT_EQ(hash, kGoldenHash) << "actual 0x" << std::hex << hash;
+}

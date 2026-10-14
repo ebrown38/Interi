@@ -9,6 +9,7 @@ interi_add_module(jobs_jolt
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/JoltTestEnvironment.cpp
+        ${_tests}/JoltBuildConfigTests.cpp
         ${_tests}/JoltJobSystemTests.cpp)
 
 # Full physics simulations compared across job systems and thread counts (seconds each): label `stress`.

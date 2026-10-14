@@ -4,6 +4,7 @@
 #include <interi/render/ForwardRenderer.h>
 #include <interi/render/FrameGraph.h>
 #include <interi/render/Mesh.h>
+#include <interi/render/MeshPool.h>
 #include <interi/rhi/Device.h>
 #include <interi/rhi/ResourceManager.h>
 #include <interi/rhi/UploadQueue.h>
@@ -22,7 +23,7 @@ namespace interi::testing
 
 struct SceneObject
 {
-    std::size_t mesh = 0; ///< Index into the meshes passed to RenderScene.
+    std::size_t mesh = 0; ///< Index into the meshes passed to RenderScene (fills object.mesh).
     render::RenderObject object;
 };
 
@@ -50,23 +51,26 @@ RenderScene(rhi::IDevice& device, std::uint32_t size, const render::SceneView& v
     {
         rhi::ResourceManager resources(device);
         rhi::UploadQueue uploads(device, 1024 * 1024);
+        auto meshPool = render::MeshPool::Create(device, resources, 64 * 1024, 256 * 1024);
+        EXPECT_TRUE(meshPool.has_value());
         settings.framesInFlight = 1;
-        auto renderer = render::ForwardRenderer::Create(device, resources, rhi::Format::R8G8B8A8Srgb, settings);
+        auto renderer =
+            render::ForwardRenderer::Create(device, resources, **meshPool, rhi::Format::R8G8B8A8Srgb, settings);
         EXPECT_TRUE(renderer.has_value()) << renderer.error().message;
         rhi::ICommandList& commands = device.BeginCommandList(*pool);
 
-        std::vector<render::GpuMesh> gpuMeshes;
+        std::vector<render::MeshRange> ranges;
         for (const render::MeshData& mesh : meshes)
         {
-            auto uploaded = render::UploadMesh(device, uploads, commands, mesh);
-            EXPECT_TRUE(uploaded.has_value());
-            gpuMeshes.push_back(*uploaded);
+            auto added = (*meshPool)->Add(uploads, commands, mesh);
+            EXPECT_TRUE(added.has_value());
+            ranges.push_back(*added);
         }
         std::vector<render::RenderObject> drawList;
         for (const SceneObject& entry : objects)
         {
             drawList.push_back(entry.object);
-            drawList.back().mesh = &gpuMeshes[entry.mesh];
+            drawList.back().mesh = ranges[entry.mesh];
         }
 
         render::FrameGraph graph(device, resources);
@@ -98,10 +102,6 @@ RenderScene(rhi::IDevice& device, std::uint32_t size, const render::SceneView& v
         for (std::uint32_t y = 0; y < size; ++y)
         {
             std::memcpy(&image.pixels[std::size_t{y} * size], mapped + std::size_t{y} * rowPitch, size * 4ull);
-        }
-        for (const render::GpuMesh& mesh : gpuMeshes)
-        {
-            render::DestroyMesh(resources, mesh);
         }
     }
     device.DestroyCommandPool(*pool);

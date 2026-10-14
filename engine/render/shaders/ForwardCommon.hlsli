@@ -7,7 +7,7 @@
 
 static const uint kInvalidIndex = 0xFFFFFFFFu;
 
-// Scene buffer: FrameData (528 bytes), ObjectData[] (160 bytes each), then PointLight[] at kFrameLightsOffset.
+// Scene buffer: FrameData (528 bytes), ObjectData[] (192 bytes each), then PointLight[] at kFrameLightsOffset.
 static const uint kFrameViewProjection = 0;
 static const uint kFrameView = 64;
 static const uint kFrameCameraPosition = 128;
@@ -27,11 +27,14 @@ static const uint kFrameTanHalfFovY = 504;
 static const uint kFrameAspect = 508;
 static const uint kFrameCascadeCount = 512;
 static const uint kObjectsOffset = 528;
-static const uint kObjectStride = 160;
+static const uint kObjectStride = 192;
 static const uint kObjectModel = 0;
 static const uint kObjectNormalMatrix = 64;
 static const uint kObjectBaseColorMetallic = 128;
 static const uint kObjectRoughness = 144;
+static const uint kObjectBounds = 160; ///< float4: bounding sphere centre (mesh space) and radius.
+static const uint kObjectDraw = 176;   ///< uint4: firstIndex, indexCount, vertexOffset, flags.
+static const uint kObjectCastsShadow = 1;
 static const uint kLightStride = 32; ///< float3 position, float radius, float3 colour, float intensity
 
 // Cluster grid (see engine/render/include/interi/render/Clusters.h).

@@ -11,6 +11,7 @@ interi_add_module(render
         src/FrameGraph.cpp
         src/HeaderCheck.cpp
         src/Mesh.cpp
+        src/MeshPool.cpp
         src/Shadows.cpp
     DEPS interi::rhi
     TEST_DEPS interi::testing
@@ -22,6 +23,7 @@ interi_add_module(render
         ${_tests}/ShadowsTests.cpp)
 interi_add_shaders(interi_render
     SOURCES
+        shaders/Cull.cs.hlsl
         shaders/Forward.ps.hlsl
         shaders/Forward.vs.hlsl
         shaders/LightCulling.cs.hlsl
@@ -34,6 +36,7 @@ interi_add_test_executable(interi_render_gpu_tests
         ${_tests}/gpu/ClusteredLightingGpuTests.cpp
         ${_tests}/gpu/ConventionTests.cpp
         ${_tests}/gpu/FrameGraphGpuTests.cpp
+        ${_tests}/gpu/GpuCullingTests.cpp
     DEPS interi::render interi::rhi_vulkan interi::vulkan_testing interi::testing
     LABELS integration)
 interi_add_shaders(interi_render_gpu_tests

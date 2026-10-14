@@ -19,6 +19,8 @@ public:
                 (rhi::BufferHandle src, std::uint64_t srcOffset, rhi::BufferHandle dst, std::uint64_t dstOffset,
                  std::uint64_t size),
                 (override));
+    MOCK_METHOD(void, FillBuffer,
+                (rhi::BufferHandle buffer, std::uint64_t offset, std::uint64_t size, std::uint32_t value), (override));
     MOCK_METHOD(void, Barriers,
                 (std::span<const rhi::BufferBarrier> buffers, std::span<const rhi::TextureBarrier> textures),
                 (override));

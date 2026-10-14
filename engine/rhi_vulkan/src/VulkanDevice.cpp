@@ -463,6 +463,12 @@ void VulkanCommandList::Barriers(std::span<const BufferBarrier> buffers, std::sp
     m_impl.vk.vkCmdPipelineBarrier2(m_commandBuffer, &dependency);
 }
 
+void VulkanCommandList::FillBuffer(BufferHandle buffer, std::uint64_t offset, std::uint64_t size, std::uint32_t value)
+{
+    INTERI_ASSERT(offset % 4 == 0 && size % 4 == 0);
+    m_impl.vk.vkCmdFillBuffer(m_commandBuffer, m_impl.Buffer(buffer).buffer, offset, size, value);
+}
+
 void VulkanCommandList::AliasingBarrier()
 {
     const VkMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,

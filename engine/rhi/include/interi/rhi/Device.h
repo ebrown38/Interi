@@ -28,6 +28,8 @@ public:
 
     virtual void CopyBuffer(BufferHandle src, std::uint64_t srcOffset, BufferHandle dst, std::uint64_t dstOffset,
                             std::uint64_t size) = 0;
+    /// Writes the 32-bit `value` repeatedly over `size` bytes (a multiple of 4) at `offset`. Buffer in CopyDst.
+    virtual void FillBuffer(BufferHandle buffer, std::uint64_t offset, std::uint64_t size, std::uint32_t value) = 0;
     /// Transitions resources between states. Accesses after the barrier wait for the accesses before it.
     virtual void Barriers(std::span<const BufferBarrier> buffers, std::span<const TextureBarrier> textures) = 0;
     /// Orders every earlier memory access before every later one. Needed when heap memory passes from one placed

@@ -6,7 +6,7 @@
 #include <interi/core/math/Vec.h>
 #include <interi/render/Clusters.h>
 #include <interi/render/FrameGraph.h>
-#include <interi/render/Mesh.h>
+#include <interi/render/MeshPool.h>
 #include <interi/rhi/Types.h>
 
 #include <cstdint>
@@ -34,9 +34,9 @@ struct Material
 
 struct RenderObject
 {
-    const GpuMesh* mesh = nullptr;
+    MeshRange mesh{}; ///< In the renderer's MeshPool. NOLINT(readability-redundant-member-init)
     Mat4 transform = Mat4::Identity();
-    Material material;
+    Material material{}; // NOLINT(readability-redundant-member-init): lets designated inits omit it
     bool castsShadow = true;
 };
 
@@ -73,12 +73,16 @@ struct ForwardSettings
 /// Graph resources the forward passes produce, for later passes (and tests) to read.
 struct ForwardOutputs
 {
-    FGBuffer clusters;   ///< Per-cluster light lists (ClusterGrid layout), in ShaderRead.
-    FGTexture shadowMap; ///< Cascade depth array; invalid when shadows are disabled.
+    FGBuffer clusters;      ///< Per-cluster light lists (ClusterGrid layout).
+    FGTexture shadowMap;    ///< Cascade depth array; invalid when shadows are disabled.
+    FGBuffer drawArguments; ///< Culled DrawIndexedIndirect commands: view v starts at v * kMaxObjects * 20 bytes.
+    FGBuffer drawCounts;    ///< uint32 draw count per view (view 0 = camera, 1 + i = shadow cascade i).
 };
 
-/// Physically based forward rendering through the frame graph: clustered point-light culling (compute), sun
-/// shadow cascades, then one forward pass shading every object.
+/// GPU-driven, physically based forward rendering through the frame graph. Per frame: a compute pass culls every
+/// object against the camera and each shadow cascade and writes indirect draw commands; clustered point-light
+/// culling (compute); sun shadow cascades; then one forward pass shading the visible objects. All draws are
+/// DrawIndexedIndirectCount over the MeshPool's shared geometry.
 ///
 /// Scene data (camera, lights, objects) goes into a persistently mapped buffer with one slot per frame in flight;
 /// AddPasses writes the next slot, so it must not be called for frame N + framesInFlight before frame N finished on
@@ -89,11 +93,10 @@ public:
     static constexpr std::uint32_t kMaxObjects = 4096;
     static constexpr std::uint32_t kMaxPointLights = 1024;
 
-    /// `colorFormat` is the format of the targets passed to AddPasses.
-    [[nodiscard]] static Result<std::unique_ptr<ForwardRenderer>> Create(rhi::IDevice& device,
-                                                                         rhi::ResourceManager& resources,
-                                                                         rhi::Format colorFormat,
-                                                                         const ForwardSettings& settings = {});
+    /// Objects reference meshes in `meshes`. `colorFormat` is the format of the targets passed to AddPasses.
+    [[nodiscard]] static Result<std::unique_ptr<ForwardRenderer>>
+    Create(rhi::IDevice& device, rhi::ResourceManager& resources, const MeshPool& meshes, rhi::Format colorFormat,
+           const ForwardSettings& settings = {});
     ~ForwardRenderer();
 
     ForwardRenderer(const ForwardRenderer&) = delete;
@@ -107,11 +110,14 @@ public:
                              const SceneView& view, std::span<const RenderObject> objects, Vec3 clearColor);
 
 private:
-    ForwardRenderer(rhi::IDevice& device, rhi::ResourceManager& resources, const ForwardSettings& settings);
+    ForwardRenderer(rhi::IDevice& device, rhi::ResourceManager& resources, const MeshPool& meshes,
+                    const ForwardSettings& settings);
 
     rhi::IDevice& m_device;
     rhi::ResourceManager& m_resources;
+    const MeshPool& m_meshes;
     ForwardSettings m_settings;
+    rhi::PipelineHandle m_cull;
     rhi::PipelineHandle m_forward;
     rhi::PipelineHandle m_shadow;
     rhi::PipelineHandle m_lightCulling;

@@ -7,9 +7,9 @@
 
 struct ForwardPush
 {
-    uint vertices;      ///< Bindless index of the mesh's vertex buffer (24-byte Vertex).
+    uint vertices;      ///< Bindless index of the MeshPool vertex buffer (24-byte Vertex).
     uint scene;         ///< Bindless index of this frame's scene buffer.
-    uint objectIndex;   ///< Index into the scene buffer's object array.
+    uint pad2;
     uint clusters;      ///< Bindless index of the light-culling result.
     uint shadowMap;     ///< Bindless index of the cascade texture array, or kInvalidIndex.
     uint shadowSampler; ///< Bindless index of the depth-comparison sampler.
@@ -23,6 +23,7 @@ struct ForwardVaryings
     float4 position : SV_Position;
     float3 worldPosition : POSITION0;
     float3 normal : NORMAL0;
+    nointerpolation uint objectIndex : OBJECT_INDEX;
 };
 
 #endif

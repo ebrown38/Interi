@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/math/Vec.h>
 #include <interi/render/Mesh.h>
+#include <interi/render/MeshPool.h>
 
 #include <gtest/gtest.h>
 
@@ -54,5 +55,22 @@ TEST(Mesh, Plane_FacesUp)
     for (const Vertex& vertex : plane.vertices)
     {
         EXPECT_EQ(vertex.normal.y, 1.0f);
+    }
+}
+
+TEST(Mesh, ComputeBounds_SphereContainsEveryVertex)
+{
+    MeshData mesh = MakeCube(0.5f);
+    for (Vertex& vertex : mesh.vertices)
+    {
+        vertex.position = vertex.position + Vec3{3.0f, -1.0f, 2.0f}; // off-centre
+    }
+    const MeshRange bounds = ComputeBounds(mesh);
+    EXPECT_NEAR(bounds.boundsCenter.x, 3.0f, 1e-6f);
+    EXPECT_NEAR(bounds.boundsCenter.y, -1.0f, 1e-6f);
+    EXPECT_NEAR(bounds.boundsRadius, std::sqrt(0.75f), 1e-6f);
+    for (const Vertex& vertex : mesh.vertices)
+    {
+        EXPECT_LE(Length(vertex.position - bounds.boundsCenter), bounds.boundsRadius + 1e-6f);
     }
 }

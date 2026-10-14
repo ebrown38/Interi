@@ -88,7 +88,7 @@ float SunVisibility(float3 worldPosition, float3 normal, float viewDepth)
 float4 main(ForwardVaryings input) : SV_Target0
 {
     const uint scene = g_Push.scene;
-    const uint object = ObjectOffset(g_Push.objectIndex);
+    const uint object = ObjectOffset(input.objectIndex);
     const float4 baseColorMetallic = g_Buffers[scene].Load<float4>(object + kObjectBaseColorMetallic);
     const float3 baseColor = baseColorMetallic.rgb;
     const float metallic = baseColorMetallic.a;

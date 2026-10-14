@@ -119,6 +119,7 @@ public:
 
     void CopyBuffer(BufferHandle src, std::uint64_t srcOffset, BufferHandle dst, std::uint64_t dstOffset,
                     std::uint64_t size) override;
+    void FillBuffer(BufferHandle buffer, std::uint64_t offset, std::uint64_t size, std::uint32_t value) override;
     void Barriers(std::span<const BufferBarrier> buffers, std::span<const TextureBarrier> textures) override;
     void AliasingBarrier() override;
     void BindPipeline(PipelineHandle pipeline) override;

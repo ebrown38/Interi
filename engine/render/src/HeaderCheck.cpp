@@ -6,4 +6,5 @@
 #include <interi/render/ForwardRenderer.h>
 #include <interi/render/FrameGraph.h>
 #include <interi/render/Mesh.h>
+#include <interi/render/MeshPool.h>
 #include <interi/render/Shadows.h>

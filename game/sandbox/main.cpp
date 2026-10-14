@@ -86,6 +86,9 @@ Options ParseOptions(int argc, char** argv)
 int main(int argc, char** argv)
 {
     const Options options = ParseOptions(argc, argv);
+    interi::Logger logger;
+    logger.AddSink(std::make_unique<interi::ConsoleSink>());
+    interi::SetGlobalLogger(&logger);
     auto platform = interi::SdlPlatform::Create(interi::SdlPlatformDesc{.videoDriver = options.videoDriver});
     if (!platform)
     {
@@ -193,6 +196,7 @@ int main(int argc, char** argv)
     interi::Vec3 spawnPoint{0.0f, 10.0f, 0.0f};
     std::vector<interi::InputEvent> events;
     std::vector<interi::Vec3> debris;
+    std::uint64_t presented = 0;
     const auto start = std::chrono::steady_clock::now();
     auto previous = start;
     auto titleTime = previous;
@@ -238,7 +242,7 @@ int main(int argc, char** argv)
                                         debris.push_back(position.value);
                                     }
                                 });
-            renderer->Render(debris, std::chrono::duration<double>(now - start).count());
+            presented += renderer->Render(debris, std::chrono::duration<double>(now - start).count()) ? 1 : 0;
         }
 
         ++framesSinceTitle;
@@ -251,5 +255,12 @@ int main(int argc, char** argv)
             framesSinceTitle = 0;
         }
     }
+    if (options.maxFrames != 0)
+    {
+        // Smoke runs check this: every frame should have been presented when rendering is enabled.
+        std::printf("Presented %llu of %llu frames (%zu debris at exit)\n", static_cast<unsigned long long>(presented),
+                    static_cast<unsigned long long>(options.maxFrames), debris.size());
+    }
+    interi::SetGlobalLogger(nullptr);
     return EXIT_SUCCESS;
 }

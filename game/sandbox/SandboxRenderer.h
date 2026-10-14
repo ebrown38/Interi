@@ -32,8 +32,9 @@ public:
     SandboxRenderer(SandboxRenderer&&) = delete;
     SandboxRenderer& operator=(SandboxRenderer&&) = delete;
 
-    /// Renders and presents one frame. `debris` are cube positions; `seconds` animates the camera.
-    void Render(std::span<const interi::Vec3> debris, double seconds);
+    /// Renders and presents one frame. `debris` are cube positions; `seconds` animates the camera. Returns whether a
+    /// frame was presented (false while minimised or on errors, which are logged).
+    bool Render(std::span<const interi::Vec3> debris, double seconds);
 
 private:
     struct State;

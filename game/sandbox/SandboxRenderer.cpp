@@ -101,7 +101,7 @@ Result<std::unique_ptr<SandboxRenderer>> SandboxRenderer::Create(SdlPlatform& pl
     return std::unique_ptr<SandboxRenderer>(new SandboxRenderer(std::move(state)));
 }
 
-void SandboxRenderer::Render(std::span<const Vec3> debris, double seconds)
+bool SandboxRenderer::Render(std::span<const Vec3> debris, double seconds)
 {
     State& state = *m_state;
     state.commandPools->BeginFrame();
@@ -112,7 +112,7 @@ void SandboxRenderer::Render(std::span<const Vec3> debris, double seconds)
     auto image = state.swapchain->AcquireNextImage();
     if (!image.has_value())
     {
-        return; // minimised: nothing to draw into
+        return false; // minimised: nothing to draw into
     }
 
     // Scene: a ground plane and four pillars (occluders), then as many debris cubes as the renderer takes.
@@ -157,20 +157,24 @@ void SandboxRenderer::Render(std::span<const Vec3> debris, double seconds)
     if (auto compiled = graph.Compile(); !compiled)
     {
         INTERI_LOG_ERROR("Sandbox", "frame graph: {}", compiled.error().message);
-        return;
+        return false;
     }
     rhi::ICommandList& commands = state.commandPools->Acquire();
+    bool ok = true;
     if (auto executed = graph.Execute(commands); !executed)
     {
         INTERI_LOG_ERROR("Sandbox", "frame graph: {}", executed.error().message);
+        ok = false;
     }
     rhi::ICommandList* const lists[] = {&commands};
     const std::uint64_t value = state.device->Submit(lists, *state.swapchain);
     if (auto presented = state.swapchain->Present(); !presented)
     {
         INTERI_LOG_ERROR("Sandbox", "present: {}", presented.error().message);
+        ok = false;
     }
     state.commandPools->EndFrame(value);
+    return ok;
 }
 
 } // namespace sandbox

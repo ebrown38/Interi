@@ -31,6 +31,7 @@ include(InteriArch)
 include(InteriWarnings)
 include(InteriSanitizers)
 include(InteriModule)
+include(InteriShaders)
 
 find_package(GTest CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)

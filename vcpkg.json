@@ -6,6 +6,10 @@
   "builtin-baseline": "e456309491fd875487bf02b8a0dca76c1b1b00cc",
   "dependencies": [
     "benchmark",
+    {
+      "name": "directx-dxc",
+      "host": true
+    },
     "gtest",
     {
       "name": "joltphysics",
@@ -24,9 +28,11 @@
         {
           "name": "x11",
           "platform": "linux"
-        }
+        },
+        "vulkan"
       ]
     },
+    "spirv-reflect",
     {
       "name": "tracy",
       "default-features": false,
@@ -34,6 +40,9 @@
         "on-demand"
       ]
     },
+    "volk",
+    "vulkan-headers",
+    "vulkan-memory-allocator",
     "xxhash"
   ]
 }

@@ -2,6 +2,7 @@
 #include <interi/platform_sdl/SdlPlatform.h>
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
 #include <array>
@@ -319,6 +320,10 @@ Result<std::unique_ptr<IWindow>> SdlPlatform::OpenWindow(const WindowDesc& desc)
     {
         flags |= SDL_WINDOW_RESIZABLE;
     }
+    if (desc.vulkan)
+    {
+        flags |= SDL_WINDOW_VULKAN;
+    }
     SDL_Window* window = SDL_CreateWindow(std::string(desc.title).c_str(), static_cast<int>(desc.size.width),
                                           static_cast<int>(desc.size.height), flags);
     if (window == nullptr)
@@ -326,6 +331,70 @@ Result<std::unique_ptr<IWindow>> SdlPlatform::OpenWindow(const WindowDesc& desc)
         return MakeError(ErrorCode::IoError, SdlError("SDL_CreateWindow failed"));
     }
     return std::unique_ptr<IWindow>(std::make_unique<SdlWindow>(window));
+}
+
+namespace
+{
+
+/// Keeps SDL's Vulkan library loaded for a scope. SDL's Vulkan entry points must not be called by drivers without
+/// Vulkan support (they crash on the "dummy" driver), and loading fails cleanly there.
+class ScopedSdlVulkan
+{
+public:
+    ScopedSdlVulkan()
+        : m_loaded(SDL_Vulkan_LoadLibrary(nullptr))
+    {
+    }
+    ~ScopedSdlVulkan()
+    {
+        if (m_loaded)
+        {
+            SDL_Vulkan_UnloadLibrary();
+        }
+    }
+    ScopedSdlVulkan(const ScopedSdlVulkan&) = delete;
+    ScopedSdlVulkan& operator=(const ScopedSdlVulkan&) = delete;
+    ScopedSdlVulkan(ScopedSdlVulkan&&) = delete;
+    ScopedSdlVulkan& operator=(ScopedSdlVulkan&&) = delete;
+
+    [[nodiscard]] bool Loaded() const noexcept { return m_loaded; }
+
+private:
+    bool m_loaded;
+};
+
+} // namespace
+
+Result<std::vector<const char*>> SdlPlatform::VulkanInstanceExtensions() const
+{
+    const ScopedSdlVulkan vulkan;
+    if (!vulkan.Loaded())
+    {
+        return MakeError(ErrorCode::Unsupported, SdlError("no Vulkan support in this video driver"));
+    }
+    Uint32 count = 0;
+    const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
+    if (names == nullptr)
+    {
+        return MakeError(ErrorCode::IoError, SdlError("SDL_Vulkan_GetInstanceExtensions failed"));
+    }
+    return std::vector<const char*>(names, names + count);
+}
+
+Result<std::uint64_t> SdlPlatform::CreateVulkanSurface(const IWindow& window, void* instance) const
+{
+    const ScopedSdlVulkan vulkan;
+    if (!vulkan.Loaded())
+    {
+        return MakeError(ErrorCode::Unsupported, SdlError("no Vulkan support in this video driver"));
+    }
+    VkSurfaceKHR surface{};
+    if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(window.NativeHandle()), static_cast<VkInstance>(instance),
+                                  nullptr, &surface))
+    {
+        return MakeError(ErrorCode::IoError, SdlError("SDL_Vulkan_CreateSurface failed"));
+    }
+    return reinterpret_cast<std::uint64_t>(surface);
 }
 
 void SdlPlatform::HandleGamepadConnection(const SDL_Event& event)

@@ -333,8 +333,45 @@ Result<std::unique_ptr<IWindow>> SdlPlatform::OpenWindow(const WindowDesc& desc)
     return std::unique_ptr<IWindow>(std::make_unique<SdlWindow>(window));
 }
 
+namespace
+{
+
+/// Keeps SDL's Vulkan library loaded for a scope. SDL's Vulkan entry points must not be called by drivers without
+/// Vulkan support (they crash on the "dummy" driver), and loading fails cleanly there.
+class ScopedSdlVulkan
+{
+public:
+    ScopedSdlVulkan()
+        : m_loaded(SDL_Vulkan_LoadLibrary(nullptr))
+    {
+    }
+    ~ScopedSdlVulkan()
+    {
+        if (m_loaded)
+        {
+            SDL_Vulkan_UnloadLibrary();
+        }
+    }
+    ScopedSdlVulkan(const ScopedSdlVulkan&) = delete;
+    ScopedSdlVulkan& operator=(const ScopedSdlVulkan&) = delete;
+    ScopedSdlVulkan(ScopedSdlVulkan&&) = delete;
+    ScopedSdlVulkan& operator=(ScopedSdlVulkan&&) = delete;
+
+    [[nodiscard]] bool Loaded() const noexcept { return m_loaded; }
+
+private:
+    bool m_loaded;
+};
+
+} // namespace
+
 Result<std::vector<const char*>> SdlPlatform::VulkanInstanceExtensions() const
 {
+    const ScopedSdlVulkan vulkan;
+    if (!vulkan.Loaded())
+    {
+        return MakeError(ErrorCode::Unsupported, SdlError("no Vulkan support in this video driver"));
+    }
     Uint32 count = 0;
     const char* const* names = SDL_Vulkan_GetInstanceExtensions(&count);
     if (names == nullptr)
@@ -346,6 +383,11 @@ Result<std::vector<const char*>> SdlPlatform::VulkanInstanceExtensions() const
 
 Result<std::uint64_t> SdlPlatform::CreateVulkanSurface(const IWindow& window, void* instance) const
 {
+    const ScopedSdlVulkan vulkan;
+    if (!vulkan.Loaded())
+    {
+        return MakeError(ErrorCode::Unsupported, SdlError("no Vulkan support in this video driver"));
+    }
     VkSurfaceKHR surface{};
     if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(window.NativeHandle()), static_cast<VkInstance>(instance),
                                   nullptr, &surface))

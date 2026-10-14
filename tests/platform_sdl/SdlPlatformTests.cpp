@@ -189,3 +189,21 @@ TEST(SdlTranslation, EveryGamepadButtonAndAxis_Translated)
     }
     EXPECT_TRUE(std::ranges::all_of(mouse, [](int count) { return count == 1; }));
 }
+
+// A video driver without Vulkan support ("dummy") must report an error rather than crash: callers try Vulkan first
+// and fall back to running without rendering.
+TEST(SdlPlatform, DummyDriver_VulkanUnavailable_ReturnsErrors)
+{
+    auto platform = SdlPlatform::Create(SdlPlatformDesc{.videoDriver = "dummy"});
+    ASSERT_TRUE(platform.has_value()) << platform.error().message;
+    EXPECT_FALSE((*platform)->OpenWindow(interi::WindowDesc{.title = "vk", .vulkan = true}).has_value());
+    auto window = (*platform)->OpenWindow(interi::WindowDesc{.title = "plain"});
+    ASSERT_TRUE(window.has_value());
+
+    const auto extensions = (*platform)->VulkanInstanceExtensions();
+    ASSERT_FALSE(extensions.has_value());
+    EXPECT_EQ(extensions.error().code, ErrorCode::Unsupported);
+    const auto surface = (*platform)->CreateVulkanSurface(**window, nullptr);
+    ASSERT_FALSE(surface.has_value());
+    EXPECT_EQ(surface.error().code, ErrorCode::Unsupported);
+}

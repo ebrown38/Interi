@@ -55,7 +55,7 @@ public:
 
     /// Instance extensions a Vulkan instance needs to create surfaces for this platform's windows. Call it after
     /// opening a window with WindowDesc::vulkan (SDL loads Vulkan then, and some drivers' answers depend on it).
-    /// IoError if the video driver has no Vulkan support (e.g. "dummy").
+    /// Unsupported if the video driver has no Vulkan support (e.g. "dummy").
     [[nodiscard]] Result<std::vector<const char*>> VulkanInstanceExtensions() const;
     /// Creates a surface for `window` (opened with WindowDesc::vulkan). `instance` is a VkInstance; the result is a
     /// VkSurfaceKHR handle value owned by the caller. Opaque so neither SDL nor Vulkan headers leak through.

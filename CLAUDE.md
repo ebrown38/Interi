@@ -129,7 +129,66 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 - **`FixedStepClock`** takes the elapsed time from the caller and never reads a clock. It uses integer nanoseconds, clamps substeps after a hitch (dropping whole steps but keeping the fraction), and exposes `Alpha()` for `Interpolate(previous, current, alpha)`.
 - **`FramePipeline<Snapshot>`** double-buffers: render prep of frame N runs as a job while frame N+1 simulates on the calling thread. Neither side writes what the other reads. The TSan stress test lives in `interi_runtime_stress_tests`.
-- **`interi_sandbox`** (`game/sandbox`) is the minimal window + input + ECS demo, run as `--video-driver dummy --frames N` for headless smoke runs. CI builds it but doesn't run it.
+- **`interi_sandbox`** (`game/sandbox`) is the window + input + ECS + rendering demo. Run `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` for a headless rendering smoke run on lavapipe. `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+
+## RHI (`engine/rhi`, `engine/rhi_vulkan`, namespace `interi::rhi`)
+
+- **`interi::rhi` is backend-neutral and never includes Vulkan.**
+  - It holds `IDevice`, `ICommandList` and `ISwapchain` with typed handles, plus CPU-side helpers tested against `tests/rhi/MockDevice.h` (gmock):
+    - `ResourceManager`: deferred destroy.
+    - `CommandListPool`: one pool per thread per frame in flight.
+    - `UploadQueue`: a chunked staging ring.
+  - `tests/rhi/NullDevice.h` is a do-nothing device for benchmarks.
+  - Every new `IDevice`/`ICommandList` virtual needs a `MOCK_METHOD` and a `NullDevice` override in the same change.
+- **Timeline.**
+  - The device has one queue. Each `Submit` signals the next timeline value; `CompletedValue`/`WaitForValue` track it.
+  - A resource released while frame N is recorded retires at `LastSubmittedValue() + 1`.
+  - `ResourceManager`'s destructor waits only for what was actually submitted.
+- **Bindless model.** One descriptor set is shared by every pipeline, plus 128 bytes of push constants. Indices come from `IDevice::BindlessIndex` / `BindlessStorageIndex`. The tables are declared in `engine/shaders/include/interi/Bindless.hlsli` (aliases share a binding; DXC accepts this):
+  - binding 0: raw `RWByteAddressBuffer` storage buffers;
+  - binding 1: sampled textures, as `Texture2D` and `Texture2DArray`;
+  - binding 2: samplers, including comparison samplers;
+  - binding 3: R32Float storage images, one slot per mip.
+  `ReflectSpirv` rejects resources outside these tables.
+- **Conventions,** pinned by `tests/render/gpu/ConventionTests.cpp` and `tests/rhi_vulkan/ComputeTests.cpp`:
+  - Clip space is +Y up with depth 0..1 (the Vulkan backend flips the viewport). Counter-clockwise triangles are front faces.
+  - Depth is reverse-Z: clear 0, compare `Greater`.
+  - HLSL `LoadMat4` returns M with `mul(M, v)` == engine `M * v`.
+  - Texture-to-buffer row pitch is aligned to 256 bytes.
+  - Vertices are pulled from buffers, so there is no vertex input layout.
+- **`interi::rhi_vulkan`** implements the RHI on Vulkan 1.3: dynamic rendering, sync2, timeline semaphores, descriptor indexing and BDA.
+  - volk loads the system loader at runtime, so there is no vulkan-loader port, and `Create` returns `Unsupported` without a driver.
+  - VMA handles memory, including heaps and aliasing (placed) resources.
+  - Window surfaces come from the caller as opaque `VkSurfaceKHR` values (`SdlPlatform::CreateVulkanSurface`, or `CreateHeadlessSurface` for tests), so this module never links SDL.
+  - `engine/rhi_vulkan/.clang-tidy` turns off `bugprone-invalid-enum-default-initialization`, because zero-initialised C structs are the Vulkan idiom.
+- **Shaders.** `interi_add_shaders(target SOURCES <Name>.<cs|vs|ps>.hlsl ...)` (`cmake/InteriShaders.cmake`) runs DXC from vcpkg (host-only `directx-dxc`) to produce SPIR-V (SM 6.6, Vulkan 1.3, scalar layout). It embeds the result as `kNameStage` in `<interi/shaders/<Name>.<stage>.h>`. Vertex shaders read the GPU-driven object index through `[[vk::builtin("BaseInstance")]]`.
+- **GPU tests** use the `interi::testing::VulkanTest` fixture (`tests/rhi_vulkan/VulkanTestDevice.h`) and labels `integration`/`golden`.
+  - They run on lavapipe when it is installed: `VK_DRIVER_FILES` is set in-process.
+  - Validation plus synchronization validation is on; any validation error fails the test.
+  - They skip without a device unless `INTERI_REQUIRE_GPU` is set, which Linux CI does.
+  - Locally, install `vulkan-validation-layers`, or nothing is validated.
+  - `tests/rhi_vulkan/VulkanTestSupport.cpp` holds the LSan/TSan suppressions for Mesa, LLVM, the loader and the validation layer. Lavapipe stays loaded so LSan can symbolize its frames.
+
+## Renderer (`engine/render`, namespace `interi::render`)
+
+- **`FrameGraph`** is rebuilt every frame: `Reset`, declare, `Compile`, `Execute`.
+  - Passes declare versioned `Read`/`Write` accesses with a `ResourceState`. Compile culls passes whose output reaches no imported resource or `SideEffect` pass.
+  - Execute inserts the barriers. Shader writes followed by shader writes get a write-after-write barrier.
+  - Transients are placed first-fit in one heap by lifetime, so they alias. An `AliasingBarrier` is emitted where memory changes hands, and once per frame when last frame's placed resources are reused (frames in flight).
+  - Barriers are only inserted between passes. A pass that needs one inside itself (e.g. per Hi-Z mip) records it.
+- **`ForwardRenderer`** is GPU-driven. Each frame it runs:
+  1. Object culling per view (camera, shadow cascades, occluder prepass) into indirect commands.
+  2. Hi-Z occlusion from the `occluder` objects' depth.
+  3. Clustered light culling (16x9x24 grid).
+  4. Cascaded sun shadows.
+  5. One PBR forward pass.
+  All draws are `DrawIndexedIndirectCount` over a `MeshPool`, which holds all geometry in one vertex buffer and one index buffer.
+  - Scene data has one persistently mapped slot per frame in flight. The C++ and HLSL layouts (`ForwardRenderer.cpp`, `shaders/ForwardCommon.hlsli`) must match.
+  - CPU references are tested against the GPU: `CascadeSplits`/`FitCascade` (texel-snapped, stable) and `ClusterGrid`/`AssignLights`.
+- **Golden images.** `tests/render/golden/*.ppm` are 128x128 images rendered on lavapipe and compared with a per-channel tolerance plus a cap on the fraction of differing pixels.
+  - Regenerate with `INTERI_UPDATE_GOLDEN=1`, then look at the image before committing.
+  - Mismatches write the actual and diff images to `build/<preset>/golden-output`, which CI uploads on failure.
+  - Commit goldens only after CI's lavapipe agrees.
 
 ## Dependencies and licensing
 
@@ -137,7 +196,7 @@ Interi is MIT open source. Every dependency must be permissive (allowlist in `to
 - Run `ctest -L license`.
 - Regenerate notices: `python3 tools/license_check/gen_notices.py --installed-dir build/<preset>/vcpkg_installed/x64-linux --output THIRD_PARTY_NOTICES.md`.
 
-The `ThirdPartyNotices_UpToDate` test runs on both Linux and Windows, so the notices must match on both platforms. Port names come from vcpkg's SPDX documents, and empty packages are skipped.
+The `ThirdPartyNotices_UpToDate` test runs on both Linux and Windows, so the notices must match on both platforms. Port names come from vcpkg's SPDX documents, and empty packages are skipped. Host-only build tools such as DXC go under `build_tools` in `license_policy.json`. They are still license-checked (the host triplet too, via `LicenseCheck_HostTools_OnAllowlist`), but they are kept out of the notices, because they ship nothing and appear in the target triplet only when host == target.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

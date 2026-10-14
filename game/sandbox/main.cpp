@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
-// Minimal sandbox: an SDL window, input mapped to actions, and an ECS world advanced by a fixed-step clock.
+// Sandbox: an SDL window, input mapped to actions, an ECS world advanced by a fixed-step clock, and the Vulkan
+// forward renderer drawing the debris (shadows, point lights, GPU culling).
 //
-//   interi_sandbox [--video-driver <name>] [--frames <count>]
+//   interi_sandbox [--video-driver <name>] [--frames <count>] [--validation 1] [--auto-spawn 1]
 //
 // WASD / left stick moves the spawn point, Space / South button spawns a burst of debris entities, Escape quits.
-// The window title shows the entity count and frame rate. --frames exits after that many frames (for smoke runs
-// with --video-driver dummy).
+// The window title shows the entity count and frame rate. --frames exits after that many frames (for smoke runs;
+// with --video-driver dummy there is no Vulkan, so nothing is drawn, and --video-driver offscreen renders without
+// a display). --auto-spawn keeps spawning debris without input, to exercise rendering in smoke runs.
 #include <interi/core/Log.h>
 #include <interi/core/math/Vec.h>
 #include <interi/ecs/Scheduler.h>
@@ -14,12 +16,15 @@
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/runtime/FixedStepClock.h>
 
+#include "SandboxRenderer.h"
+
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -46,6 +51,8 @@ struct Options
 {
     std::string videoDriver;
     std::uint64_t maxFrames = 0; ///< 0 = run until quit.
+    bool validation = false;
+    bool autoSpawn = false;
 };
 
 Options ParseOptions(int argc, char** argv)
@@ -62,6 +69,14 @@ Options ParseOptions(int argc, char** argv)
         {
             options.maxFrames = std::strtoull(argv[i + 1], nullptr, 10);
         }
+        else if (flag == "--validation")
+        {
+            options.validation = std::string_view(argv[i + 1]) == "1";
+        }
+        else if (flag == "--auto-spawn")
+        {
+            options.autoSpawn = std::string_view(argv[i + 1]) == "1";
+        }
     }
     return options;
 }
@@ -77,7 +92,13 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "%s\n", platform.error().message.c_str());
         return EXIT_FAILURE;
     }
-    auto window = (*platform)->OpenWindow(interi::WindowDesc{.title = "Interi Sandbox", .size = {1280, 720}});
+    auto window =
+        (*platform)->OpenWindow(interi::WindowDesc{.title = "Interi Sandbox", .size = {1280, 720}, .vulkan = true});
+    if (!window)
+    {
+        // No Vulkan in this video driver (e.g. "dummy"): run the simulation without drawing.
+        window = (*platform)->OpenWindow(interi::WindowDesc{.title = "Interi Sandbox", .size = {1280, 720}});
+    }
     if (!window)
     {
         std::fprintf(stderr, "%s\n", window.error().message.c_str());
@@ -98,6 +119,15 @@ int main(int argc, char** argv)
     input.BindGamepadAxis(moveZ, interi::GamepadAxis::LeftY);
 
     interi::JobSystem jobs;
+    std::unique_ptr<sandbox::SandboxRenderer> renderer;
+    if (auto created = sandbox::SandboxRenderer::Create(**platform, **window, jobs, options.validation); created)
+    {
+        renderer = std::move(*created);
+    }
+    else
+    {
+        std::fprintf(stderr, "Rendering disabled: %s\n", created.error().message.c_str());
+    }
     interi::CommandBuffers commands(jobs);
     interi::World world;
     interi::FixedStepClock clock;
@@ -162,7 +192,9 @@ int main(int argc, char** argv)
 
     interi::Vec3 spawnPoint{0.0f, 10.0f, 0.0f};
     std::vector<interi::InputEvent> events;
-    auto previous = std::chrono::steady_clock::now();
+    std::vector<interi::Vec3> debris;
+    const auto start = std::chrono::steady_clock::now();
+    auto previous = start;
     auto titleTime = previous;
     std::uint64_t framesSinceTitle = 0;
     for (std::uint64_t frame = 0; options.maxFrames == 0 || frame < options.maxFrames; ++frame)
@@ -182,7 +214,7 @@ int main(int argc, char** argv)
         {
             spawnPoint.x += input.AxisValue(moveX) * 5.0f * dt;
             spawnPoint.z += input.AxisValue(moveZ) * 5.0f * dt;
-            if (input.IsDown(spawn))
+            if (input.IsDown(spawn) || options.autoSpawn)
             {
                 for (int i = 0; i < 256; ++i)
                 {
@@ -193,6 +225,20 @@ int main(int argc, char** argv)
                 }
             }
             scheduler.Run(world, jobs, commands);
+        }
+
+        if (renderer != nullptr)
+        {
+            debris.clear();
+            moving.ForEachChunk(world,
+                                [&](interi::ChunkView& view)
+                                {
+                                    for (const Position& position : view.Read<Position>())
+                                    {
+                                        debris.push_back(position.value);
+                                    }
+                                });
+            renderer->Render(debris, std::chrono::duration<double>(now - start).count());
         }
 
         ++framesSinceTitle;

@@ -20,6 +20,8 @@ struct WindowDesc
     std::string_view title = "Interi";
     WindowExtent size{1280, 720};
     bool resizable = true;
+    /// Create the window for Vulkan rendering (required before creating a Vulkan surface for it).
+    bool vulkan = false;
 };
 
 /// An OS window. Events (resize, close) arrive through the platform's IEventSource. Main thread only.

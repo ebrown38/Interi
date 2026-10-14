@@ -35,8 +35,7 @@ private:
 
 Result<ShaderReflection> ReflectSpirv(std::span<const std::byte> spirv)
 {
-    SpvReflectShaderModule
-        module{}; // NOLINT(bugprone-invalid-enum-default-initialization): C API, zero-init is the documented idiom
+    SpvReflectShaderModule module{};
     if (spvReflectCreateShaderModule2(SPV_REFLECT_MODULE_FLAG_NO_COPY, spirv.size(), spirv.data(), &module) !=
         SPV_REFLECT_RESULT_SUCCESS)
     {

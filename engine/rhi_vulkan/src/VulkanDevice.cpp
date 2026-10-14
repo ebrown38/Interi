@@ -4,6 +4,7 @@
 #include <interi/rhi_vulkan/ShaderReflection.h>
 
 #include "VulkanImpl.h"
+#include "VulkanSwapchain.h"
 
 #include <algorithm>
 #include <array>
@@ -461,7 +462,6 @@ namespace
 /// pipeline: that set plus kMaxPushConstantSize bytes of push constants visible to all stages.
 Result<void> CreateBindlessTables(VulkanDevice::Impl& state)
 {
-    // NOLINTNEXTLINE(bugprone-invalid-enum-default-initialization): C API, filled in by the query below
     VkPhysicalDeviceVulkan12Properties limits{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
     VkPhysicalDeviceProperties2 properties{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &limits};
     vkGetPhysicalDeviceProperties2(state.physicalDevice, &properties);
@@ -722,7 +722,10 @@ VulkanDevice::~VulkanDevice()
         for (const TextureData& texture : state.textures)
         {
             state.vk.vkDestroyImageView(state.device, texture.view, nullptr);
-            vmaDestroyImage(state.allocator, texture.image, texture.allocation);
+            if (texture.ownsImage)
+            {
+                vmaDestroyImage(state.allocator, texture.image, texture.allocation);
+            }
         }
         for (const auto& pool : state.pools)
         {
@@ -910,7 +913,8 @@ void VulkanDevice::DestroyTexture(TextureHandle texture)
         const std::unique_lock lock(state.resourceMutex);
         const TextureData* found = state.textures.Get(Retag<TextureData>(texture));
         INTERI_ASSERT(found != nullptr, "stale or invalid TextureHandle");
-        if (found == nullptr)
+        INTERI_ASSERT(found == nullptr || found->ownsImage, "swapchain images are destroyed by their swapchain");
+        if (found == nullptr || !found->ownsImage)
         {
             return;
         }
@@ -1077,6 +1081,16 @@ ICommandList& VulkanDevice::BeginCommandList(CommandPoolHandle pool)
 
 std::uint64_t VulkanDevice::Submit(std::span<ICommandList* const> commandLists)
 {
+    return SubmitImpl(commandLists, nullptr);
+}
+
+std::uint64_t VulkanDevice::Submit(std::span<ICommandList* const> commandLists, ISwapchain& swapchain)
+{
+    return SubmitImpl(commandLists, &swapchain);
+}
+
+std::uint64_t VulkanDevice::SubmitImpl(std::span<ICommandList* const> commandLists, ISwapchain* swapchain)
+{
     Impl& state = *m_impl;
     std::vector<VkCommandBufferSubmitInfo> buffers;
     buffers.reserve(commandLists.size());
@@ -1088,17 +1102,64 @@ std::uint64_t VulkanDevice::Submit(std::span<ICommandList* const> commandLists)
             VkCommandBufferSubmitInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = native});
     }
     const std::uint64_t value = ++state.lastSubmitted;
-    const VkSemaphoreSubmitInfo signal{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-                                       .semaphore = state.timeline,
-                                       .value = value,
-                                       .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    std::array<VkSemaphoreSubmitInfo, 2> signals{
+        VkSemaphoreSubmitInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                              .semaphore = state.timeline,
+                              .value = value,
+                              .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT}};
+    VkSemaphoreSubmitInfo wait{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    std::uint32_t signalCount = 1;
+    std::uint32_t waitCount = 0;
+    if (swapchain != nullptr)
+    {
+        // Writes to the image wait for the presentation engine to release it; Present waits for this submission.
+        const auto semaphores = static_cast<VulkanSwapchain*>(swapchain)->BeginSubmit(value);
+        wait.semaphore = semaphores.acquired;
+        wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        waitCount = 1;
+        signals[1] = VkSemaphoreSubmitInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                                           .semaphore = semaphores.rendered,
+                                           .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+        signalCount = 2;
+    }
     const VkSubmitInfo2 submit{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+                               .waitSemaphoreInfoCount = waitCount,
+                               .pWaitSemaphoreInfos = &wait,
                                .commandBufferInfoCount = static_cast<std::uint32_t>(buffers.size()),
                                .pCommandBufferInfos = buffers.data(),
-                               .signalSemaphoreInfoCount = 1,
-                               .pSignalSemaphoreInfos = &signal};
+                               .signalSemaphoreInfoCount = signalCount,
+                               .pSignalSemaphoreInfos = signals.data()};
     INTERI_VK_CHECK(state.vk.vkQueueSubmit2(state.queue, 1, &submit, VK_NULL_HANDLE));
     return value;
+}
+
+void* VulkanDevice::NativeInstance() const noexcept
+{
+    return m_impl->instance;
+}
+
+Result<std::uint64_t> VulkanDevice::CreateHeadlessSurface()
+{
+    if (vkCreateHeadlessSurfaceEXT == nullptr)
+    {
+        return MakeError(ErrorCode::Unsupported, "VK_EXT_headless_surface was not enabled on the instance");
+    }
+    const VkHeadlessSurfaceCreateInfoEXT info{.sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (const VkResult result = vkCreateHeadlessSurfaceEXT(m_impl->instance, &info, nullptr, &surface);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateHeadlessSurfaceEXT"));
+    }
+    return reinterpret_cast<std::uint64_t>(surface);
+}
+
+Result<std::unique_ptr<ISwapchain>> VulkanDevice::CreateSwapchain(std::uint64_t surface, const SwapchainDesc& desc)
+{
+    // NOLINTNEXTLINE(performance-no-int-to-ptr): VkSurfaceKHR is a pointer-sized opaque handle
+    auto swapchain = std::make_unique<VulkanSwapchain>(*this, reinterpret_cast<VkSurfaceKHR>(surface), desc);
+    INTERI_TRY(swapchain->Recreate());
+    return std::unique_ptr<ISwapchain>(std::move(swapchain));
 }
 
 std::uint64_t VulkanDevice::LastSubmittedValue() const

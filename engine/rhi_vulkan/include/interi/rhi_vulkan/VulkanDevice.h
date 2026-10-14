@@ -3,6 +3,7 @@
 
 #include <interi/core/Result.h>
 #include <interi/rhi/Device.h>
+#include <interi/rhi/Swapchain.h>
 
 #include <cstdint>
 #include <memory>
@@ -56,9 +57,19 @@ public:
     [[nodiscard]] ICommandList& BeginCommandList(CommandPoolHandle pool) override;
 
     std::uint64_t Submit(std::span<ICommandList* const> commandLists) override;
+    std::uint64_t Submit(std::span<ICommandList* const> commandLists, ISwapchain& swapchain) override;
     [[nodiscard]] std::uint64_t LastSubmittedValue() const override;
     [[nodiscard]] std::uint64_t CompletedValue() const override;
     void WaitForValue(std::uint64_t value) override;
+
+    /// The VkInstance, for creating window surfaces (e.g. SdlPlatform::CreateVulkanSurface).
+    [[nodiscard]] void* NativeInstance() const noexcept;
+    /// A surface with no window (VK_EXT_headless_surface, which must be in instanceExtensions together with
+    /// VK_KHR_surface): swapchains for tests and offscreen runs. Returns the VkSurfaceKHR handle value.
+    [[nodiscard]] Result<std::uint64_t> CreateHeadlessSurface();
+    /// A swapchain presenting to `surface` (a VkSurfaceKHR handle value, whose ownership passes to the swapchain).
+    /// Needs VulkanDeviceDesc::swapchain. Destroy it before the device.
+    [[nodiscard]] Result<std::unique_ptr<ISwapchain>> CreateSwapchain(std::uint64_t surface, const SwapchainDesc& desc);
 
     /// Validation-layer errors reported since creation (always 0 without validation).
     [[nodiscard]] std::uint32_t ValidationErrorCount() const noexcept;
@@ -70,6 +81,7 @@ public:
 
 private:
     explicit VulkanDevice(std::unique_ptr<Impl> impl);
+    std::uint64_t SubmitImpl(std::span<ICommandList* const> commandLists, ISwapchain* swapchain);
 
     std::unique_ptr<Impl> m_impl;
 };

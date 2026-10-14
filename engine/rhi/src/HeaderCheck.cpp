@@ -4,5 +4,6 @@
 #include <interi/rhi/CommandListPool.h>
 #include <interi/rhi/Device.h>
 #include <interi/rhi/ResourceManager.h>
+#include <interi/rhi/Swapchain.h>
 #include <interi/rhi/Types.h>
 #include <interi/rhi/UploadQueue.h>

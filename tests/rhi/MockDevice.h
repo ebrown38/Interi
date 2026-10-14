@@ -45,6 +45,8 @@ public:
     MOCK_METHOD(void, ResetCommandPool, (rhi::CommandPoolHandle pool), (override));
     MOCK_METHOD(rhi::ICommandList&, BeginCommandList, (rhi::CommandPoolHandle pool), (override));
     MOCK_METHOD(std::uint64_t, Submit, (std::span<rhi::ICommandList* const> commandLists), (override));
+    MOCK_METHOD(std::uint64_t, Submit, (std::span<rhi::ICommandList* const> commandLists, rhi::ISwapchain& swapchain),
+                (override));
     MOCK_METHOD(std::uint64_t, LastSubmittedValue, (), (const, override));
     MOCK_METHOD(std::uint64_t, CompletedValue, (), (const, override));
     MOCK_METHOD(void, WaitForValue, (std::uint64_t value), (override));

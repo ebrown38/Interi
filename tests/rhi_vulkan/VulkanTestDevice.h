@@ -44,10 +44,13 @@ inline void UseLavapipeIfAvailable()
 class VulkanTest : public ::testing::Test
 {
 protected:
-    void SetUp() override
+    void SetUp() override { CreateDevice(rhi::VulkanDeviceDesc{.validation = true}); }
+
+    /// Creates `device`, or skips/fails the test as described above. For fixtures needing other options.
+    void CreateDevice(const rhi::VulkanDeviceDesc& desc)
     {
         UseLavapipeIfAvailable();
-        auto created = rhi::VulkanDevice::Create(rhi::VulkanDeviceDesc{.validation = true});
+        auto created = rhi::VulkanDevice::Create(desc);
         if (!created.has_value())
         {
             if (GetEnv("INTERI_REQUIRE_GPU") != nullptr)

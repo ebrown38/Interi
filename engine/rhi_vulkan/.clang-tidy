@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Vulkan and SPIRV-Reflect structs are C structs whose documented initialization is zero-fill ({}), which leaves
+# some enum members at 0 even when the enum has no 0 enumerator. That is the API's convention, not a bug.
+InheritParentConfig: true
+Checks: -bugprone-invalid-enum-default-initialization

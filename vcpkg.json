@@ -28,7 +28,8 @@
         {
           "name": "x11",
           "platform": "linux"
-        }
+        },
+        "vulkan"
       ]
     },
     "spirv-reflect",

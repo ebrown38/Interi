@@ -12,6 +12,8 @@
 namespace interi::rhi
 {
 
+class ISwapchain;
+
 /// Records GPU commands. Obtained from IDevice::BeginCommandList and owned by its command pool: it stays valid
 /// until that pool is reset. A command list is recorded by one thread at a time and submitted once.
 class ICommandList
@@ -84,6 +86,9 @@ public:
 
     /// Ends and submits the command lists in order, then signals and returns the next timeline value.
     virtual std::uint64_t Submit(std::span<ICommandList* const> commandLists) = 0;
+    /// Submit for a frame that renders to `swapchain`'s acquired image: the work waits until the image is
+    /// available, and ISwapchain::Present waits for the work.
+    virtual std::uint64_t Submit(std::span<ICommandList* const> commandLists, ISwapchain& swapchain) = 0;
     /// The value returned by the most recent Submit (0 before the first).
     [[nodiscard]] virtual std::uint64_t LastSubmittedValue() const = 0;
     /// The highest timeline value whose work the GPU has finished.

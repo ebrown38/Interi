@@ -24,11 +24,13 @@ interi_add_module(rhi_vulkan
         src/ShaderReflection.cpp
         src/VmaImplementation.cpp
         src/VulkanDevice.cpp
+        src/VulkanSwapchain.cpp
     DEPS interi::rhi
     PRIVATE_DEPS volk::volk GPUOpen::VulkanMemoryAllocator unofficial::spirv-reflect
     TEST_DEPS interi::testing interi::vulkan_testing
     TEST_SOURCES
         ${_tests}/ComputeTests.cpp
+        ${_tests}/SwapchainTests.cpp
         ${_tests}/VulkanDeviceTests.cpp
     TEST_LABELS integration)
 interi_add_shaders(interi_rhi_vulkan_tests
@@ -41,6 +43,12 @@ set_source_files_properties(src/VmaImplementation.cpp PROPERTIES SKIP_LINTING ON
 # Vulkan's C structs are meant to be designated-initialized with the rest zeroed. Source-level options come after
 # the interi::warnings flags, so this wins over -Wextra.
 if(NOT MSVC)
-    set_source_files_properties(src/VulkanDevice.cpp PROPERTIES
+    set_source_files_properties(src/VulkanDevice.cpp src/VulkanSwapchain.cpp PROPERTIES
         COMPILE_OPTIONS -Wno-missing-designated-field-initializers)
 endif()
+
+# End-to-end window surface test: the only test that links SDL and Vulkan together.
+interi_add_test_executable(interi_rhi_vulkan_sdl_tests
+    SOURCES ${_tests}/SdlSurfaceTests.cpp
+    DEPS interi::rhi_vulkan interi::platform_sdl interi::vulkan_testing
+    LABELS integration)

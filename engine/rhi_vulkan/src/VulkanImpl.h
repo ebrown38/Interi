@@ -91,6 +91,7 @@ struct TextureData
     std::uint32_t mipLevels = 1;
     std::uint32_t arrayLayers = 1;
     std::uint32_t bindless = kInvalidBindlessIndex;
+    bool ownsImage = true; ///< False for swapchain images, which belong to the swapchain.
 };
 
 class VulkanCommandList final : public ICommandList

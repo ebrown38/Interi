@@ -6,9 +6,21 @@ interi_add_module(physics
     SOURCES
         src/HeaderCheck.cpp
         src/JoltRuntime.cpp
+        src/PhysicsLayers.cpp
+        src/PhysicsWorld.cpp
     DEPS interi::core interi::jobs_jolt interi::ecs Jolt::Jolt
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/PhysicsTestEnvironment.cpp
         ${_tests}/JoltMathTests.cpp
-        ${_tests}/JoltRuntimeTests.cpp)
+        ${_tests}/JoltRuntimeTests.cpp
+        ${_tests}/PhysicsLayersTests.cpp
+        ${_tests}/PhysicsWorldTests.cpp)
+
+# Whole simulations compared across thread counts (seconds each): label `stress`.
+interi_add_test_executable(interi_physics_stress_tests
+    SOURCES
+        ${_tests}/PhysicsTestEnvironment.cpp
+        ${_tests}/stress/PhysicsDeterminismTests.cpp
+    DEPS interi::physics interi::testing
+    LABELS stress)

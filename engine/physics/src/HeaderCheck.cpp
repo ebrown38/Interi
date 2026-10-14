@@ -3,3 +3,5 @@
 // engine's warnings and checked by clang-tidy.
 #include <interi/physics/JoltMath.h>
 #include <interi/physics/JoltRuntime.h>
+#include <interi/physics/PhysicsLayers.h>
+#include <interi/physics/PhysicsWorld.h>

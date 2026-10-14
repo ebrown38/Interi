@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/Assert.h>
 #include <interi/core/Log.h>
+#include <interi/rhi_vulkan/ShaderReflection.h>
 
 #include "VulkanImpl.h"
 
@@ -336,6 +337,14 @@ TextureData VulkanDevice::Impl::Texture(TextureHandle handle) const
     return data != nullptr ? *data : TextureData{};
 }
 
+PipelineData VulkanDevice::Impl::Pipeline(PipelineHandle handle) const
+{
+    const std::shared_lock lock(resourceMutex);
+    const PipelineData* data = pipelines.Get(Retag<PipelineData>(handle));
+    INTERI_ASSERT(data != nullptr, "stale or invalid PipelineHandle");
+    return data != nullptr ? *data : PipelineData{};
+}
+
 void VulkanDevice::Impl::SetName(VkObjectType type, std::uint64_t object, std::string_view name) const
 {
     if (!debugUtils || name.empty())
@@ -418,12 +427,131 @@ void VulkanCommandList::Barriers(std::span<const BufferBarrier> buffers, std::sp
     m_impl.vk.vkCmdPipelineBarrier2(m_commandBuffer, &dependency);
 }
 
+void VulkanCommandList::BindPipeline(PipelineHandle pipeline)
+{
+    const PipelineData data = m_impl.Pipeline(pipeline);
+    m_impl.vk.vkCmdBindPipeline(m_commandBuffer, data.bindPoint, data.pipeline);
+    m_impl.vk.vkCmdBindDescriptorSets(m_commandBuffer, data.bindPoint, m_impl.pipelineLayout, 0, 1, &m_impl.bindlessSet,
+                                      0, nullptr);
+}
+
+void VulkanCommandList::PushConstants(std::span<const std::byte> data)
+{
+    INTERI_ASSERT(data.size() <= kMaxPushConstantSize && data.size() % 4 == 0);
+    m_impl.vk.vkCmdPushConstants(m_commandBuffer, m_impl.pipelineLayout, VK_SHADER_STAGE_ALL, 0,
+                                 static_cast<std::uint32_t>(data.size()), data.data());
+}
+
+void VulkanCommandList::Dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ)
+{
+    m_impl.vk.vkCmdDispatch(m_commandBuffer, groupsX, groupsY, groupsZ);
+}
+
 // --- Device ------------------------------------------------------------------------------------------------------
 
 VulkanDevice::VulkanDevice(std::unique_ptr<Impl> impl)
     : m_impl(std::move(impl))
 {
 }
+
+namespace
+{
+
+/// The bindless descriptor set (update-after-bind, partially bound) and the pipeline layout shared by every
+/// pipeline: that set plus kMaxPushConstantSize bytes of push constants visible to all stages.
+Result<void> CreateBindlessTables(VulkanDevice::Impl& state)
+{
+    // NOLINTNEXTLINE(bugprone-invalid-enum-default-initialization): C API, filled in by the query below
+    VkPhysicalDeviceVulkan12Properties limits{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &limits};
+    vkGetPhysicalDeviceProperties2(state.physicalDevice, &properties);
+    constexpr std::uint32_t kMaxBuffers = 16 * 1024;
+    constexpr std::uint32_t kMaxTextures = 16 * 1024;
+    constexpr std::uint32_t kMaxSamplers = 64;
+    const std::uint32_t buffers = std::min({kMaxBuffers, limits.maxPerStageDescriptorUpdateAfterBindStorageBuffers,
+                                            limits.maxDescriptorSetUpdateAfterBindStorageBuffers});
+    const std::uint32_t textures = std::min({kMaxTextures, limits.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                                             limits.maxDescriptorSetUpdateAfterBindSampledImages});
+    const std::uint32_t samplers = std::min({kMaxSamplers, limits.maxPerStageDescriptorUpdateAfterBindSamplers,
+                                             limits.maxDescriptorSetUpdateAfterBindSamplers});
+    state.bufferSlots = BindlessSlots(buffers);
+    state.textureSlots = BindlessSlots(textures);
+
+    const std::array bindings{
+        VkDescriptorSetLayoutBinding{.binding = kBindlessBuffers,
+                                     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                     .descriptorCount = buffers,
+                                     .stageFlags = VK_SHADER_STAGE_ALL},
+        VkDescriptorSetLayoutBinding{.binding = kBindlessTextures,
+                                     .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                                     .descriptorCount = textures,
+                                     .stageFlags = VK_SHADER_STAGE_ALL},
+        VkDescriptorSetLayoutBinding{.binding = kBindlessSamplers,
+                                     .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+                                     .descriptorCount = samplers,
+                                     .stageFlags = VK_SHADER_STAGE_ALL},
+    };
+    constexpr VkDescriptorBindingFlags kFlags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
+                                                VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
+                                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+    const std::array<VkDescriptorBindingFlags, 3> bindingFlags{kFlags, kFlags, kFlags};
+    const VkDescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .bindingCount = static_cast<std::uint32_t>(bindingFlags.size()),
+        .pBindingFlags = bindingFlags.data()};
+    const VkDescriptorSetLayoutCreateInfo layoutInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                                                     .pNext = &flagsInfo,
+                                                     .flags =
+                                                         VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+                                                     .bindingCount = static_cast<std::uint32_t>(bindings.size()),
+                                                     .pBindings = bindings.data()};
+    if (const VkResult result =
+            state.vk.vkCreateDescriptorSetLayout(state.device, &layoutInfo, nullptr, &state.bindlessLayout);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateDescriptorSetLayout"));
+    }
+
+    const std::array poolSizes{VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, buffers},
+                               VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, textures},
+                               VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, samplers}};
+    const VkDescriptorPoolCreateInfo poolInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                              .flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT,
+                                              .maxSets = 1,
+                                              .poolSizeCount = static_cast<std::uint32_t>(poolSizes.size()),
+                                              .pPoolSizes = poolSizes.data()};
+    if (const VkResult result = state.vk.vkCreateDescriptorPool(state.device, &poolInfo, nullptr, &state.bindlessPool);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateDescriptorPool"));
+    }
+    const VkDescriptorSetAllocateInfo allocateInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                                   .descriptorPool = state.bindlessPool,
+                                                   .descriptorSetCount = 1,
+                                                   .pSetLayouts = &state.bindlessLayout};
+    if (const VkResult result = state.vk.vkAllocateDescriptorSets(state.device, &allocateInfo, &state.bindlessSet);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkAllocateDescriptorSets"));
+    }
+
+    const VkPushConstantRange pushConstants{
+        .stageFlags = VK_SHADER_STAGE_ALL, .offset = 0, .size = kMaxPushConstantSize};
+    const VkPipelineLayoutCreateInfo pipelineLayoutInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                                        .setLayoutCount = 1,
+                                                        .pSetLayouts = &state.bindlessLayout,
+                                                        .pushConstantRangeCount = 1,
+                                                        .pPushConstantRanges = &pushConstants};
+    if (const VkResult result =
+            state.vk.vkCreatePipelineLayout(state.device, &pipelineLayoutInfo, nullptr, &state.pipelineLayout);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreatePipelineLayout"));
+    }
+    return {};
+}
+
+} // namespace
 
 Result<std::unique_ptr<VulkanDevice>> VulkanDevice::Create(const VulkanDeviceDesc& desc)
 {
@@ -572,6 +700,8 @@ Result<std::unique_ptr<VulkanDevice>> VulkanDevice::Create(const VulkanDeviceDes
     const VkSemaphoreCreateInfo semaphoreInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &timelineType};
     INTERI_VK_CHECK(state.vk.vkCreateSemaphore(state.device, &semaphoreInfo, nullptr, &state.timeline));
 
+    INTERI_TRY(CreateBindlessTables(state));
+
     INTERI_LOG_INFO("Vulkan", "device: {}", state.properties.deviceName);
     return device;
 }
@@ -583,7 +713,7 @@ VulkanDevice::~VulkanDevice()
     {
         state.vk.vkDeviceWaitIdle(state.device);
         // Anything still alive is a leak in the caller; release it so the validation layer stays quiet about it.
-        INTERI_ASSERT(state.buffers.Empty() && state.textures.Empty() && state.pools.Empty(),
+        INTERI_ASSERT(state.buffers.Empty() && state.textures.Empty() && state.pools.Empty() && state.pipelines.Empty(),
                       "VulkanDevice destroyed while it still owns resources");
         for (const BufferData& buffer : state.buffers)
         {
@@ -598,6 +728,13 @@ VulkanDevice::~VulkanDevice()
         {
             state.vk.vkDestroyCommandPool(state.device, pool->pool, nullptr);
         }
+        for (const PipelineData& pipeline : state.pipelines)
+        {
+            state.vk.vkDestroyPipeline(state.device, pipeline.pipeline, nullptr);
+        }
+        state.vk.vkDestroyPipelineLayout(state.device, state.pipelineLayout, nullptr);
+        state.vk.vkDestroyDescriptorPool(state.device, state.bindlessPool, nullptr);
+        state.vk.vkDestroyDescriptorSetLayout(state.device, state.bindlessLayout, nullptr);
         state.vk.vkDestroySemaphore(state.device, state.timeline, nullptr);
         if (state.allocator != nullptr)
         {
@@ -652,6 +789,24 @@ Result<BufferHandle> VulkanDevice::CreateBuffer(const BufferDesc& desc)
     state.SetName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(data.buffer), desc.debugName);
 
     const std::unique_lock lock(state.resourceMutex);
+    if (HasFlags(desc.usage, BufferUsage::Storage))
+    {
+        data.bindless = state.bufferSlots.Allocate();
+        if (data.bindless == kInvalidBindlessIndex)
+        {
+            vmaDestroyBuffer(state.allocator, data.buffer, data.allocation);
+            return MakeError(ErrorCode::OutOfMemory, "bindless buffer table is full");
+        }
+        const VkDescriptorBufferInfo info{.buffer = data.buffer, .offset = 0, .range = VK_WHOLE_SIZE};
+        const VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                         .dstSet = state.bindlessSet,
+                                         .dstBinding = kBindlessBuffers,
+                                         .dstArrayElement = data.bindless,
+                                         .descriptorCount = 1,
+                                         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                         .pBufferInfo = &info};
+        state.vk.vkUpdateDescriptorSets(state.device, 1, &write, 0, nullptr);
+    }
     return Retag<BufferTag>(state.buffers.Insert(data));
 }
 
@@ -669,6 +824,7 @@ void VulkanDevice::DestroyBuffer(BufferHandle buffer)
         }
         data = *found;
         state.buffers.Remove(Retag<BufferData>(buffer));
+        state.bufferSlots.Release(data.bindless);
     }
     vmaDestroyBuffer(state.allocator, data.buffer, data.allocation);
 }
@@ -721,6 +877,28 @@ Result<TextureHandle> VulkanDevice::CreateTexture(const TextureDesc& desc)
     state.SetName(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(data.image), desc.debugName);
 
     const std::unique_lock lock(state.resourceMutex);
+    if (HasFlags(desc.usage, TextureUsage::Sampled))
+    {
+        data.bindless = state.textureSlots.Allocate();
+        if (data.bindless == kInvalidBindlessIndex)
+        {
+            state.vk.vkDestroyImageView(state.device, data.view, nullptr);
+            vmaDestroyImage(state.allocator, data.image, data.allocation);
+            return MakeError(ErrorCode::OutOfMemory, "bindless texture table is full");
+        }
+        const VkDescriptorImageInfo info{.imageView = data.view,
+                                         .imageLayout = data.aspect == VK_IMAGE_ASPECT_DEPTH_BIT
+                                                            ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+                                                            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        const VkWriteDescriptorSet write{.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                         .dstSet = state.bindlessSet,
+                                         .dstBinding = kBindlessTextures,
+                                         .dstArrayElement = data.bindless,
+                                         .descriptorCount = 1,
+                                         .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                                         .pImageInfo = &info};
+        state.vk.vkUpdateDescriptorSets(state.device, 1, &write, 0, nullptr);
+    }
     return Retag<TextureTag>(state.textures.Insert(data));
 }
 
@@ -738,6 +916,7 @@ void VulkanDevice::DestroyTexture(TextureHandle texture)
         }
         data = *found;
         state.textures.Remove(Retag<TextureData>(texture));
+        state.textureSlots.Release(data.bindless);
     }
     state.vk.vkDestroyImageView(state.device, data.view, nullptr);
     vmaDestroyImage(state.allocator, data.image, data.allocation);
@@ -751,6 +930,74 @@ std::span<std::byte> VulkanDevice::MappedMemory(BufferHandle buffer)
         return {};
     }
     return {data.mapped, static_cast<std::size_t>(data.size)};
+}
+
+std::uint32_t VulkanDevice::BindlessIndex(BufferHandle buffer) const
+{
+    return m_impl->Buffer(buffer).bindless;
+}
+
+std::uint32_t VulkanDevice::BindlessIndex(TextureHandle texture) const
+{
+    return m_impl->Texture(texture).bindless;
+}
+
+Result<PipelineHandle> VulkanDevice::CreateComputePipeline(const ComputePipelineDesc& desc)
+{
+    Impl& state = *m_impl;
+    INTERI_TRY_ASSIGN(reflection, ReflectSpirv(desc.code));
+    if (reflection.stage != ShaderStage::Compute)
+    {
+        return MakeError(ErrorCode::InvalidArgument, "CreateComputePipeline needs a compute shader");
+    }
+    INTERI_ASSERT(reinterpret_cast<std::uintptr_t>(desc.code.data()) % alignof(std::uint32_t) == 0,
+                  "SPIR-V must be 4-byte aligned");
+    const VkShaderModuleCreateInfo moduleInfo{.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                                              .codeSize = desc.code.size(),
+                                              .pCode = reinterpret_cast<const std::uint32_t*>(desc.code.data())};
+    VkShaderModule module = VK_NULL_HANDLE;
+    if (const VkResult result = state.vk.vkCreateShaderModule(state.device, &moduleInfo, nullptr, &module);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateShaderModule"));
+    }
+    const VkComputePipelineCreateInfo pipelineInfo{
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                  .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                  .module = module,
+                  .pName = "main"},
+        .layout = state.pipelineLayout};
+    PipelineData data{.bindPoint = VK_PIPELINE_BIND_POINT_COMPUTE};
+    const VkResult result =
+        state.vk.vkCreateComputePipelines(state.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &data.pipeline);
+    state.vk.vkDestroyShaderModule(state.device, module, nullptr);
+    if (result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vkCreateComputePipelines"));
+    }
+    state.SetName(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<std::uint64_t>(data.pipeline), desc.debugName);
+
+    const std::unique_lock lock(state.resourceMutex);
+    return Retag<PipelineTag>(state.pipelines.Insert(data));
+}
+
+void VulkanDevice::DestroyPipeline(PipelineHandle pipeline)
+{
+    Impl& state = *m_impl;
+    PipelineData data;
+    {
+        const std::unique_lock lock(state.resourceMutex);
+        const PipelineData* found = state.pipelines.Get(Retag<PipelineData>(pipeline));
+        INTERI_ASSERT(found != nullptr, "stale or invalid PipelineHandle");
+        if (found == nullptr)
+        {
+            return;
+        }
+        data = *found;
+        state.pipelines.Remove(Retag<PipelineData>(pipeline));
+    }
+    state.vk.vkDestroyPipeline(state.device, data.pipeline, nullptr);
 }
 
 Result<CommandPoolHandle> VulkanDevice::CreateCommandPool()

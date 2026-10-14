@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
 import sys
+from collections.abc import Collection
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_licenses import collect_port_licenses, collect_ports  # noqa: E402
+from check_licenses import DEFAULT_POLICY, collect_port_licenses, collect_ports  # noqa: E402
 
 HEADER = """# Third-Party Notices
 
@@ -27,10 +29,11 @@ def _is_vcpkg_helper(port: str) -> bool:
     return port.startswith("vcpkg-")
 
 
-def generate_notices(installed_dir: Path) -> str:
+def generate_notices(installed_dir: Path, build_tools: Collection[str] = ()) -> str:
+    """`build_tools`: ports that only run at build time (policy "build_tools"); nothing of theirs ships."""
     parts = [HEADER]
     for port, (license_expr, share_dir) in collect_ports(installed_dir).items():
-        if _is_vcpkg_helper(port):
+        if _is_vcpkg_helper(port) or port in build_tools:
             continue
         copyright_file = share_dir / "copyright"
         if not copyright_file.exists():
@@ -47,12 +50,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--installed-dir", required=True, type=Path, help="vcpkg_installed/<triplet>")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--check", action="store_true", help="verify --output is up to date instead of writing it")
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY, help="policy JSON file (for build_tools)")
     args = parser.parse_args(argv)
+    build_tools = json.loads(args.policy.read_text(encoding="utf-8")).get("build_tools", {})
 
     if not collect_port_licenses(args.installed_dir):
         print(f"error: no vcpkg SPDX documents found under {args.installed_dir}", file=sys.stderr)
         return 2
-    notices = generate_notices(args.installed_dir)
+    notices = generate_notices(args.installed_dir, build_tools)
     if args.check:
         current = args.output.read_text(encoding="utf-8") if args.output.exists() else ""
         if current != notices:

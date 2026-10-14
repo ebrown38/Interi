@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 find_package(volk CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(unofficial-spirv-reflect CONFIG REQUIRED)
 
 set(_tests ${PROJECT_SOURCE_DIR}/tests/rhi_vulkan)
 
@@ -20,14 +21,20 @@ endif()
 # window-system integration (surfaces) comes from the caller: this module never links SDL.
 interi_add_module(rhi_vulkan
     SOURCES
+        src/ShaderReflection.cpp
         src/VmaImplementation.cpp
         src/VulkanDevice.cpp
     DEPS interi::rhi
-    PRIVATE_DEPS volk::volk GPUOpen::VulkanMemoryAllocator
+    PRIVATE_DEPS volk::volk GPUOpen::VulkanMemoryAllocator unofficial::spirv-reflect
     TEST_DEPS interi::testing interi::vulkan_testing
     TEST_SOURCES
+        ${_tests}/ComputeTests.cpp
         ${_tests}/VulkanDeviceTests.cpp
     TEST_LABELS integration)
+interi_add_shaders(interi_rhi_vulkan_tests
+    SOURCES
+        ${_tests}/shaders/MatrixConvention.cs.hlsl
+        ${_tests}/shaders/PrefixSum.cs.hlsl)
 target_compile_definitions(interi_rhi_vulkan PRIVATE
     VK_NO_PROTOTYPES VMA_STATIC_VULKAN_FUNCTIONS=0 VMA_DYNAMIC_VULKAN_FUNCTIONS=1)
 set_source_files_properties(src/VmaImplementation.cpp PROPERTIES SKIP_LINTING ON)

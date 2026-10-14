@@ -17,7 +17,8 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_LINKER_TYPE": "LLD"
+        "CMAKE_LINKER_TYPE": "LLD",
+        "VCPKG_HOST_TRIPLET": "x64-linux"
       }
     },
     { "name": "linux-clang-debug", "inherits": "linux-clang", "displayName": "Linux Clang Debug",
@@ -43,7 +44,8 @@
       "architecture": { "value": "x64", "strategy": "external" },
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "cl",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "VCPKG_HOST_TRIPLET": "x64-windows"
       }
     },
     { "name": "windows-msvc-debug", "inherits": "windows-msvc", "displayName": "Windows MSVC Debug",

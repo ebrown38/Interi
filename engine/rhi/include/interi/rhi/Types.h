@@ -3,7 +3,9 @@
 
 #include <interi/core/containers/SlotMap.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <type_traits>
 
@@ -141,6 +143,26 @@ struct TextureDesc
     Format format = Format::Unknown;
     TextureUsage usage = TextureUsage::None;
     std::string_view debugName{}; // NOLINT(readability-redundant-member-init): lets designated inits omit it
+};
+
+enum class ShaderStage : std::uint8_t
+{
+    Compute,
+    Vertex,
+    Pixel,
+};
+
+/// Push constants available to every pipeline (the guaranteed Vulkan minimum; D3D12 root constants are larger).
+inline constexpr std::uint32_t kMaxPushConstantSize = 128;
+
+/// Sentinel for "no bindless slot", e.g. a resource created without Storage or Sampled usage.
+inline constexpr std::uint32_t kInvalidBindlessIndex = 0xFFFF'FFFFu;
+
+struct ComputePipelineDesc
+{
+    /// Backend bytecode: SPIR-V for Vulkan (see interi_add_shaders), one entry point named "main".
+    std::span<const std::byte> code{}; // NOLINT(readability-redundant-member-init)
+    std::string_view debugName{};      // NOLINT(readability-redundant-member-init)
 };
 
 struct BufferBarrier

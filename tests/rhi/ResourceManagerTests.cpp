@@ -65,6 +65,21 @@ TEST_F(ResourceManagerFixture, DeferredDestroy_TexturesFollowTheSameFence)
     manager.Collect();
 }
 
+TEST_F(ResourceManagerFixture, DeferredDestroy_PipelinesFollowTheSameFence)
+{
+    const auto pipeline = interi::rhi::PipelineHandle::FromParts(3, 1);
+    ResourceManager manager(device);
+    manager.DestroyPipeline(pipeline);
+
+    EXPECT_CALL(device, DestroyPipeline(pipeline)).Times(0);
+    manager.Collect();
+    ::testing::Mock::VerifyAndClearExpectations(&device);
+
+    completed = 4;
+    EXPECT_CALL(device, DestroyPipeline(pipeline)).Times(1);
+    manager.Collect();
+}
+
 TEST_F(ResourceManagerFixture, Collect_DestroysOnlyRetiredFrames)
 {
     const auto early = BufferHandle::FromParts(1, 1);

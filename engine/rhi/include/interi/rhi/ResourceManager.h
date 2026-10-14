@@ -31,6 +31,7 @@ public:
 
     void DestroyBuffer(BufferHandle buffer);
     void DestroyTexture(TextureHandle texture);
+    void DestroyPipeline(PipelineHandle pipeline);
 
     /// Destroys every pending resource whose frame has completed on the GPU.
     void Collect();
@@ -40,11 +41,11 @@ public:
 private:
     struct Pending
     {
-        std::variant<BufferHandle, TextureHandle> resource;
+        std::variant<BufferHandle, TextureHandle, PipelineHandle> resource;
         std::uint64_t retireValue;
     };
 
-    void Defer(std::variant<BufferHandle, TextureHandle> resource);
+    void Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle> resource);
     void Destroy(const Pending& pending);
 
     IDevice& m_device;

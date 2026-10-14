@@ -34,7 +34,12 @@ void ResourceManager::DestroyTexture(TextureHandle texture)
     Defer(texture);
 }
 
-void ResourceManager::Defer(std::variant<BufferHandle, TextureHandle> resource)
+void ResourceManager::DestroyPipeline(PipelineHandle pipeline)
+{
+    Defer(pipeline);
+}
+
+void ResourceManager::Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle> resource)
 {
     const std::scoped_lock lock(m_mutex);
     m_pending.push_back(Pending{.resource = resource, .retireValue = m_device.LastSubmittedValue() + 1});
@@ -72,6 +77,10 @@ void ResourceManager::Destroy(const Pending& pending)
     else if (const auto* texture = std::get_if<TextureHandle>(&pending.resource))
     {
         m_device.DestroyTexture(*texture);
+    }
+    else if (const auto* pipeline = std::get_if<PipelineHandle>(&pending.resource))
+    {
+        m_device.DestroyPipeline(*pipeline);
     }
 }
 

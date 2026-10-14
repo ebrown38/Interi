@@ -143,6 +143,15 @@ class NoticesTests(unittest.TestCase):
             self.assertNotIn("pthreads", text)
             self.assertIn("## gtest", text)
 
+    def test_build_tools_excluded(self):
+        # Host-only build tools (e.g. the shader compiler) are license-checked but never shipped, and vcpkg installs
+        # them into the target triplet only when host == target, so listing them would differ between platforms.
+        with tempfile.TemporaryDirectory() as tmp:
+            installed = make_installed_dir(Path(tmp), {"directx-dxc": "NOASSERTION", "gtest": "BSD-3-Clause"})
+            text = gen_notices.generate_notices(installed, build_tools={"directx-dxc"})
+            self.assertNotIn("directx-dxc", text)
+            self.assertIn("## gtest", text)
+
     def test_check_mode_detects_stale_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             installed = make_installed_dir(Path(tmp) / "installed", {"gtest": "BSD-3-Clause"})

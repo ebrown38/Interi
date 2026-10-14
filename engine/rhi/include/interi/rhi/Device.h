@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <type_traits>
 
 namespace interi::rhi
 {
@@ -27,6 +28,20 @@ public:
                             std::uint64_t size) = 0;
     /// Transitions resources between states. Accesses after the barrier wait for the accesses before it.
     virtual void Barriers(std::span<const BufferBarrier> buffers, std::span<const TextureBarrier> textures) = 0;
+
+    /// Binds a pipeline along with the bindless resource tables every pipeline shares.
+    virtual void BindPipeline(PipelineHandle pipeline) = 0;
+    /// Sets push constants (at most kMaxPushConstantSize bytes) for the following dispatches and draws.
+    virtual void PushConstants(std::span<const std::byte> data) = 0;
+    virtual void Dispatch(std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ) = 0;
+
+    /// PushConstants for a trivially copyable struct.
+    template <typename T>
+    void PushConstants(const T& value)
+    {
+        static_assert(std::is_trivially_copyable_v<T> && sizeof(T) <= kMaxPushConstantSize);
+        PushConstants(std::as_bytes(std::span(&value, 1)));
+    }
 };
 
 /// A GPU (or a fake of one). Work is ordered on a single queue whose completion is tracked by a timeline: each
@@ -52,6 +67,13 @@ public:
     virtual void DestroyTexture(TextureHandle texture) = 0;
     /// The CPU view of an Upload or Readback buffer (persistently mapped). Empty for GpuOnly buffers.
     [[nodiscard]] virtual std::span<std::byte> MappedMemory(BufferHandle buffer) = 0;
+    /// Index of a Storage buffer in the bindless buffer table, for shaders (kInvalidBindlessIndex otherwise).
+    [[nodiscard]] virtual std::uint32_t BindlessIndex(BufferHandle buffer) const = 0;
+    /// Index of a Sampled texture in the bindless texture table (kInvalidBindlessIndex otherwise).
+    [[nodiscard]] virtual std::uint32_t BindlessIndex(TextureHandle texture) const = 0;
+
+    [[nodiscard]] virtual Result<PipelineHandle> CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
+    virtual void DestroyPipeline(PipelineHandle pipeline) = 0;
 
     [[nodiscard]] virtual Result<CommandPoolHandle> CreateCommandPool() = 0;
     virtual void DestroyCommandPool(CommandPoolHandle pool) = 0;

@@ -22,6 +22,10 @@ public:
     MOCK_METHOD(void, Barriers,
                 (std::span<const rhi::BufferBarrier> buffers, std::span<const rhi::TextureBarrier> textures),
                 (override));
+    MOCK_METHOD(void, BindPipeline, (rhi::PipelineHandle pipeline), (override));
+    MOCK_METHOD(void, PushConstants, (std::span<const std::byte> data), (override));
+    MOCK_METHOD(void, Dispatch, (std::uint32_t groupsX, std::uint32_t groupsY, std::uint32_t groupsZ), (override));
+    using rhi::ICommandList::PushConstants;
 };
 
 class MockDevice : public rhi::IDevice
@@ -32,6 +36,10 @@ public:
     MOCK_METHOD(Result<rhi::TextureHandle>, CreateTexture, (const rhi::TextureDesc& desc), (override));
     MOCK_METHOD(void, DestroyTexture, (rhi::TextureHandle texture), (override));
     MOCK_METHOD(std::span<std::byte>, MappedMemory, (rhi::BufferHandle buffer), (override));
+    MOCK_METHOD(std::uint32_t, BindlessIndex, (rhi::BufferHandle buffer), (const, override));
+    MOCK_METHOD(std::uint32_t, BindlessIndex, (rhi::TextureHandle texture), (const, override));
+    MOCK_METHOD(Result<rhi::PipelineHandle>, CreateComputePipeline, (const rhi::ComputePipelineDesc& desc), (override));
+    MOCK_METHOD(void, DestroyPipeline, (rhi::PipelineHandle pipeline), (override));
     MOCK_METHOD(Result<rhi::CommandPoolHandle>, CreateCommandPool, (), (override));
     MOCK_METHOD(void, DestroyCommandPool, (rhi::CommandPoolHandle pool), (override));
     MOCK_METHOD(void, ResetCommandPool, (rhi::CommandPoolHandle pool), (override));

@@ -44,6 +44,11 @@ public:
     [[nodiscard]] Result<TextureHandle> CreateTexture(const TextureDesc& desc) override;
     void DestroyTexture(TextureHandle texture) override;
     [[nodiscard]] std::span<std::byte> MappedMemory(BufferHandle buffer) override;
+    [[nodiscard]] std::uint32_t BindlessIndex(BufferHandle buffer) const override;
+    [[nodiscard]] std::uint32_t BindlessIndex(TextureHandle texture) const override;
+
+    [[nodiscard]] Result<PipelineHandle> CreateComputePipeline(const ComputePipelineDesc& desc) override;
+    void DestroyPipeline(PipelineHandle pipeline) override;
 
     [[nodiscard]] Result<CommandPoolHandle> CreateCommandPool() override;
     void DestroyCommandPool(CommandPoolHandle pool) override;

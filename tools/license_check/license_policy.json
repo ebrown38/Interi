@@ -15,5 +15,13 @@
   "allowed_exceptions": [
     "LLVM-exception"
   ],
-  "overrides": {}
+  "overrides": {
+    "directx-dxc": {
+      "license": "NCSA",
+      "reason": "vcpkg port has no license metadata. Upstream DirectXShaderCompiler LICENSE.TXT (v1.9.2602.24) is the University of Illinois/NCSA license, reviewed 2026-10-13. The prebuilt package also contains libdxil/dxil.dll, which Interi never links or ships: dxc only runs at build time to emit SPIR-V."
+    }
+  },
+  "build_tools": {
+    "directx-dxc": "HLSL compiler run at build time (cmake/InteriShaders.cmake); its output is SPIR-V, no DXC code ships with Interi."
+  }
 }

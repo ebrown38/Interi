@@ -14,9 +14,11 @@ concurrency:
 
 env:
   VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
+  # GPU tests run on Mesa's lavapipe on Linux and must not silently skip there (they skip on Windows runners,
+  # which have no Vulkan driver).
   FEDORA_PACKAGES: >-
     clang lld llvm compiler-rt clang-tools-extra cmake ninja-build git python3
-    zip unzip tar curl pkgconf-pkg-config perl-IPC-Cmd mesa-vulkan-drivers vulkan-tools
+    zip unzip tar curl pkgconf-pkg-config perl-IPC-Cmd mesa-vulkan-drivers vulkan-tools vulkan-validation-layers
     libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel
     libXtst-devel wayland-devel wayland-protocols-devel libxkbcommon-devel mesa-libEGL-devel libdecor-devel
 
@@ -58,9 +60,11 @@ jobs:
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - name: Unit, stress and benchmark smoke tests
+      - name: Unit, stress, benchmark smoke and GPU (lavapipe) tests
         if: matrix.preset != 'linux-clang-tidy'
-        run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark"
+        env:
+          INTERI_REQUIRE_GPU: 1
+        run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden"
       - name: Pending (TDD red) tests, informational
         if: matrix.preset == 'linux-clang-debug' && github.event_name == 'push' && github.ref != 'refs/heads/main'
         continue-on-error: true
@@ -97,7 +101,7 @@ jobs:
       - run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark"
+      - run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" # GPU tests skip: no Vulkan driver
 
   coverage:
     runs-on: ubuntu-24.04
@@ -120,6 +124,8 @@ jobs:
       - run: cmake --preset linux-clang-coverage
       - run: cmake --build --preset linux-clang-coverage
       - run: ctest --preset linux-clang-coverage
+        env:
+          INTERI_REQUIRE_GPU: 1
       - run: cmake --build --preset linux-clang-coverage --target coverage
       - uses: actions/upload-artifact@v7
         with:
@@ -152,4 +158,6 @@ jobs:
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
       - name: All non-pending tests (unit, integration, stress, golden)
+        env:
+          INTERI_REQUIRE_GPU: 1
         run: ctest --preset ${{ matrix.preset }}

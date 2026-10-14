@@ -34,6 +34,9 @@
         "on-demand"
       ]
     },
+    "volk",
+    "vulkan-headers",
+    "vulkan-memory-allocator",
     "xxhash"
   ]
 }

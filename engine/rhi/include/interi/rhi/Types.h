@@ -129,7 +129,7 @@ struct BufferDesc
     std::uint64_t size = 0;
     BufferUsage usage = BufferUsage::None;
     MemoryUsage memory = MemoryUsage::GpuOnly;
-    std::string_view debugName;
+    std::string_view debugName{}; // NOLINT(readability-redundant-member-init): lets designated inits omit it
 };
 
 struct TextureDesc
@@ -140,7 +140,7 @@ struct TextureDesc
     std::uint32_t arrayLayers = 1;
     Format format = Format::Unknown;
     TextureUsage usage = TextureUsage::None;
-    std::string_view debugName;
+    std::string_view debugName{}; // NOLINT(readability-redundant-member-init): lets designated inits omit it
 };
 
 struct BufferBarrier

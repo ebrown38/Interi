@@ -21,7 +21,7 @@ class ResourceManager
 {
 public:
     explicit ResourceManager(IDevice& device);
-    /// Waits for the GPU to finish with every pending resource, then destroys them.
+    /// Waits for the GPU to finish all submitted work, then destroys every pending resource.
     ~ResourceManager();
 
     ResourceManager(const ResourceManager&) = delete;
@@ -32,6 +32,8 @@ public:
     void DestroyBuffer(BufferHandle buffer);
     void DestroyTexture(TextureHandle texture);
     void DestroyPipeline(PipelineHandle pipeline);
+    /// Resources placed in the heap must be released (to this manager or directly) first.
+    void DestroyHeap(HeapHandle heap);
 
     /// Destroys every pending resource whose frame has completed on the GPU.
     void Collect();
@@ -41,16 +43,16 @@ public:
 private:
     struct Pending
     {
-        std::variant<BufferHandle, TextureHandle, PipelineHandle> resource;
+        std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle> resource;
         std::uint64_t retireValue;
     };
 
-    void Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle> resource);
+    void Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle> resource);
     void Destroy(const Pending& pending);
 
     IDevice& m_device;
     mutable std::mutex m_mutex;
-    std::vector<Pending> m_pending; ///< Ordered by retireValue (values only grow).
+    std::vector<Pending> m_pending; ///< In release order, so retireValue only grows (heaps go after their resources).
 };
 
 } // namespace interi::rhi

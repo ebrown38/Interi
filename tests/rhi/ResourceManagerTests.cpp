@@ -80,6 +80,21 @@ TEST_F(ResourceManagerFixture, DeferredDestroy_PipelinesFollowTheSameFence)
     manager.Collect();
 }
 
+TEST_F(ResourceManagerFixture, DeferredDestroy_HeapAfterItsResources)
+{
+    const auto texture = TextureHandle::FromParts(1, 1);
+    const auto heap = interi::rhi::HeapHandle::FromParts(1, 1);
+    ResourceManager manager(device);
+    manager.DestroyTexture(texture);
+    manager.DestroyHeap(heap);
+
+    completed = 4;
+    ::testing::InSequence sequence;
+    EXPECT_CALL(device, DestroyTexture(texture));
+    EXPECT_CALL(device, DestroyHeap(heap));
+    manager.Collect();
+}
+
 TEST_F(ResourceManagerFixture, Collect_DestroysOnlyRetiredFrames)
 {
     const auto early = BufferHandle::FromParts(1, 1);
@@ -97,8 +112,17 @@ TEST_F(ResourceManagerFixture, Collect_DestroysOnlyRetiredFrames)
     ::testing::Mock::VerifyAndClearExpectations(&device);
 
     EXPECT_CALL(device, DestroyBuffer(late)).Times(1);
-    // Destruction waits for the GPU and frees what is left.
-    EXPECT_CALL(device, WaitForValue(5)).Times(1);
+    // Destruction waits for the GPU and frees what is left. Nothing more will be submitted, so it waits for the
+    // last submission (4), not the never-submitted frame the buffer was retired against (5).
+    EXPECT_CALL(device, WaitForValue(4)).Times(1);
+}
+
+TEST_F(ResourceManagerFixture, Destructor_ReleasedAfterLastSubmit_WaitsOnlyForSubmittedWork)
+{
+    ResourceManager manager(device);
+    manager.DestroyBuffer(BufferHandle::FromParts(1, 1)); // retires at 4, which is never submitted
+    EXPECT_CALL(device, WaitForValue(3)).Times(1);
+    EXPECT_CALL(device, DestroyBuffer(BufferHandle::FromParts(1, 1))).Times(1);
 }
 
 TEST_F(ResourceManagerFixture, Destructor_NothingPending_DoesNotWait)

@@ -48,6 +48,15 @@ public:
     [[nodiscard]] std::uint32_t BindlessIndex(BufferHandle buffer) const override;
     [[nodiscard]] std::uint32_t BindlessIndex(TextureHandle texture) const override;
 
+    [[nodiscard]] MemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) const override;
+    [[nodiscard]] MemoryRequirements GetBufferMemoryRequirements(const BufferDesc& desc) const override;
+    [[nodiscard]] Result<HeapHandle> CreateHeap(const HeapDesc& desc) override;
+    void DestroyHeap(HeapHandle heap) override;
+    [[nodiscard]] Result<TextureHandle> CreatePlacedTexture(const TextureDesc& desc, HeapHandle heap,
+                                                            std::uint64_t offset) override;
+    [[nodiscard]] Result<BufferHandle> CreatePlacedBuffer(const BufferDesc& desc, HeapHandle heap,
+                                                          std::uint64_t offset) override;
+
     [[nodiscard]] Result<PipelineHandle> CreateComputePipeline(const ComputePipelineDesc& desc) override;
     void DestroyPipeline(PipelineHandle pipeline) override;
 

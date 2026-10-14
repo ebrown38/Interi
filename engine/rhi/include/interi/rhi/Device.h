@@ -30,6 +30,9 @@ public:
                             std::uint64_t size) = 0;
     /// Transitions resources between states. Accesses after the barrier wait for the accesses before it.
     virtual void Barriers(std::span<const BufferBarrier> buffers, std::span<const TextureBarrier> textures) = 0;
+    /// Orders every earlier memory access before every later one. Needed when heap memory passes from one placed
+    /// resource to another (aliasing); the new resource still starts from ResourceState::Undefined.
+    virtual void AliasingBarrier() = 0;
 
     /// Binds a pipeline along with the bindless resource tables every pipeline shares.
     virtual void BindPipeline(PipelineHandle pipeline) = 0;
@@ -73,6 +76,18 @@ public:
     [[nodiscard]] virtual std::uint32_t BindlessIndex(BufferHandle buffer) const = 0;
     /// Index of a Sampled texture in the bindless texture table (kInvalidBindlessIndex otherwise).
     [[nodiscard]] virtual std::uint32_t BindlessIndex(TextureHandle texture) const = 0;
+
+    [[nodiscard]] virtual MemoryRequirements GetTextureMemoryRequirements(const TextureDesc& desc) const = 0;
+    [[nodiscard]] virtual MemoryRequirements GetBufferMemoryRequirements(const BufferDesc& desc) const = 0;
+    [[nodiscard]] virtual Result<HeapHandle> CreateHeap(const HeapDesc& desc) = 0;
+    /// The heap's memory is freed; resources placed in it must already be destroyed.
+    virtual void DestroyHeap(HeapHandle heap) = 0;
+    /// Resources in heap memory at `offset` (aligned to their MemoryRequirements). Destroy them with
+    /// DestroyTexture/DestroyBuffer before their heap. Placed buffers are GpuOnly.
+    [[nodiscard]] virtual Result<TextureHandle> CreatePlacedTexture(const TextureDesc& desc, HeapHandle heap,
+                                                                    std::uint64_t offset) = 0;
+    [[nodiscard]] virtual Result<BufferHandle> CreatePlacedBuffer(const BufferDesc& desc, HeapHandle heap,
+                                                                  std::uint64_t offset) = 0;
 
     [[nodiscard]] virtual Result<PipelineHandle> CreateComputePipeline(const ComputePipelineDesc& desc) = 0;
     virtual void DestroyPipeline(PipelineHandle pipeline) = 0;

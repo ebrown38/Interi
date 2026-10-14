@@ -16,12 +16,14 @@ struct BufferTag;
 struct TextureTag;
 struct PipelineTag;
 struct CommandPoolTag;
+struct HeapTag;
 
 /// Backend objects are referred to by generational handles; using a destroyed handle is a programming error.
 using BufferHandle = Handle<BufferTag>;
 using TextureHandle = Handle<TextureTag>;
 using PipelineHandle = Handle<PipelineTag>;
 using CommandPoolHandle = Handle<CommandPoolTag>;
+using HeapHandle = Handle<HeapTag>;
 
 /// Enables |, & and ~ on a flags enum.
 template <typename E>
@@ -163,6 +165,22 @@ struct ComputePipelineDesc
     /// Backend bytecode: SPIR-V for Vulkan (see interi_add_shaders), one entry point named "main".
     std::span<const std::byte> code{}; // NOLINT(readability-redundant-member-init)
     std::string_view debugName{};      // NOLINT(readability-redundant-member-init)
+};
+
+/// What a resource needs from memory, for placing it in a heap.
+struct MemoryRequirements
+{
+    std::uint64_t size = 0;
+    std::uint64_t alignment = 1;
+    std::uint32_t memoryTypeBits = 0; ///< Backend memory types the resource can live in.
+};
+
+/// A block of GPU-only memory that placed resources are created in; resources whose lifetimes do not overlap can
+/// share its bytes (transient aliasing).
+struct HeapDesc
+{
+    std::uint64_t size = 0;
+    std::uint32_t memoryTypeBits = 0; ///< Intersection of the placed resources' MemoryRequirements.
 };
 
 struct BufferBarrier

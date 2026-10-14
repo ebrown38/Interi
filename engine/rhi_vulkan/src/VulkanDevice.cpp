@@ -428,6 +428,18 @@ void VulkanCommandList::Barriers(std::span<const BufferBarrier> buffers, std::sp
     m_impl.vk.vkCmdPipelineBarrier2(m_commandBuffer, &dependency);
 }
 
+void VulkanCommandList::AliasingBarrier()
+{
+    const VkMemoryBarrier2 barrier{.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                                   .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+                                   .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT};
+    const VkDependencyInfo dependency{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .memoryBarrierCount = 1, .pMemoryBarriers = &barrier};
+    m_impl.vk.vkCmdPipelineBarrier2(m_commandBuffer, &dependency);
+}
+
 void VulkanCommandList::BindPipeline(PipelineHandle pipeline)
 {
     const PipelineData data = m_impl.Pipeline(pipeline);
@@ -713,7 +725,8 @@ VulkanDevice::~VulkanDevice()
     {
         state.vk.vkDeviceWaitIdle(state.device);
         // Anything still alive is a leak in the caller; release it so the validation layer stays quiet about it.
-        INTERI_ASSERT(state.buffers.Empty() && state.textures.Empty() && state.pools.Empty() && state.pipelines.Empty(),
+        INTERI_ASSERT(state.buffers.Empty() && state.textures.Empty() && state.pools.Empty() &&
+                          state.pipelines.Empty() && state.heaps.Empty(),
                       "VulkanDevice destroyed while it still owns resources");
         for (const BufferData& buffer : state.buffers)
         {
@@ -730,6 +743,10 @@ VulkanDevice::~VulkanDevice()
         for (const auto& pool : state.pools)
         {
             state.vk.vkDestroyCommandPool(state.device, pool->pool, nullptr);
+        }
+        for (const HeapData& heap : state.heaps)
+        {
+            vmaFreeMemory(state.allocator, heap.allocation);
         }
         for (const PipelineData& pipeline : state.pipelines)
         {
@@ -755,42 +772,41 @@ VulkanDevice::~VulkanDevice()
     }
 }
 
-Result<BufferHandle> VulkanDevice::CreateBuffer(const BufferDesc& desc)
+namespace
 {
-    Impl& state = *m_impl;
+
+/// Heaps are allocated with this alignment so any offset aligned for a placed resource is aligned in memory too.
+constexpr VkDeviceSize kHeapAlignment = VkDeviceSize{64} * 1024;
+
+[[nodiscard]] VkBufferCreateInfo BufferInfo(const BufferDesc& desc)
+{
     INTERI_ASSERT(desc.size > 0);
-    const VkBufferCreateInfo bufferInfo{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                                        .size = desc.size,
-                                        .usage = ToVk(desc.usage),
-                                        .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
-    VmaAllocationCreateInfo allocationInfo{.usage = VMA_MEMORY_USAGE_AUTO};
-    switch (desc.memory)
-    {
-    case MemoryUsage::GpuOnly:
-        allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-        break;
-    case MemoryUsage::Upload:
-        allocationInfo.flags =
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        break;
-    case MemoryUsage::Readback:
-        allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-        break;
-    }
+    return {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = desc.size,
+            .usage = ToVk(desc.usage),
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
+}
 
-    BufferData data{.size = desc.size};
-    VmaAllocationInfo allocated{};
-    if (const VkResult result =
-            vmaCreateBuffer(state.allocator, &bufferInfo, &allocationInfo, &data.buffer, &data.allocation, &allocated);
-        result != VK_SUCCESS)
-    {
-        return std::unexpected(VkError(result, "vmaCreateBuffer"));
-    }
-    data.mapped = static_cast<std::byte*>(allocated.pMappedData);
+[[nodiscard]] VkImageCreateInfo ImageInfo(const TextureDesc& desc)
+{
+    INTERI_ASSERT(desc.format != Format::Unknown && desc.width > 0 && desc.height > 0);
+    return {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .imageType = VK_IMAGE_TYPE_2D,
+            .format = ToVk(desc.format),
+            .extent = {desc.width, desc.height, 1},
+            .mipLevels = desc.mipLevels,
+            .arrayLayers = desc.arrayLayers,
+            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = ToVk(desc.usage),
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+}
+
+/// Names a created buffer, gives it a bindless slot if it is a storage buffer, and registers it.
+Result<BufferHandle> RegisterBuffer(VulkanDevice::Impl& state, BufferData data, const BufferDesc& desc)
+{
     state.SetName(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<std::uint64_t>(data.buffer), desc.debugName);
-
     const std::unique_lock lock(state.resourceMutex);
     if (HasFlags(desc.usage, BufferUsage::Storage))
     {
@@ -813,54 +829,16 @@ Result<BufferHandle> VulkanDevice::CreateBuffer(const BufferDesc& desc)
     return Retag<BufferTag>(state.buffers.Insert(data));
 }
 
-void VulkanDevice::DestroyBuffer(BufferHandle buffer)
+/// Creates the view of a created image, names it, gives it a bindless slot if sampled, and registers it.
+Result<TextureHandle> RegisterTexture(VulkanDevice::Impl& state, TextureData data, const TextureDesc& desc)
 {
-    Impl& state = *m_impl;
-    BufferData data;
-    {
-        const std::unique_lock lock(state.resourceMutex);
-        const BufferData* found = state.buffers.Get(Retag<BufferData>(buffer));
-        INTERI_ASSERT(found != nullptr, "stale or invalid BufferHandle");
-        if (found == nullptr)
-        {
-            return;
-        }
-        data = *found;
-        state.buffers.Remove(Retag<BufferData>(buffer));
-        state.bufferSlots.Release(data.bindless);
-    }
-    vmaDestroyBuffer(state.allocator, data.buffer, data.allocation);
-}
-
-Result<TextureHandle> VulkanDevice::CreateTexture(const TextureDesc& desc)
-{
-    Impl& state = *m_impl;
-    TextureData data{.format = ToVk(desc.format),
-                     .aspect = desc.format == Format::D32Float ? VkImageAspectFlags{VK_IMAGE_ASPECT_DEPTH_BIT}
-                                                               : VkImageAspectFlags{VK_IMAGE_ASPECT_COLOR_BIT},
-                     .width = desc.width,
-                     .height = desc.height,
-                     .mipLevels = desc.mipLevels,
-                     .arrayLayers = desc.arrayLayers};
-    INTERI_ASSERT(data.format != VK_FORMAT_UNDEFINED && desc.width > 0 && desc.height > 0);
-    const VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                                      .imageType = VK_IMAGE_TYPE_2D,
-                                      .format = data.format,
-                                      .extent = {desc.width, desc.height, 1},
-                                      .mipLevels = desc.mipLevels,
-                                      .arrayLayers = desc.arrayLayers,
-                                      .samples = VK_SAMPLE_COUNT_1_BIT,
-                                      .tiling = VK_IMAGE_TILING_OPTIMAL,
-                                      .usage = ToVk(desc.usage),
-                                      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                                      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
-    const VmaAllocationCreateInfo allocationInfo{.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
-    if (const VkResult result =
-            vmaCreateImage(state.allocator, &imageInfo, &allocationInfo, &data.image, &data.allocation, nullptr);
-        result != VK_SUCCESS)
-    {
-        return std::unexpected(VkError(result, "vmaCreateImage"));
-    }
+    data.aspect = desc.format == Format::D32Float ? VkImageAspectFlags{VK_IMAGE_ASPECT_DEPTH_BIT}
+                                                  : VkImageAspectFlags{VK_IMAGE_ASPECT_COLOR_BIT};
+    data.format = ToVk(desc.format);
+    data.width = desc.width;
+    data.height = desc.height;
+    data.mipLevels = desc.mipLevels;
+    data.arrayLayers = desc.arrayLayers;
     const VkImageViewCreateInfo viewInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                                          .image = data.image,
                                          .viewType =
@@ -903,6 +881,170 @@ Result<TextureHandle> VulkanDevice::CreateTexture(const TextureDesc& desc)
         state.vk.vkUpdateDescriptorSets(state.device, 1, &write, 0, nullptr);
     }
     return Retag<TextureTag>(state.textures.Insert(data));
+}
+
+[[nodiscard]] VmaAllocation HeapAllocation(const VulkanDevice::Impl& state, HeapHandle heap)
+{
+    const std::shared_lock lock(state.resourceMutex);
+    const HeapData* data = state.heaps.Get(Retag<HeapData>(heap));
+    INTERI_ASSERT(data != nullptr, "stale or invalid HeapHandle");
+    return data != nullptr ? data->allocation : nullptr;
+}
+
+} // namespace
+
+Result<BufferHandle> VulkanDevice::CreateBuffer(const BufferDesc& desc)
+{
+    Impl& state = *m_impl;
+    const VkBufferCreateInfo bufferInfo = BufferInfo(desc);
+    VmaAllocationCreateInfo allocationInfo{.usage = VMA_MEMORY_USAGE_AUTO};
+    switch (desc.memory)
+    {
+    case MemoryUsage::GpuOnly:
+        allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        break;
+    case MemoryUsage::Upload:
+        allocationInfo.flags =
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        break;
+    case MemoryUsage::Readback:
+        allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        break;
+    }
+
+    BufferData data{.size = desc.size};
+    VmaAllocationInfo allocated{};
+    if (const VkResult result =
+            vmaCreateBuffer(state.allocator, &bufferInfo, &allocationInfo, &data.buffer, &data.allocation, &allocated);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vmaCreateBuffer"));
+    }
+    data.mapped = static_cast<std::byte*>(allocated.pMappedData);
+    return RegisterBuffer(state, data, desc);
+}
+
+Result<BufferHandle> VulkanDevice::CreatePlacedBuffer(const BufferDesc& desc, HeapHandle heap, std::uint64_t offset)
+{
+    INTERI_ASSERT(desc.memory == MemoryUsage::GpuOnly, "placed buffers live in GPU-only heaps");
+    Impl& state = *m_impl;
+    const VkBufferCreateInfo bufferInfo = BufferInfo(desc);
+    BufferData data{.size = desc.size};
+    if (const VkResult result =
+            vmaCreateAliasingBuffer2(state.allocator, HeapAllocation(state, heap), offset, &bufferInfo, &data.buffer);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vmaCreateAliasingBuffer2"));
+    }
+    return RegisterBuffer(state, data, desc);
+}
+
+void VulkanDevice::DestroyBuffer(BufferHandle buffer)
+{
+    Impl& state = *m_impl;
+    BufferData data;
+    {
+        const std::unique_lock lock(state.resourceMutex);
+        const BufferData* found = state.buffers.Get(Retag<BufferData>(buffer));
+        INTERI_ASSERT(found != nullptr, "stale or invalid BufferHandle");
+        if (found == nullptr)
+        {
+            return;
+        }
+        data = *found;
+        state.buffers.Remove(Retag<BufferData>(buffer));
+        state.bufferSlots.Release(data.bindless);
+    }
+    vmaDestroyBuffer(state.allocator, data.buffer, data.allocation);
+}
+
+Result<TextureHandle> VulkanDevice::CreateTexture(const TextureDesc& desc)
+{
+    Impl& state = *m_impl;
+    const VkImageCreateInfo imageInfo = ImageInfo(desc);
+    const VmaAllocationCreateInfo allocationInfo{.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE};
+    TextureData data;
+    if (const VkResult result =
+            vmaCreateImage(state.allocator, &imageInfo, &allocationInfo, &data.image, &data.allocation, nullptr);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vmaCreateImage"));
+    }
+    return RegisterTexture(state, data, desc);
+}
+
+Result<TextureHandle> VulkanDevice::CreatePlacedTexture(const TextureDesc& desc, HeapHandle heap, std::uint64_t offset)
+{
+    Impl& state = *m_impl;
+    const VkImageCreateInfo imageInfo = ImageInfo(desc);
+    TextureData data;
+    if (const VkResult result =
+            vmaCreateAliasingImage2(state.allocator, HeapAllocation(state, heap), offset, &imageInfo, &data.image);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vmaCreateAliasingImage2"));
+    }
+    return RegisterTexture(state, data, desc);
+}
+
+MemoryRequirements VulkanDevice::GetTextureMemoryRequirements(const TextureDesc& desc) const
+{
+    const VkImageCreateInfo imageInfo = ImageInfo(desc);
+    const VkDeviceImageMemoryRequirements query{.sType = VK_STRUCTURE_TYPE_DEVICE_IMAGE_MEMORY_REQUIREMENTS,
+                                                .pCreateInfo = &imageInfo};
+    VkMemoryRequirements2 requirements{.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};
+    m_impl->vk.vkGetDeviceImageMemoryRequirements(m_impl->device, &query, &requirements);
+    return {requirements.memoryRequirements.size, requirements.memoryRequirements.alignment,
+            requirements.memoryRequirements.memoryTypeBits};
+}
+
+MemoryRequirements VulkanDevice::GetBufferMemoryRequirements(const BufferDesc& desc) const
+{
+    const VkBufferCreateInfo bufferInfo = BufferInfo(desc);
+    const VkDeviceBufferMemoryRequirements query{.sType = VK_STRUCTURE_TYPE_DEVICE_BUFFER_MEMORY_REQUIREMENTS,
+                                                 .pCreateInfo = &bufferInfo};
+    VkMemoryRequirements2 requirements{.sType = VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};
+    m_impl->vk.vkGetDeviceBufferMemoryRequirements(m_impl->device, &query, &requirements);
+    return {requirements.memoryRequirements.size, requirements.memoryRequirements.alignment,
+            requirements.memoryRequirements.memoryTypeBits};
+}
+
+Result<HeapHandle> VulkanDevice::CreateHeap(const HeapDesc& desc)
+{
+    Impl& state = *m_impl;
+    INTERI_ASSERT(desc.size > 0 && desc.memoryTypeBits != 0);
+    const VkMemoryRequirements requirements{
+        .size = desc.size, .alignment = kHeapAlignment, .memoryTypeBits = desc.memoryTypeBits};
+    const VmaAllocationCreateInfo allocationInfo{.preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT};
+    HeapData data;
+    if (const VkResult result =
+            vmaAllocateMemory(state.allocator, &requirements, &allocationInfo, &data.allocation, nullptr);
+        result != VK_SUCCESS)
+    {
+        return std::unexpected(VkError(result, "vmaAllocateMemory"));
+    }
+    const std::unique_lock lock(state.resourceMutex);
+    return Retag<HeapTag>(state.heaps.Insert(data));
+}
+
+void VulkanDevice::DestroyHeap(HeapHandle heap)
+{
+    Impl& state = *m_impl;
+    HeapData data;
+    {
+        const std::unique_lock lock(state.resourceMutex);
+        const HeapData* found = state.heaps.Get(Retag<HeapData>(heap));
+        INTERI_ASSERT(found != nullptr, "stale or invalid HeapHandle");
+        if (found == nullptr)
+        {
+            return;
+        }
+        data = *found;
+        state.heaps.Remove(Retag<HeapData>(heap));
+    }
+    vmaFreeMemory(state.allocator, data.allocation);
 }
 
 void VulkanDevice::DestroyTexture(TextureHandle texture)

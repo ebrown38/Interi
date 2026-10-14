@@ -73,6 +73,11 @@ struct BufferData
     std::uint32_t bindless = kInvalidBindlessIndex;
 };
 
+struct HeapData
+{
+    VmaAllocation allocation = nullptr;
+};
+
 struct PipelineData
 {
     VkPipeline pipeline = VK_NULL_HANDLE;
@@ -106,6 +111,7 @@ public:
     void CopyBuffer(BufferHandle src, std::uint64_t srcOffset, BufferHandle dst, std::uint64_t dstOffset,
                     std::uint64_t size) override;
     void Barriers(std::span<const BufferBarrier> buffers, std::span<const TextureBarrier> textures) override;
+    void AliasingBarrier() override;
     void BindPipeline(PipelineHandle pipeline) override;
     void PushConstants(std::span<const std::byte> data) override;
     using ICommandList::PushConstants;
@@ -151,6 +157,7 @@ struct VulkanDevice::Impl
     SlotMap<BufferData> buffers;
     SlotMap<TextureData> textures;
     SlotMap<PipelineData> pipelines;
+    SlotMap<HeapData> heaps;
     SlotMap<std::unique_ptr<CommandPoolData>> pools;
     BindlessSlots bufferSlots;
     BindlessSlots textureSlots;

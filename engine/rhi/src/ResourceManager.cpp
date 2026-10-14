@@ -17,7 +17,13 @@ ResourceManager::~ResourceManager()
     {
         return;
     }
-    m_device.WaitForValue(m_pending.back().retireValue);
+    // Nothing more will be submitted: resources retired against the frame being recorded only need the work that
+    // was actually submitted to finish.
+    const std::uint64_t submitted = m_device.LastSubmittedValue();
+    if (submitted != 0)
+    {
+        m_device.WaitForValue(std::min(m_pending.back().retireValue, submitted));
+    }
     for (const Pending& pending : m_pending)
     {
         Destroy(pending);
@@ -39,7 +45,12 @@ void ResourceManager::DestroyPipeline(PipelineHandle pipeline)
     Defer(pipeline);
 }
 
-void ResourceManager::Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle> resource)
+void ResourceManager::DestroyHeap(HeapHandle heap)
+{
+    Defer(heap);
+}
+
+void ResourceManager::Defer(std::variant<BufferHandle, TextureHandle, PipelineHandle, HeapHandle> resource)
 {
     const std::scoped_lock lock(m_mutex);
     m_pending.push_back(Pending{.resource = resource, .retireValue = m_device.LastSubmittedValue() + 1});
@@ -81,6 +92,10 @@ void ResourceManager::Destroy(const Pending& pending)
     else if (const auto* pipeline = std::get_if<PipelineHandle>(&pending.resource))
     {
         m_device.DestroyPipeline(*pipeline);
+    }
+    else if (const auto* heap = std::get_if<HeapHandle>(&pending.resource))
+    {
+        m_device.DestroyHeap(*heap);
     }
 }
 

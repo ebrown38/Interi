@@ -6,7 +6,6 @@
 #include <interi/physics/ContactEvents.h>
 #include <interi/physics/PhysicsSync.h>
 #include <interi/physics/PhysicsWorld.h>
-#include <interi/testing/StateHasher.h>
 
 #include "PhysicsTestUtil.h"
 #include <gtest/gtest.h>
@@ -116,44 +115,4 @@ TEST(ContactListener, PersistentContact_ReportedOnce)
         total += physics.Contacts().size();
     }
     EXPECT_EQ(total, 1u);
-}
-
-TEST(ContactEvents, Pile_IdenticalAcrossThreadCounts)
-{
-    const auto simulate = [](std::uint32_t workers)
-    {
-        JobSystem jobs(Workers(workers));
-        PhysicsWorld physics(jobs);
-        World world;
-        PhysicsSync sync(physics);
-        AddGround(physics);
-        for (int i = 0; i < 48; ++i)
-        {
-            SpawnBox(world,
-                     Vec3(static_cast<float>(i % 4) * 0.7f, 1.0f + 1.1f * static_cast<float>(i / 4),
-                          static_cast<float>(i % 3) * 0.3f),
-                     5.0f);
-        }
-        interi::testing::StateHasher hasher;
-        std::size_t count = 0;
-        for (int step = 0; step < 90; ++step)
-        {
-            sync.Step(world, jobs, kDt);
-            for (const ContactEvent& e : physics.Contacts())
-            {
-                hasher.Add(e.bodyA.GetIndexAndSequenceNumber());
-                hasher.Add(e.bodyB.GetIndexAndSequenceNumber());
-                hasher.Add(e.point.x);
-                hasher.Add(e.point.y);
-                hasher.Add(e.point.z);
-                hasher.Add(e.impulse);
-            }
-            count += physics.Contacts().size();
-        }
-        EXPECT_GT(count, 48u);
-        return hasher.Finish();
-    };
-    const std::uint64_t reference = simulate(0);
-    EXPECT_EQ(simulate(3), reference);
-    EXPECT_EQ(simulate(7), reference);
 }

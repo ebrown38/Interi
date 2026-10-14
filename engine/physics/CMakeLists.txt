@@ -36,5 +36,6 @@ interi_add_test_executable(interi_physics_stress_tests
         ${_tests}/PhysicsTestEnvironment.cpp
         ${_tests}/stress/ContactEventStressTests.cpp
         ${_tests}/stress/PhysicsDeterminismTests.cpp
+        ${_tests}/stress/PhysicsSyncDeterminismTests.cpp
     DEPS interi::physics interi::testing interi::physics_testing
     LABELS stress)

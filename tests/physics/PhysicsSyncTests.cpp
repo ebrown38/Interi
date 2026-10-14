@@ -238,28 +238,3 @@ TEST_F(PhysicsSyncTest, Kinematic_FollowsTransform)
     m_sync.Step(m_world, m_jobs, kDt);
     INTERI_EXPECT_VEC_NEAR(FromJolt(m_physics.Bodies().GetPosition(id)), Vec3(1.0f, 1.0f, 0.0f), 1e-4f);
 }
-
-TEST(PhysicsSync, EcsDrivenScene_DeterministicAcrossThreadCounts)
-{
-    const auto simulate = [](std::uint32_t workers)
-    {
-        JobSystem jobs(Workers(workers));
-        PhysicsWorld physics(jobs);
-        World world;
-        PhysicsSync sync(physics);
-        AddGround(physics);
-        for (int i = 0; i < 40; ++i)
-        {
-            RigidBodyComponent body;
-            body.layer = i % 2 == 0 ? ObjectLayer::Debris : ObjectLayer::DebrisSmall;
-            const float x = static_cast<float>(i % 3) * 0.3f;
-            SpawnBox(world, Vec3(x, 0.6f + 1.05f * static_cast<float>(i), 0.1f * static_cast<float>(i % 5)), body);
-        }
-        for (int step = 0; step < 60; ++step)
-        {
-            sync.Step(world, jobs, kDt);
-        }
-        return HashState(physics);
-    };
-    EXPECT_EQ(simulate(0), simulate(7));
-}

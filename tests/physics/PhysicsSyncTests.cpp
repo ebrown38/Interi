@@ -87,10 +87,12 @@ TEST_F(PhysicsSyncTest, InitialVelocity_Applied)
 {
     RigidBodyComponent body;
     body.linearVelocity = Vec3(3.0f, 4.0f, 0.0f);
+    body.angularVelocity = Vec3(0.0f, 0.0f, 2.0f);
     const Entity entity = SpawnBox(m_world, Vec3(0.0f, 5.0f, 0.0f), body);
     m_sync.CreateBodies(m_world);
-    EXPECT_EQ(FromJolt(m_physics.Bodies().GetLinearVelocity(m_world.Get<PhysicsBodyComponent>(entity)->id)),
-              Vec3(3.0f, 4.0f, 0.0f));
+    const JPH::BodyID id = m_world.Get<PhysicsBodyComponent>(entity)->id;
+    EXPECT_EQ(FromJolt(m_physics.Bodies().GetLinearVelocity(id)), Vec3(3.0f, 4.0f, 0.0f));
+    EXPECT_EQ(FromJolt(m_physics.Bodies().GetAngularVelocity(id)), Vec3(0.0f, 0.0f, 2.0f));
 }
 
 TEST_F(PhysicsSyncTest, StartAsleepAndStatic_NotActive)

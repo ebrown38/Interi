@@ -33,8 +33,9 @@ struct RigidBodyComponent
 {
     MotionType motion = MotionType::Dynamic;
     ObjectLayer layer = ObjectLayer::Debris;
-    Vec3 linearVelocity; ///< m/s at body creation (e.g. debris thrown off by a blast); dynamic bodies only.
-    float mass = 0.0f;   ///< kg; 0 = from the shape's volume at density 1000 kg/m^3.
+    Vec3 linearVelocity;  ///< m/s at body creation (e.g. debris thrown off by a blast); dynamic bodies only.
+    Vec3 angularVelocity; ///< rad/s at body creation; dynamic bodies only.
+    float mass = 0.0f;    ///< kg; 0 = from the shape's volume at density 1000 kg/m^3.
     float friction = 0.5f;
     float restitution = 0.0f;
     float linearDamping = 0.05f;

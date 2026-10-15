@@ -242,6 +242,40 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - The cook key hashes the glTF and its buffers, the config, the materials and both versions. A cook is skipped when the existing output is a valid asset (payload hash checked) with the same key.
   - `FractureCooker_SampleBuilding_Cooks` (label `integration`) cooks the sample.
 
+## Runtime destruction (`engine/destruction` runtime parts, `engine/destruction_runtime`)
+
+- **Pure algorithms** live in `interi::destruction` (no Jolt, no ECS); `interi::destruction_runtime` puts them on
+  Jolt bodies and ECS entities.
+- **`StressSolver`** is a beam lattice: one 6-DOF node per chunk, one elastic beam per bond (axial EA/L, shear GA/L,
+  bending EI/L, torsion GJ/L through the face centroid; one Young's modulus, only ratios matter). K u = f (gravity +
+  external forces) is solved with 6x6 block-Jacobi PCG in double, matrix-free, warm-started, only over nodes connected
+  to an anchor (K is singular otherwise).
+  - Sign convention: `BondForces::axial` > 0 is tension (B pulled away from A along the A->B normal).
+  - `ToBondLoad` adds 6M/sqrt(A) of bending to both tension and compression. Overloads are checked against the
+    limits scaled by health fraction, and only once a solve has converged.
+  - Grains are fixed and reductions ordered, so results are bit-identical at any worker count. Keep it that way.
+  - Warm start saves little on local changes (restarted CG); its value is zero-cost steady state and continuing a
+    budgeted solve. `SolveWithBudget` spends bond-iterations in importance order.
+- **Damage is energy (J).** Bond health = weaker material's fractureEnergy x area. `RadialDamage` falls off
+  inverse-square outside `innerRadius`; contact impulses above `impactThreshold` become impact damage.
+- **`LabelComponents`** is a lock-free union-find that links the larger root under the smaller, so labels (component
+  minimum) are scheduling-independent.
+- **`DestructionWorld`**: call `Update` after `PhysicsSync::Step`. Chunks connected to an anchor form one static
+  compound piece; each other component is a dynamic piece (entity with Transform, RigidBodyComponent,
+  ColliderComponent, DestructibleComponent). Every hull shape's Jolt user data is its chunk (`ChunkAt`).
+  - Pieces are recreated (destroy + create) when their chunk set changes, in island order (smallest chunk), so body
+    creation stays deterministic. New pieces inherit the parent's point velocity and angular velocity, plus
+    `separationSpeed`; explosions and melee push pieces within their radius. `LastStats().injectedEnergy` counts the
+    kinetic energy added.
+  - Contacts between pieces of one instance are ignored for `spawnGraceSteps` (faces that just broke apart touch).
+  - `maxBreakRounds` limits how far a cascade goes per frame; `stressWorkBudget` (bond-iterations) caps solve time.
+- **Tests**: `tests/destruction_runtime/RuntimeTestUtil.h` builds grid assets of unit cubes; scenario tests
+  (`interi_destruction_runtime_scenario_tests`, label `integration`) and a collapse golden hash
+  (`CollapseDeterminism.MatchesCrossPlatformGoldenHash`, stress) pin behaviour. Any change to destruction output or a
+  Jolt bump changes the golden hash.
+- **Baselines**: `benchmarks/baselines/` (see its README); the nightly CI `benchmarks` job compares report-only via
+  `tools/bench_compare/compare_benchmarks.py`.
+
 ## Dependencies and licensing
 
 Interi is MIT open source. Every dependency must be permissive (allowlist in `tools/license_check/license_policy.json`; no GPL/LGPL/AGPL). Add dependencies to `vcpkg.json` in the milestone that first uses them. After changing dependencies:

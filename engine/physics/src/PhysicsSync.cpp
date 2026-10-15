@@ -50,6 +50,7 @@ JPH::BodyCreationSettings MakeSettings(const RigidBodyComponent& body, const Col
     if (body.motion == MotionType::Dynamic)
     {
         settings.mLinearVelocity = ToJolt(body.linearVelocity);
+        settings.mAngularVelocity = ToJolt(body.angularVelocity);
     }
     if (body.mass > 0.0f)
     {

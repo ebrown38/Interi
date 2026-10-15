@@ -62,8 +62,9 @@ struct DestructionSettings
 {
     DamageSettings damage;
     StressSettings stress;
-    /// Bond-iterations of stress solving per Update, shared by all instances (most recently damaged first).
-    std::uint64_t stressWorkBudget = 2'000'000;
+    /// Bond-iterations of stress solving per Update, shared by all instances (most recently damaged first). Measured
+    /// at ~50-60 M bond-iterations/s with 7 workers (benchmarks/baselines), so the default is about 3 ms.
+    std::uint64_t stressWorkBudget = 150'000;
     /// Break rounds per Update (solve, break overloaded bonds, split islands): limits how far a collapse cascades
     /// in one frame; the rest continues next frame.
     std::uint32_t maxBreakRounds = 4;

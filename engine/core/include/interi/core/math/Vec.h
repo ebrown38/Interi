@@ -173,6 +173,13 @@ struct Vec3
     return std::min({v.x, v.y, v.z});
 }
 
+/// Binary serialization (see Archive.h): x, y, z.
+template <typename Archive>
+void Serialize(Archive& archive, Vec3& v)
+{
+    archive(v.x, v.y, v.z);
+}
+
 /// 4D vector: homogeneous coordinates and matrix columns.
 struct Vec4
 {

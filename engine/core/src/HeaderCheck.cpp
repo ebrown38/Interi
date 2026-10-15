@@ -6,6 +6,7 @@
 #include <interi/core/Config.h>
 #include <interi/core/Hash.h>
 #include <interi/core/Log.h>
+#include <interi/core/Random.h>
 #include <interi/core/Result.h>
 #include <interi/core/StringId.h>
 #include <interi/core/Version.h>

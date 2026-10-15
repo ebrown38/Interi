@@ -299,7 +299,10 @@ void DestructionWorld::ApplyDamage(World& world, Instance& instance, const Radia
         centroids[bond] = pose.TransformPoint(instance.asset->bonds[bond].centroid);
     }
     const std::size_t before = instance.newlyBroken.size();
-    ApplyRadialDamage(centroids, damage, scale, instance.health, instance.newlyBroken);
+    if (ApplyRadialDamage(centroids, damage, scale, instance.health, instance.newlyBroken) == 0)
+    {
+        return;
+    }
     for (std::size_t i = before; i < instance.newlyBroken.size(); ++i)
     {
         const std::uint32_t bond = instance.newlyBroken[i];

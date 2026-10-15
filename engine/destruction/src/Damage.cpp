@@ -45,16 +45,17 @@ RadialDamage ImpactDamage(const Vec3& point, float impulse, const DamageSettings
             .radius = settings.impactRadius};
 }
 
-void ApplyRadialDamage(std::span<const Vec3> bondCentroids, const RadialDamage& damage, float scale,
-                       std::span<float> health, std::vector<std::uint32_t>& broken)
+std::size_t ApplyRadialDamage(std::span<const Vec3> bondCentroids, const RadialDamage& damage, float scale,
+                              std::span<float> health, std::vector<std::uint32_t>& broken)
 {
     INTERI_ASSERT(bondCentroids.size() == health.size());
     const float energy = damage.energy * scale;
     if (!(energy > 0.0f))
     {
-        return;
+        return 0;
     }
     const float radiusSquared = damage.radius * damage.radius;
+    std::size_t damaged = 0;
     for (std::uint32_t i = 0; i < health.size(); ++i)
     {
         if (health[i] <= 0.0f)
@@ -66,6 +67,7 @@ void ApplyRadialDamage(std::span<const Vec3> bondCentroids, const RadialDamage& 
         {
             continue;
         }
+        ++damaged;
         health[i] = std::max(
             health[i] - energy * RadialFalloff(std::sqrt(distanceSquared), damage.innerRadius, damage.radius), 0.0f);
         if (health[i] <= 0.0f)
@@ -73,6 +75,7 @@ void ApplyRadialDamage(std::span<const Vec3> bondCentroids, const RadialDamage& 
             broken.push_back(i);
         }
     }
+    return damaged;
 }
 
 } // namespace interi::destruction

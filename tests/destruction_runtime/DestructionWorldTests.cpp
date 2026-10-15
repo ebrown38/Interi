@@ -328,3 +328,45 @@ TEST(DestructibleAssetLoading, ThroughFileSystem_RoundTrips)
     EXPECT_EQ(**loaded, asset);
     EXPECT_FALSE(LoadDestructibleAsset(files, "assets/missing.idest"));
 }
+
+TEST_F(DestructionWorldTest, Importance_MostRecentlyDamagedSolvesFirst)
+{
+    const DestructibleAsset wall = MakeGridAsset(BoxCells(12, 8, 1));
+    // A third of a cold solve after one break.
+    StressSolver probe(MakeStressGraph(wall));
+    probe.BreakBond(*FindBond(wall, 5, 17));
+    const std::uint32_t full = probe.Solve(m_jobs, 100000).iterations;
+    DestructionSettings settings;
+    settings.stressWorkBudget = std::uint64_t{full} * wall.bonds.size() / 3;
+    settings.explosionPushSpeed = 0.0f;
+    DestructionWorld destruction(m_physics, settings);
+    const auto asset = std::make_shared<const DestructibleAsset>(wall);
+    Transform far;
+    far.position = Vec3(100.0f, 0.0f, 0.0f);
+    const DestructibleId a = destruction.Spawn(m_world, m_jobs, asset, {});
+    const DestructibleId b = destruction.Spawn(m_world, m_jobs, asset, far);
+    for (int frame = 0; frame < 100 && !(destruction.Stress(a).IsConverged() && destruction.Stress(b).IsConverged());
+         ++frame)
+    {
+        destruction.Update(m_world, m_jobs);
+    }
+    ASSERT_TRUE(destruction.Stress(a).IsConverged() && destruction.Stress(b).IsConverged());
+
+    // Break a bond inside A (cells 5 and 17 meet at (5.5, 1, 0.5)), then one frame later inside B.
+    destruction.QueueDamage(BreakAt(Vec3(5.5f, 1.0f, 0.5f)), DamageKind::Explosion);
+    m_physics.Step(kStep);
+    destruction.Update(m_world, m_jobs);
+    ASSERT_FALSE(destruction.Stress(a).IsConverged());
+    destruction.QueueDamage(BreakAt(Vec3(105.5f, 1.0f, 0.5f)), DamageKind::Explosion);
+    m_physics.Step(kStep);
+    destruction.Update(m_world, m_jobs);
+    ASSERT_TRUE(destruction.IsBondBroken(b, *FindBond(wall, 5, 17)));
+
+    for (int frame = 0; frame < 100 && !destruction.Stress(a).IsConverged() && !destruction.Stress(b).IsConverged();
+         ++frame)
+    {
+        destruction.Update(m_world, m_jobs);
+    }
+    EXPECT_TRUE(destruction.Stress(b).IsConverged());
+    EXPECT_FALSE(destruction.Stress(a).IsConverged()) << "A had a head start but was damaged earlier";
+}

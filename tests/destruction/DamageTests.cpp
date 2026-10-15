@@ -57,8 +57,9 @@ TEST(RadialDamage, OnlyBondsWithinRadiusDamaged)
     const std::vector<Vec3> centroids{{0, 0, 0}, {2, 0, 0}, {6, 0, 0}};
     std::vector<float> health{100.0f, 100.0f, 100.0f};
     std::vector<std::uint32_t> broken;
-    ApplyRadialDamage(centroids, {.center = {0, 0, 0}, .energy = 40.0f, .innerRadius = 1.0f, .radius = 5.0f}, 1.0f,
-                      health, broken);
+    EXPECT_EQ(ApplyRadialDamage(centroids, {.center = {0, 0, 0}, .energy = 40.0f, .innerRadius = 1.0f, .radius = 5.0f},
+                                1.0f, health, broken),
+              2u);
     EXPECT_FLOAT_EQ(health[0], 60.0f);
     EXPECT_FLOAT_EQ(health[1], 90.0f); // 40 * (1/2)^2
     EXPECT_EQ(health[2], 100.0f);

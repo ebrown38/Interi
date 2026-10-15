@@ -3,6 +3,7 @@
 
 #include <interi/core/math/Vec.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -49,8 +50,8 @@ struct DamageSettings
 
 /// Deals `damage` (energy times `scale`) to every bond within its radius: health[i] decreases (to no less than 0)
 /// by the falloff of the distance to bondCentroids[i]. Indices of bonds whose health reached 0 in this call are
-/// appended to `broken` in ascending order. Bonds already at 0 are skipped.
-void ApplyRadialDamage(std::span<const Vec3> bondCentroids, const RadialDamage& damage, float scale,
-                       std::span<float> health, std::vector<std::uint32_t>& broken);
+/// appended to `broken` in ascending order. Bonds already at 0 are skipped. Returns the number of bonds damaged.
+std::size_t ApplyRadialDamage(std::span<const Vec3> bondCentroids, const RadialDamage& damage, float scale,
+                              std::span<float> health, std::vector<std::uint32_t>& broken);
 
 } // namespace interi::destruction

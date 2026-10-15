@@ -1,0 +1,54 @@
+{
+  "materials": [
+    {
+      "name": "concrete",
+      "density": 2400,
+      "compressiveStrength": 3.0e7,
+      "tensileStrength": 3.0e6,
+      "shearStrength": 4.0e6,
+      "fractureEnergy": 100,
+      "debrisMinSize": 0.1,
+      "interiorMaterialId": 0
+    },
+    {
+      "name": "steel",
+      "density": 7850,
+      "compressiveStrength": 2.5e8,
+      "tensileStrength": 2.5e8,
+      "shearStrength": 1.45e8,
+      "fractureEnergy": 1.0e5,
+      "debrisMinSize": 0.2,
+      "interiorMaterialId": 1
+    },
+    {
+      "name": "wood",
+      "density": 600,
+      "compressiveStrength": 3.5e7,
+      "tensileStrength": 4.0e7,
+      "shearStrength": 8.0e6,
+      "fractureEnergy": 1.0e4,
+      "debrisMinSize": 0.05,
+      "interiorMaterialId": 2
+    },
+    {
+      "name": "glass",
+      "density": 2500,
+      "compressiveStrength": 1.0e9,
+      "tensileStrength": 3.3e7,
+      "shearStrength": 3.0e7,
+      "fractureEnergy": 8,
+      "debrisMinSize": 0.02,
+      "interiorMaterialId": 3
+    },
+    {
+      "name": "metal_sheet",
+      "density": 7850,
+      "compressiveStrength": 5.0e7,
+      "tensileStrength": 2.5e8,
+      "shearStrength": 1.0e8,
+      "fractureEnergy": 5.0e4,
+      "debrisMinSize": 0.1,
+      "interiorMaterialId": 4
+    }
+  ]
+}

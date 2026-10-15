@@ -33,6 +33,7 @@ interi_add_module(core
         ${_tests}/AllocatorTests.cpp
         ${_tests}/TlsfAllocatorTests.cpp
         ${_tests}/HashTests.cpp
+        ${_tests}/RandomTests.cpp
         ${_tests}/ArchiveTests.cpp
         ${_tests}/SlotMapTests.cpp
         ${_tests}/VectorTests.cpp

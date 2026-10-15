@@ -7,4 +7,5 @@
 #include <interi/destruction/DestructibleAsset.h>
 #include <interi/destruction/FractureMesh.h>
 #include <interi/destruction/Material.h>
+#include <interi/destruction/StressSolver.h>
 #include <interi/destruction/Voronoi.h>

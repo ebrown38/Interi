@@ -12,6 +12,7 @@ interi_add_module(destruction
         src/HeaderCheck.cpp
         src/Material.cpp
         src/MeshCut.cpp
+        src/StressSolver.cpp
         src/Triangulate.cpp
         src/Voronoi.cpp
     DEPS interi::core interi::jobs
@@ -23,7 +24,8 @@ interi_add_module(destruction
         ${_tests}/VoronoiTests.cpp
         ${_tests}/ChunkHierarchyTests.cpp
         ${_tests}/BondGraphTests.cpp
-        ${_tests}/DestructibleAssetTests.cpp)
+        ${_tests}/DestructibleAssetTests.cpp
+        ${_tests}/StressSolverTests.cpp)
 
 target_compile_definitions(interi_destruction_tests PRIVATE
     INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json")

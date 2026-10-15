@@ -7,6 +7,7 @@ interi_add_module(destruction
         src/BondGraph.cpp
         src/ChunkHierarchy.cpp
         src/CollisionHulls.cpp
+        src/Damage.cpp
         src/DestructibleAsset.cpp
         src/FractureMesh.cpp
         src/HeaderCheck.cpp
@@ -28,6 +29,7 @@ interi_add_module(destruction
         ${_tests}/DestructibleAssetTests.cpp
         ${_tests}/StressSolverTests.cpp
         ${_tests}/StressBudgetTests.cpp
+        ${_tests}/DamageTests.cpp
         ${_tests}/IslandTests.cpp)
 
 target_compile_definitions(interi_destruction_tests PRIVATE

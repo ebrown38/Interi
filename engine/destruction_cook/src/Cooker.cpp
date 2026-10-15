@@ -20,9 +20,6 @@ namespace interi::destruction
 namespace
 {
 
-/// Size of an .idest header up to and including the cook key (magic, version, key).
-constexpr std::size_t kHeaderBytes = 16;
-
 Result<std::string> ReadText(const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -33,17 +30,18 @@ Result<std::string> ReadText(const std::filesystem::path& path)
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
-/// Existing output's cook key, if it can be read.
-std::optional<std::uint64_t> ExistingCookKey(const std::filesystem::path& path)
+/// True if `path` holds a valid asset (payload hash included) cooked with `cookKey`.
+bool IsUpToDate(const std::filesystem::path& path, std::uint64_t cookKey)
 {
     std::ifstream file(path, std::ios::binary);
-    std::array<std::byte, kHeaderBytes> header{};
-    if (!file || !file.read(reinterpret_cast<char*>(header.data()), header.size()))
+    if (!file)
     {
-        return std::nullopt;
+        return false;
     }
-    const Result<std::uint64_t> key = ReadCookKey(header);
-    return key ? std::optional(*key) : std::nullopt;
+    const std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    const auto data = std::as_bytes(std::span(bytes));
+    const Result<std::uint64_t> key = ReadCookKey(data);
+    return key && *key == cookKey && ReadDestructibleAsset(data).has_value();
 }
 
 Result<> WriteFileAtomically(const std::filesystem::path& path, std::span<const std::byte> bytes)
@@ -135,7 +133,7 @@ Result<CookReport> Cook(const CookRequest& request, JobSystem& jobs)
         HashCombine(HashCombine(HashCombine(HashCombine(kCookerVersion, kDestructibleVersion), scene.contentHash),
                                 Hash64(configText)),
                     Hash64(materialsText));
-    if (!request.force && ExistingCookKey(report.output) == report.cookKey)
+    if (!request.force && IsUpToDate(report.output, report.cookKey))
     {
         report.skipped = true;
         return report;

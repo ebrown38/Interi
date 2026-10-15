@@ -43,7 +43,7 @@ struct CookReport
 /// Cooks a glTF scene into a `.idest` destructible:
 /// 1. Imports the scene and reads the config and materials.
 /// 2. Computes the cook key: a hash of the glTF and its buffers, the config and materials files, and the cooker and
-///    format versions. If the existing output's header holds the same key, stops (skipped).
+///    format versions. If the existing output is a valid asset with the same key, stops (skipped).
 /// 3. Fractures every object (hierarchy per object), builds bonds and anchors across objects, collision hulls and
 ///    meshoptimizer-optimized render meshes, and writes the output (via a temporary file and rename).
 ///

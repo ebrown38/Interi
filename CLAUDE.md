@@ -239,7 +239,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Cooking.**
   - `Cook` reads `<input stem>.fracture.json` next to the glTF. Its format is documented in `CookConfig.h`, and `data/destruction/samples/building.*` is an example.
   - Settings are applied in order: defaults, then the entry for the object's glTF material, then the node entry.
-  - The cook key hashes the glTF and its buffers, the config, the materials and both versions. A cook is skipped when the existing output's header holds the same key.
+  - The cook key hashes the glTF and its buffers, the config, the materials and both versions. A cook is skipped when the existing output is a valid asset (payload hash checked) with the same key.
   - `FractureCooker_SampleBuilding_Cooks` (label `integration`) cooks the sample.
 
 ## Dependencies and licensing

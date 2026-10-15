@@ -137,6 +137,10 @@ TEST_F(CookerTest, Cooker_CorruptFile_ReportsError)
     const auto corrupt = LoadDestructibleAsset(Output());
     ASSERT_FALSE(corrupt.has_value());
     EXPECT_EQ(corrupt.error().code, ErrorCode::Corrupt);
+    const auto recookedFlipped = Cook(Request(), m_jobs); // header and cook key are intact, the payload is not
+    ASSERT_TRUE(recookedFlipped.has_value());
+    EXPECT_FALSE(recookedFlipped->skipped);
+    EXPECT_TRUE(LoadDestructibleAsset(Output()).has_value());
 
     std::ofstream(Output(), std::ios::binary | std::ios::trunc) << "garbage";
     const auto recooked = Cook(Request(), m_jobs);

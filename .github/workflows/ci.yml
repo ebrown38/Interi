@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: MIT
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push: # all branches: feature-branch pushes tolerate `pending` (TDD red) tests
   pull_request: # PRs and main must not contain pending tests

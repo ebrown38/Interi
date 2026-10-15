@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/Archive.h>
+#include <interi/core/math/Vec.h>
 
 #include <gtest/gtest.h>
 
@@ -220,4 +221,20 @@ TEST(Archive, TrailingBytes_AreReportedByFinish)
     (*reader)(a);
     EXPECT_TRUE(reader->Ok());
     EXPECT_FALSE(reader->Finish().has_value()) << "unread data means the reader and writer disagree on layout";
+}
+
+TEST(Archive, Vec3_RoundTripsAsThreeFloats)
+{
+    std::vector<interi::Vec3> points{{1.0f, -2.5f, 3.25f}, {0.0f, 1e-7f, -0.0f}};
+    std::vector<std::byte> bytes;
+    interi::ArchiveWriter writer(bytes, kTestMagic, 1);
+    writer(points);
+    EXPECT_EQ(bytes.size(), 8u + 4u + 2u * 12u); // header, count, 3 floats each
+
+    auto reader = interi::ArchiveReader::Open(bytes, kTestMagic, 1);
+    ASSERT_TRUE(reader.has_value());
+    std::vector<interi::Vec3> loaded;
+    (*reader)(loaded);
+    ASSERT_TRUE(reader->Finish().has_value());
+    EXPECT_EQ(loaded, points);
 }

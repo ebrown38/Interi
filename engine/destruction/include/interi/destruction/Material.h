@@ -26,6 +26,8 @@ struct DestructionMaterial
     float fractureEnergy = 100.0f;        ///< J/m^2 of new crack surface.
     float debrisMinSize = 0.1f;           ///< m; fracture pieces smaller than this are merged away.
     std::uint32_t interiorMaterialId = 0; ///< Render material of faces exposed by fracture.
+
+    friend bool operator==(const DestructionMaterial&, const DestructionMaterial&) = default;
 };
 
 template <typename Archive>

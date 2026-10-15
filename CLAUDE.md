@@ -210,6 +210,38 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Queries** (`Queries.h`): `Raycast`, `SphereCast` and `OverlapSphere`, filtered by a `LayerMask`. They lock bodies, so they may run on any thread, but not during `Step`.
 - **Determinism tests** hash `PhysicsSystem::SaveState` (`tests/physics/PhysicsTestUtil.h`) and compare it across 1/8/32 threads (stress label).
 
+## Destruction (`engine/destruction`, `engine/destruction_cook`, `tools/fracture_cooker`, namespace `interi::destruction`)
+
+- **Module split.**
+  - `interi::destruction` is runtime-safe and depends only on core, jobs and nlohmann-json (private). It holds materials, mesh cutting, Voronoi, the hierarchy, bonds, hulls and the `.idest` format. M7 builds Jolt shapes from `AssetChunk::hulls`, and M13 reuses the cutter.
+  - `interi::destruction_cook` is offline only. It holds glTF import (cgltf, implemented in `CgltfImplementation.cpp`), the sidecar config, meshoptimizer and the incremental `Cook`.
+  - `fracture_cooker` is a thin CLI over `Cook`.
+- **Materials** (`DestructionMaterial`): strengths are in Pa, so a bond's limits are area times the weaker material's strengths, in N.
+  - `ParseMaterials` reads `{"materials": [...]}`. A missing field takes its default and adds a warning, and invalid values are errors.
+  - The presets are in `data/destruction/materials.json`.
+- **`FractureMesh`** has welded positions and per-corner normals and UVs. Each triangle carries a destruction `material`, a render `surfaceMaterial` and an `interior` flag (set on cut faces).
+  - `CutMesh` keeps the part behind a plane. Each crossing edge gets exactly one new vertex, keyed by its (min, max) indices and interpolated low to high in double, so results are watertight by construction. Never weld cut output with a tolerance.
+  - Caps are ear clipped with hole bridging. On-plane faces are kept if they face along the normal.
+- **Voronoi.**
+  - `GenerateSeeds` uses only integer randomness (`core/Random.h`): no `<random>` distributions and no `sin`/`log`.
+  - `VoronoiFracture` computes one cell per job: the source is cut by the bisectors that clip the seed's convex region. Cells are merged in seed order, so output is identical at any thread count.
+  - Disconnected cells split into pieces.
+  - A cell below `minPieceVolume` drops its seed and its neighbours are recomputed, so the volume is absorbed exactly. Small fragments of larger cells are discarded and counted in `discardedVolume`.
+- **Hierarchy.** Chunks are breadth-first: chunk 0 is the whole object and children are contiguous. Each chunk's seeds use `HashCombine(level seed, chunk index)`.
+- **Bonds.**
+  - Bonds connect leaf chunks only, across objects. `FindContacts` hashes triangles into a grid whose cells are about the mean triangle size, then measures the exact 2D overlap of opposite-facing coplanar triangles.
+  - Anchors are leaves that touch the `groundHeight` plane or an anchor mesh (config `"anchor": true` objects).
+- **Hulls.** `BuildCollisionHulls` cuts concave pieces through the centroid until each hull is within `maxConcavity` of its piece's volume.
+- **`.idest`.**
+  - Layout: magic `IDST`, then version, cook key, the XXH3 of the payload, and the payload, which is its own archive `IDSP`.
+  - A flipped byte reads as `Corrupt`.
+  - Bump `kDestructibleVersion` when the format changes, and `kCookerVersion` when cooking output changes for the same inputs.
+- **Cooking.**
+  - `Cook` reads `<input stem>.fracture.json` next to the glTF. Its format is documented in `CookConfig.h`, and `data/destruction/samples/building.*` is an example.
+  - Settings are applied in order: defaults, then the entry for the object's glTF material, then the node entry.
+  - The cook key hashes the glTF and its buffers, the config, the materials and both versions. A cook is skipped when the existing output's header holds the same key.
+  - `FractureCooker_SampleBuilding_Cooks` (label `integration`) cooks the sample.
+
 ## Dependencies and licensing
 
 Interi is MIT open source. Every dependency must be permissive (allowlist in `tools/license_check/license_policy.json`; no GPL/LGPL/AGPL). Add dependencies to `vcpkg.json` in the milestone that first uses them. After changing dependencies:

@@ -3,3 +3,4 @@
 // the engine's warnings and checked by clang-tidy.
 #include <interi/destruction/FractureMesh.h>
 #include <interi/destruction/Material.h>
+#include <interi/destruction/Voronoi.h>

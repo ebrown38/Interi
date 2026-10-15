@@ -9,12 +9,14 @@ interi_add_module(destruction
         src/Material.cpp
         src/MeshCut.cpp
         src/Triangulate.cpp
+        src/Voronoi.cpp
     DEPS interi::core interi::jobs
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/MaterialTests.cpp
-        ${_tests}/MeshCutTests.cpp)
+        ${_tests}/MeshCutTests.cpp
+        ${_tests}/VoronoiTests.cpp)
 
 target_compile_definitions(interi_destruction_tests PRIVATE
     INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json")

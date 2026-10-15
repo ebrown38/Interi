@@ -40,8 +40,8 @@ struct DamageSettings
     /// Energy per N·s of contact impulse above the threshold (J / N·s): an impulse J of a body with speed v carries
     /// about J * v / 2 joules, so this is half a typical impact speed.
     float impactEnergyPerImpulse = 2.0f;
-    float impactInnerRadius = 0.25f; ///< m.
-    float impactRadius = 1.0f;       ///< m.
+    float impactInnerRadius = 0.5f; ///< m.
+    float impactRadius = 2.0f;      ///< m (about two chunk sizes: contacts land on chunk edges).
 };
 
 /// The radial damage of a contact impulse at `point`, or energy 0 when the impulse is below the threshold.

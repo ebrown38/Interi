@@ -454,7 +454,10 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
         if (breakCount > 0)
         {
             const Vec3 away = NormalizeOrZero(centerOfMass - breakPoint / static_cast<float>(breakCount));
+            const Vec3 before = piece.linearVelocity;
             piece.linearVelocity += piece.pose.TransformVector(away) * m_settings.separationSpeed;
+            m_stats.injectedEnergy += 0.5 * static_cast<double>(mass) *
+                                      static_cast<double>(LengthSquared(piece.linearVelocity) - LengthSquared(before));
         }
         created.push_back(piece);
     }
@@ -578,6 +581,15 @@ void DestructionWorld::Update(World& world, JobSystem& jobs)
             }
         }
     }
+    std::vector<std::pair<RadialDamage, float>> pushes;
+    for (const auto& [damage, kind] : m_queuedDamage)
+    {
+        const float speed = kind == DamageKind::Explosion ? m_settings.explosionPushSpeed : m_settings.meleePushSpeed;
+        if (speed > 0.0f)
+        {
+            pushes.emplace_back(damage, speed);
+        }
+    }
     m_queuedDamage.clear();
 
     const std::uint64_t now = m_physics->StepCount();
@@ -639,10 +651,66 @@ void DestructionWorld::Update(World& world, JobSystem& jobs)
     }
     for (const std::unique_ptr<Instance>& instance : m_instances)
     {
-        if (instance != nullptr && instance->piecesDirty)
+        if (instance == nullptr)
+        {
+            continue;
+        }
+        if (instance->piecesDirty)
         {
             RebuildPieces(world, jobs, *instance);
         }
+        for (const auto& [damage, speed] : pushes)
+        {
+            ApplyPush(world, *instance, damage, speed);
+        }
+    }
+}
+
+void DestructionWorld::ApplyPush(World& world, Instance& instance, const RadialDamage& damage, float speed)
+{
+    const DestructibleAsset& asset = *instance.asset;
+    JPH::BodyInterface& bodies = m_physics->BodiesNoLock();
+    for (std::uint32_t index = 0; index < instance.pieces.size(); ++index)
+    {
+        const Piece& piece = instance.pieces[index];
+        if (piece.anchored || piece.chunks.empty() || !piece.entity.IsValid())
+        {
+            continue;
+        }
+        Vec3 weighted;
+        float mass = 0.0f;
+        for (const std::uint32_t chunk : piece.chunks)
+        {
+            weighted += asset.chunks[chunk].centroid * asset.chunks[chunk].mass;
+            mass += asset.chunks[chunk].mass;
+        }
+        if (!(mass > 0.0f))
+        {
+            continue;
+        }
+        const Vec3 center = PiecePose(world, instance, index).TransformPoint(weighted / mass);
+        const float distance = Distance(center, damage.center);
+        const float falloff = RadialFalloff(distance, damage.innerRadius, damage.radius);
+        if (!(falloff > 0.0f))
+        {
+            continue;
+        }
+        const Vec3 push = NormalizeOrZero(center - damage.center) * (speed * falloff);
+        Vec3 velocity;
+        const auto* body = world.Get<physics::PhysicsBodyComponent>(piece.entity);
+        if (body != nullptr)
+        {
+            velocity = physics::FromJolt(bodies.GetLinearVelocity(body->id));
+            bodies.AddLinearVelocity(body->id, physics::ToJolt(push));
+        }
+        else
+        {
+            auto* pending = world.GetMut<physics::RigidBodyComponent>(piece.entity);
+            velocity = pending->linearVelocity;
+            pending->linearVelocity += push;
+        }
+        m_stats.injectedEnergy += 0.5 * static_cast<double>(mass) *
+                                  static_cast<double>(LengthSquared(velocity + push) - LengthSquared(velocity));
     }
 }
 

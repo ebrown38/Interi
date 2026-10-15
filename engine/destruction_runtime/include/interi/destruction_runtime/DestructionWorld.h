@@ -69,6 +69,10 @@ struct DestructionSettings
     std::uint32_t maxBreakRounds = 4;
     /// Speed (m/s) a new falling piece gets away from the bonds that broke to release it.
     float separationSpeed = 0.5f;
+    /// Speed (m/s) explosions and melee hits give falling pieces within their radius, away from the centre, scaled by
+    /// the damage falloff (so loose chunks are thrown clear rather than left in place).
+    float explosionPushSpeed = 6.0f;
+    float meleePushSpeed = 2.0f;
     /// Contacts between two pieces of the same instance cause no damage while either piece is younger than this
     /// many physics steps (they touch where they just broke apart).
     std::uint32_t spawnGraceSteps = 3;
@@ -86,6 +90,7 @@ struct DestructionStats
     std::uint32_t piecesSpawned = 0;
     std::uint32_t breakRounds = 0;
     std::uint64_t stressWork = 0; ///< Bond-iterations.
+    double injectedEnergy = 0.0;  ///< Kinetic energy (J) added to pieces by separation speeds and pushes.
 };
 
 /// Runtime destructibles: stress, damage and the splitting of structures into falling pieces.
@@ -154,6 +159,7 @@ private:
 
     void ApplyDamage(World& world, Instance& instance, const RadialDamage& damage, float scale);
     void ApplyContactDamage(World& world);
+    void ApplyPush(World& world, Instance& instance, const RadialDamage& damage, float speed);
     void RebuildPieces(World& world, JobSystem& jobs, Instance& instance);
     [[nodiscard]] Transform PiecePose(const World& world, const Instance& instance, std::uint32_t piece) const;
 

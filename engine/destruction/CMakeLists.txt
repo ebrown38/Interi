@@ -11,6 +11,7 @@ interi_add_module(destruction
         src/DestructibleAsset.cpp
         src/FractureMesh.cpp
         src/HeaderCheck.cpp
+        src/Islands.cpp
         src/Material.cpp
         src/MeshCut.cpp
         src/StressBudget.cpp

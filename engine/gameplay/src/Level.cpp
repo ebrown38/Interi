@@ -203,20 +203,36 @@ const SpawnPoint* LoadedLevel::FindSpawnPoint(std::string_view name) const noexc
 }
 
 Result<LoadedLevel> SpawnLevel(const LevelDef& level, const IFileSystem& files, World& world, JobSystem& jobs,
-                               destruction::DestructionWorld& destruction)
+                               destruction::DestructionWorld& destruction, AssetCache* cache)
 {
-    // Read every asset first, so a missing one creates nothing.
-    std::map<std::string, std::shared_ptr<const destruction::DestructibleAsset>, std::less<>> assets;
+    // Read every asset first, so a missing one creates nothing (and leaves `cache` as it was).
+    AssetCache local;
+    AssetCache& assets = cache != nullptr ? *cache : local;
+    AssetCache added;
+    LoadedLevel loaded;
     for (const DestructibleDef& destructible : level.destructibles)
     {
-        if (!assets.contains(destructible.asset))
+        std::shared_ptr<const destruction::DestructibleAsset> asset;
+        if (const auto cached = assets.find(destructible.asset); cached != assets.end())
         {
-            INTERI_TRY_ASSIGN(asset, destruction::LoadDestructibleAsset(files, destructible.asset));
-            assets.emplace(destructible.asset, std::move(asset));
+            asset = cached->second;
+        }
+        else if (const auto read = added.find(destructible.asset); read != added.end())
+        {
+            asset = read->second;
+        }
+        else
+        {
+            INTERI_TRY_ASSIGN(loadedAsset, destruction::LoadDestructibleAsset(files, destructible.asset));
+            asset = added.emplace(destructible.asset, std::move(loadedAsset)).first->second;
+        }
+        if (std::ranges::find(loaded.assets, asset) == loaded.assets.end())
+        {
+            loaded.assets.push_back(std::move(asset));
         }
     }
+    assets.merge(added);
 
-    LoadedLevel loaded;
     loaded.spawnPoints = level.spawnPoints;
     for (const StaticBoxDef& box : level.staticBoxes)
     {

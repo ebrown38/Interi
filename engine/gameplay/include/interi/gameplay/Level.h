@@ -7,6 +7,9 @@
 #include <interi/ecs/World.h>
 #include <interi/jobs/JobSystem.h>
 
+#include <functional>
+#include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -58,11 +61,17 @@ struct LevelDef
 [[nodiscard]] Result<LevelDef> ParseLevel(std::string_view json);
 [[nodiscard]] Result<LevelDef> LoadLevel(const IFileSystem& files, std::string_view path);
 
+/// Assets by path, kept across loads so reloading a level reuses them (and whatever was built from them, such as
+/// uploaded chunk meshes).
+using AssetCache = std::map<std::string, std::shared_ptr<const destruction::DestructibleAsset>, std::less<>>;
+
 /// What SpawnLevel created.
 struct LoadedLevel
 {
     std::vector<Entity> staticEntities;
     std::vector<destruction::DestructibleId> destructibles; ///< In file order.
+    /// The level's distinct assets, in order of first use (e.g. to upload their meshes).
+    std::vector<std::shared_ptr<const destruction::DestructibleAsset>> assets;
     std::vector<SpawnPoint> spawnPoints;
 
     /// The spawn point called `name`, or the first one, or nullptr if there are none.
@@ -71,9 +80,10 @@ struct LoadedLevel
 
 /// Creates the level's static boxes (ECS entities with static bodies) and spawns its destructibles (each asset read
 /// once through `files`). Everything is created in file order, so body creation stays deterministic. Every asset is
-/// read before anything is created, so an asset error creates nothing.
+/// read before anything is created, so an asset error creates nothing. Assets already in `cache` are not read
+/// again; newly read ones are added to it.
 Result<LoadedLevel> SpawnLevel(const LevelDef& level, const IFileSystem& files, World& world, JobSystem& jobs,
-                               destruction::DestructionWorld& destruction);
+                               destruction::DestructionWorld& destruction, AssetCache* cache = nullptr);
 
 /// Removes everything SpawnLevel created (for reloading a level).
 void DespawnLevel(LoadedLevel& level, World& world, destruction::DestructionWorld& destruction);

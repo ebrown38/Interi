@@ -88,7 +88,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Job system (`engine/jobs`, `engine/jobs_jolt`)
 
-- **`JobSystem`** is a plain class; tests create many instances with different worker counts. Workers default to hardware threads − 1. Each worker, plus the thread that constructed the system, owns a Chase-Lev `WorkStealingDeque` per `JobPriority` (High/Normal/Low). Other threads submit through MPMC injection queues. Threads register by a unique system id, not by pointer.
+- **`JobSystem`** is a plain class; tests create many instances with different worker counts. Workers default to hardware threads − 1. Each worker, plus the thread that constructed the system, owns a Chase-Lev `WorkStealingDeque` per `JobPriority` (High/Normal/Low). Other threads submit through MPMC injection queues. Threads register by a unique system id, not by pointer. Thread state is reached through an accessor stored in the object by its constructor (`m_threadState`), so a hot-reloaded module's copy of this code sees the host's workers. `Logger` stamps records the same way.
 - **Jobs.** `Submit(fn, &counter, priority)` stores up to 48 bytes of captures inline in a pooled 64-byte `Job`. Jobs must not throw. When the pool is exhausted, `Submit` runs the job inline.
 - **Waiting.** `WaitFor(counter)` never idles: it runs other High/Normal jobs, but not Low ones (IO and cooking), unless there are zero workers. Waits nest up to `kMaxWaitNesting` (32). Past that, a waiter only pops its own deque, which keeps stack depth bounded (Windows threads have 1 MB stacks).
 - **Sleeping.** Idle workers search (spin), then sleep. A submit wakes a sleeper only when more jobs are queued than workers are searching. A woken worker counts itself as searching, and the last searcher to find work wakes the next (the Go/Tokio protocol). The sleep predicate re-checks `m_queued` under the mutex, a seq_cst Dekker check against `m_sleepers`, so wake-ups are never lost. The code uses seq_cst operations rather than fences everywhere, because TSan doesn't model fences.
@@ -111,7 +111,12 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 ## ECS (`engine/ecs`)
 
 - **Components** are any nothrow-movable types, registered on first use of `ComponentId<T>()` (at most 256 types). Empty types are storage-free tags.
-  - Ids depend on first-use order, so they must never affect layout, iteration order or hashed state. Columns are ordered by type name.
+  - Ids depend on first-use order, so they must never affect layout, iteration order or hashed state. Columns are ordered by name.
+  - Identity is the name: `T::kComponentName` if declared (stable across compilers and hot-reloaded modules), else the compiler's type name.
+    - Re-registering a name with the same size, alignment and `kComponentVersion` returns the existing id.
+    - A changed layout appends a new id under the same name. The registry is append-only.
+    - Names in an anonymous namespace (both compilers' spellings) are never shared.
+  - Trivially copyable components have null relocate/moveAssign/destroy. Call them through `RelocateComponent`/`MoveAssignComponent`/`DestroyComponent` (memcpy / nothing), so no registry entry points into module code.
 - **Storage.** Each archetype (one component set) is a list of 16 KiB SoA chunks from the `World`'s `IAllocator`. Rows stay packed via swap-remove, and add/remove moves rows along cached archetype edges. `Entity` is a generational `Handle<EntityTag>`.
 - **Change ticks** follow the Bevy model:
   - Each query or system run takes `World::BeginRun()` and stamps the columns it writes with that tick.
@@ -129,7 +134,53 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 - **`FixedStepClock`** takes the elapsed time from the caller and never reads a clock. It uses integer nanoseconds, clamps substeps after a hitch (dropping whole steps but keeping the fraction), and exposes `Alpha()` for `Interpolate(previous, current, alpha)`.
 - **`FramePipeline<Snapshot>`** double-buffers: render prep of frame N runs as a job while frame N+1 simulates on the calling thread. Neither side writes what the other reads. The TSan stress test lives in `interi_runtime_stress_tests`.
-- **`interi_sandbox`** (`game/sandbox`) is the window + input + ECS + physics + destruction + rendering demo. Its debris cubes are Jolt bodies that fall onto a static ground and pillars matching the rendered scene, and three pre-fractured concrete walls are blown up with E (interior materials, particles, crack and scorch decals). Run `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` for a headless rendering smoke run on lavapipe (`--auto-spawn` also blasts a wall every second). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+- **`interi_sandbox`** (`game/sandbox`) is the playable demo: a third-person character with the sledgehammer, remote charges and rockets in `data/levels/sandbox.json` (ground, pillars, three pre-fractured walls generated at startup and served from a `MemoryFileSystem` mounted at `generated/`).
+  - Bindings are in `data/gameplay/input.json`: F5 saves the destruction state, F9 reloads the level and restores it, F6 reloads the module.
+  - Debris expiry lives in the hot-reloadable `game/sandbox_module` (`interi_sandbox_module`). Components shared with the module are in `SandboxComponents.h`.
+  - `--hot-reload 1` rebuilds the module (`cmake --build` on the build dir) when its sources change. The module library is always watched.
+  - Smoke run: `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` (auto-spawn fires rockets and charges at the walls). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+
+## Hot reload (`engine/hotreload`, namespace `interi::hotreload`)
+
+- **Module ABI** (`ModuleApi.h`): a gameplay module is a shared library that exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`.
+  - It statically links its own core/jobs/ecs. While it is loaded, its copy uses the host's component registry (`AttachToHostComponentRegistry`, "module mode"), logger and assert handler.
+  - Rules that keep this safe:
+    - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. A new non-trivial type asserts in module mode.
+    - Never hand the host memory or objects that outlive the module.
+    - Modules never call Jolt: their copy isn't initialised.
+  - Global or thread-local state that module code reaches must go through a host-created object (see JobSystem/Logger).
+- **`ModuleHost::Load(path)`** loads and reloads modules:
+  1. It copies the library to a uniquely named shadow file, then opens and registers it next to the old module.
+  2. It migrates entities whose module-owned component changed layout, using the new module's `ComponentMigrator`. All values are converted before any are applied.
+  3. Only then does it destroy the old module's `Scheduler` and close the old library.
+  - Any failure keeps the old module and leaves the world untouched: a missing file or entry point, an ABI mismatch, a refused registration, a layout change without a migrator, or a migrator refusing.
+  - Module systems run in the module's own Scheduler (`RunSystems`). After a reload, `Changed` matches everything once.
+- **`FileWatcher`** polls size and mtime of files or directory trees.
+- Tests load six variants of `tests/hotreload/modules/TestModule.cpp`. `ModuleHostTest.Load_RunsSystemsOnHostWorld` under TSan catches the module-copy thread-state race.
+- Libraries a module links get `POSITION_INDEPENDENT_CODE` (set in `engine/hotreload/CMakeLists.txt`).
+
+## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
+
+- **`CharacterController`** wraps `JPH::CharacterVirtual`, a capsule whose position is its feet. It walks, jumps, steps up to `stepHeight`, sticks to the floor, and pushes dynamic bodies with at most `maxStrength` N.
+  - Update after `PhysicsSync::Step` (sync point).
+  - DebrisSmall doesn't collide with characters.
+  - `FollowCamera` is the orbit and aim math: yaw 0 looks along -Z.
+- **Weapons**: `WeaponDef` JSON (`data/gameplay/weapons.json`), parsed like the destruction materials.
+  - `WeaponSystem` is a sync point between `PhysicsSync::Step` and `DestructionWorld::Update`:
+    - `Swing`: a sphere cast, an impulse at the contact point, melee damage.
+    - `PlaceCharge`: sticks to a destructible's chunk and follows it through splits (`DestructionWorld::ChunkPose`), or to an entity's Transform. `DetonateCharges` sets them off.
+    - `FireRocket`: a per-step segment cast; it blasts on a hit or at its range.
+  - Blasts queue explosion damage and push dynamic bodies, in body-ID order.
+- **Levels** (`Level.h`): JSON static boxes, destructibles and spawn points.
+  - `SpawnLevel` reads every asset first (an error creates nothing), then creates everything in file order. Pass an `AssetCache` to reuse assets across reloads.
+  - `ApplyInputConfig` binds actions and axes by input name ("Space", "Mouse.Left", "Gamepad.South", "Gamepad.LeftX"), all or nothing.
+- **Saves** (`DestructionState.h`) record per instance:
+  - bond health;
+  - chunks released to the DebrisSystem;
+  - falling pieces' poses and velocities, keyed by smallest chunk.
+  - The format is IDSS: payload hash, then a versioned Archive.
+  - Restore into a freshly loaded level: `DestructionWorld::RestoreDamage` only adds damage, and pieces are rebuilt without break events.
+  - Not saved: DebrisSystem entities (debris, rubble) and the stress warm start, so a load continues equivalently, not bit-identically.
 
 ## RHI (`engine/rhi`, `engine/rhi_vulkan`, namespace `interi::rhi`)
 

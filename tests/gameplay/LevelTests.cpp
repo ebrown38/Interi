@@ -135,3 +135,25 @@ TEST(Level, MissingAsset_CreatesNothing)
     EXPECT_EQ(destruction.InstanceCount(), 0u);
     EXPECT_EQ(scene.world.EntityCount(), 0u);
 }
+
+TEST(Level, AssetCache_ReusedAcrossLoads)
+{
+    interi::MemoryFileSystem files;
+    WriteAsset(files, "assets/wall.idest", 4, 3);
+    WriteAsset(files, "assets/tower.idest", 1, 5);
+    const auto def = ParseLevel(kLevel);
+    ASSERT_TRUE(def.has_value());
+    interi::testing::GameplayScene scene;
+    interi::destruction::DestructionWorld destruction(scene.physics);
+    interi::gameplay::AssetCache cache;
+    auto first = interi::gameplay::SpawnLevel(*def, files, scene.world, scene.jobs, destruction, &cache);
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->assets.size(), 2u);
+    EXPECT_EQ(cache.size(), 2u);
+    interi::gameplay::DespawnLevel(*first, scene.world, destruction);
+
+    interi::MemoryFileSystem empty; // everything comes from the cache now
+    auto second = interi::gameplay::SpawnLevel(*def, empty, scene.world, scene.jobs, destruction, &cache);
+    ASSERT_TRUE(second.has_value()) << second.error().message;
+    EXPECT_EQ(second->assets, (std::vector{cache.at("assets/wall.idest"), cache.at("assets/tower.idest")}));
+}

@@ -1,21 +1,88 @@
 {
   "deadZone": 0.15,
   "actions": {
-    "jump": ["Space", "Gamepad.South"],
-    "fire": ["Mouse.Left", "Gamepad.RightShoulder"],
-    "detonate": ["Mouse.Right", "Gamepad.LeftShoulder"],
-    "sledgehammer": ["Num1", "Gamepad.DpadLeft"],
-    "remoteCharge": ["Num2", "Gamepad.DpadUp"],
-    "rocket": ["Num3", "Gamepad.DpadRight"],
-    "save": ["F5"],
-    "load": ["F9"],
-    "reloadModule": ["F6"],
-    "quit": ["Escape", "Gamepad.Back"]
+    "jump": [
+      "Space",
+      "Gamepad.South"
+    ],
+    "fire": [
+      "Mouse.Left",
+      "Gamepad.RightShoulder"
+    ],
+    "detonate": [
+      "Mouse.Right",
+      "Gamepad.LeftShoulder"
+    ],
+    "sledgehammer": [
+      "Num1",
+      "Gamepad.DpadLeft"
+    ],
+    "remoteCharge": [
+      "Num2",
+      "Gamepad.DpadUp"
+    ],
+    "rocket": [
+      "Num3",
+      "Gamepad.DpadRight"
+    ],
+    "save": [
+      "F5"
+    ],
+    "load": [
+      "F9"
+    ],
+    "reloadModule": [
+      "F6"
+    ],
+    "quit": [
+      "Escape",
+      "Gamepad.Back"
+    ],
+    "spawnDebris": [
+      "G",
+      "Gamepad.North"
+    ]
   },
   "axes": {
-    "moveX": { "keys": ["A", "D"], "gamepad": [ { "axis": "Gamepad.LeftX", "scale": 1 } ] },
-    "moveY": { "keys": ["S", "W"], "gamepad": [ { "axis": "Gamepad.LeftY", "scale": -1 } ] },
-    "lookX": { "gamepad": [ { "axis": "Gamepad.RightX", "scale": 1 } ] },
-    "lookY": { "gamepad": [ { "axis": "Gamepad.RightY", "scale": 1 } ] }
+    "moveX": {
+      "keys": [
+        "A",
+        "D"
+      ],
+      "gamepad": [
+        {
+          "axis": "Gamepad.LeftX",
+          "scale": 1
+        }
+      ]
+    },
+    "moveY": {
+      "keys": [
+        "S",
+        "W"
+      ],
+      "gamepad": [
+        {
+          "axis": "Gamepad.LeftY",
+          "scale": -1
+        }
+      ]
+    },
+    "lookX": {
+      "gamepad": [
+        {
+          "axis": "Gamepad.RightX",
+          "scale": 1
+        }
+      ]
+    },
+    "lookY": {
+      "gamepad": [
+        {
+          "axis": "Gamepad.RightY",
+          "scale": 1
+        }
+      ]
+    }
   }
 }

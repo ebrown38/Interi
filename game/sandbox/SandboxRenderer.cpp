@@ -209,11 +209,29 @@ bool SandboxRenderer::Render(const SandboxFrame& frame)
                                  .material = {.baseColor = {0.75f, 0.35f, 0.2f}, .roughness = 0.5f}});
     }
 
+    for (const Vec3& marker : frame.markers)
+    {
+        if (state.objects.size() >= state.renderer->MaxObjects())
+        {
+            break;
+        }
+        state.objects.push_back({.mesh = state.cube,
+                                 .transform = Mat4::FromTRS(marker, Quat::Identity(), Vec3(0.6f)), // 0.3 m
+                                 .material = {.baseColor = {1.0f, 0.85f, 0.1f}, .roughness = 0.3f}});
+    }
+    if (frame.player && state.objects.size() < state.renderer->MaxObjects())
+    {
+        state.objects.push_back({.mesh = state.cube,
+                                 .transform = Mat4::FromTRS(*frame.player + Vec3(0.0f, 0.9f, 0.0f), Quat::Identity(),
+                                                            {1.2f, 3.6f, 1.2f}), // the cube mesh is 0.5 m
+                                 .material = {.baseColor = {0.2f, 0.4f, 0.8f}, .roughness = 0.6f}});
+    }
+
     SceneView view;
-    view.cameraPosition = CameraPosition(frame.seconds);
+    view.cameraPosition = frame.eye.value_or(CameraPosition(frame.seconds));
     view.verticalFov = kVerticalFov;
     view.nearPlane = kNearPlane;
-    view.view = LookAt(view.cameraPosition, {0.0f, 2.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
+    view.view = LookAt(view.cameraPosition, frame.eye ? frame.target : Vec3(0.0f, 2.0f, 0.0f), {0.0f, 1.0f, 0.0f});
     view.sun = {.direction = {-0.5f, -1.0f, -0.3f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
     const std::array lights{
         PointLight{.position = {0.0f, 1.5f, 0.0f}, .radius = 8.0f, .color = {1.0f, 0.6f, 0.2f}, .intensity = 20.0f},

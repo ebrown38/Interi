@@ -9,6 +9,7 @@
 #include <interi/render/Particles.h>
 
 #include <memory>
+#include <optional>
 #include <span>
 
 namespace interi
@@ -36,7 +37,11 @@ struct SandboxFrame
     const interi::destruction::DestructionWorld* destruction = nullptr;
     std::span<const interi::render::Particle> particles; ///< Emitted since the previous frame.
     std::span<const interi::render::Decal> decals;       ///< Extra decals (scorch marks).
-    double seconds = 0.0;                                ///< Animates the camera.
+    std::span<const interi::Vec3> markers;               ///< Small bright cubes (placed charges, rockets).
+    std::optional<interi::Vec3> player;                  ///< The player's feet (drawn as a 0.6 x 1.8 m block).
+    std::optional<interi::Vec3> eye;                     ///< Camera position; without it the camera circles.
+    interi::Vec3 target{0.0f, 2.0f, 0.0f};               ///< What the camera looks at (with `eye`).
+    double seconds = 0.0;                                ///< Animates the circling camera.
     float dt = 0.0f;                                     ///< Seconds since the previous frame (particles).
 };
 

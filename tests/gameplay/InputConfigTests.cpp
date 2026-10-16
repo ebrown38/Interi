@@ -3,6 +3,9 @@
 
 #include <gtest/gtest.h>
 
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 
 using interi::InputEvent;
@@ -99,15 +102,9 @@ TEST(InputConfig, UnknownField_Warns)
 
 TEST(InputConfig, ShippedFile_Applies)
 {
-    std::FILE* file = std::fopen(INTERI_TEST_INPUT_FILE, "rb");
-    ASSERT_NE(file, nullptr);
-    std::string text;
-    char buffer[4096];
-    for (std::size_t read = 0; (read = std::fread(buffer, 1, sizeof(buffer), file)) > 0;)
-    {
-        text.append(buffer, read);
-    }
-    std::fclose(file);
+    std::ifstream file(INTERI_TEST_INPUT_FILE, std::ios::binary);
+    ASSERT_TRUE(file.is_open());
+    const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     InputMapper mapper;
     const auto warnings = ApplyInputConfig(text, mapper);
     ASSERT_TRUE(warnings.has_value()) << warnings.error().message;

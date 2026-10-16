@@ -104,6 +104,11 @@ INTERI_MSVC_WARNING_PUSH_DISABLE(4324) // structure padded due to alignas
 
 struct Logger::Impl
 {
+    /// Clock and thread ids of the binary that created the logger. A hot-reloaded module's copy of this code logs
+    /// through the host's logger, so records get the host's epoch and thread numbering rather than its own.
+    std::uint32_t (*threadId)() noexcept = &CurrentLogThreadId;
+    std::uint64_t (*now)() noexcept = &NowNs;
+
     /// One message. `sequence` implements Dmitry Vyukov's bounded queue protocol: a slot is writable by the
     /// producer that claimed position p when sequence == p, and readable by the consumer when sequence == p + 1.
     struct Slot
@@ -265,8 +270,8 @@ bool Logger::Log(LogLevel level, std::string_view category, std::string_view mes
     slot->categoryLength = static_cast<std::uint8_t>(categoryLength);
     slot->messageLength = static_cast<std::uint16_t>(messageLength);
     slot->level = level;
-    slot->threadId = CurrentLogThreadId();
-    slot->timestampNs = NowNs();
+    slot->threadId = impl.threadId();
+    slot->timestampNs = impl.now();
     slot->sequence.store(position + 1, std::memory_order_release);
     return true;
 }

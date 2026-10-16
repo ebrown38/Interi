@@ -161,11 +161,11 @@ TEST_F(ChunkGathererTest, AfterBreak_OnlyBrokenRegionSplit)
     EXPECT_LT(stats.chunks + 10, leaves);
     // Broken-off leaves show their fracture faces.
     EXPECT_TRUE(std::ranges::any_of(objects, [](const render::RenderObject& o) { return !o.occluder; }));
-    const AssetMeshes& meshes = *cache->Find(wall.get());
+    const AssetMeshes& wallMeshes = *cache->Find(wall.get());
     std::size_t interior = 0;
     for (std::uint32_t c = 0; c < wall->chunks.size(); ++c)
     {
-        for (const ChunkSubmesh& submesh : meshes.Submeshes(c))
+        for (const ChunkSubmesh& submesh : wallMeshes.Submeshes(c))
         {
             interior += submesh.interior ? 1 : 0;
         }

@@ -3,3 +3,4 @@
 // with the engine's warnings and checked by clang-tidy.
 #include <interi/destruction_render/ChunkGatherer.h>
 #include <interi/destruction_render/ChunkMeshCache.h>
+#include <interi/destruction_render/InteriorMaterials.h>

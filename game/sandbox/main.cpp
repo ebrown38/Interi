@@ -1,17 +1,27 @@
 // SPDX-License-Identifier: MIT
-// Sandbox: an SDL window, input mapped to actions, an ECS world advanced by a fixed-step clock with Jolt physics,
-// and the Vulkan forward renderer drawing the debris (shadows, point lights, GPU culling).
+// Sandbox: an SDL window, input mapped to actions, an ECS world advanced by a fixed-step clock with Jolt physics and
+// destruction, and the Vulkan forward renderer drawing it all (shadows, point lights, GPU culling, fractured
+// walls with interior materials, GPU particles, crack and scorch decals).
 //
 //   interi_sandbox [--video-driver <name>] [--frames <count>] [--validation 1] [--auto-spawn 1]
 //
 // WASD / left stick moves the spawn point, Space / South button spawns a burst of debris rigid bodies that fall onto
-// the ground and pillars and expire after a few seconds, Escape quits.
+// the ground and pillars and expire after a few seconds, E / East button sets off an explosion behind one of the
+// three pre-fractured concrete walls (in turn), Escape quits.
 // The window title shows the entity count and frame rate. --frames exits after that many frames (for smoke runs;
 // with --video-driver dummy there is no Vulkan, so nothing is drawn, and --video-driver offscreen renders without
-// a display). --auto-spawn keeps spawning debris without input, to exercise rendering in smoke runs.
+// a display). --auto-spawn keeps spawning debris and blasts a wall every second without input, to exercise
+// rendering in smoke runs.
 #include <interi/core/Log.h>
 #include <interi/core/math/Transform.h>
 #include <interi/core/math/Vec.h>
+#include <interi/destruction/BondGraph.h>
+#include <interi/destruction/ChunkHierarchy.h>
+#include <interi/destruction/DestructibleAsset.h>
+#include <interi/destruction/FractureMesh.h>
+#include <interi/destruction_render/BreakEffects.h>
+#include <interi/destruction_runtime/DebrisSystem.h>
+#include <interi/destruction_runtime/DestructionWorld.h>
 #include <interi/ecs/Scheduler.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/physics/Components.h>
@@ -20,15 +30,18 @@
 #include <interi/physics/PhysicsWorld.h>
 #include <interi/platform/InputMapper.h>
 #include <interi/platform_sdl/SdlPlatform.h>
+#include <interi/render/Decals.h>
 #include <interi/runtime/FixedStepClock.h>
 
 #include "SandboxRenderer.h"
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <format>
 #include <memory>
 #include <string>
@@ -89,6 +102,30 @@ void SpawnStatic(interi::World& world, interi::physics::ObjectLayer layer, const
     (void)world.CreateEntity(body, interi::physics::ColliderComponent::Box(halfExtents), transform);
 }
 
+/// A 4 x 3 x 0.3 m concrete wall standing on y = 0, centred on x = z = 0, pre-fractured into 4 regions of up to 10
+/// chunks each (as fracture_cooker would, without the glTF).
+interi::Result<std::shared_ptr<const interi::destruction::DestructibleAsset>> BuildWall(interi::JobSystem& jobs)
+{
+    using namespace interi::destruction;
+    HierarchySettings hierarchy;
+    for (const auto& [count, seed] : {std::pair{4u, 11u}, std::pair{10u, 12u}})
+    {
+        SeedSettings level;
+        level.count = count;
+        level.randomSeed = seed;
+        hierarchy.levels.push_back(level);
+    }
+    const ChunkHierarchy chunks =
+        BuildHierarchy(MakeBoxMesh({-2.0f, 0.0f, -0.15f}, {2.0f, 3.0f, 0.15f}), hierarchy, jobs);
+    std::vector<DestructionMaterial> materials(1);
+    materials[0].name = "concrete";
+    BondSettings bonds;
+    bonds.groundHeight = 0.0f;
+    BondGraph graph = BuildBondGraph(chunks.chunks, materials, bonds);
+    INTERI_TRY_ASSIGN(asset, AssembleAsset(chunks.chunks, std::move(graph), materials, {}, jobs));
+    return std::make_shared<const DestructibleAsset>(std::move(asset));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -122,6 +159,9 @@ int main(int argc, char** argv)
     const auto spawn = input.AddAction("spawn");
     input.BindKey(spawn, interi::Key::Space);
     input.BindGamepadButton(spawn, interi::GamepadButton::South);
+    const auto explode = input.AddAction("explode");
+    input.BindKey(explode, interi::Key::E);
+    input.BindGamepadButton(explode, interi::GamepadButton::East);
     const auto moveX = input.AddAxis("moveX");
     input.BindKeys(moveX, interi::Key::A, interi::Key::D);
     input.BindGamepadAxis(moveX, interi::GamepadAxis::LeftX);
@@ -146,6 +186,33 @@ int main(int argc, char** argv)
     interi::physics::PhysicsSync physicsSync(physics);
     interi::FixedStepClock clock;
     const auto dt = static_cast<float>(clock.StepSeconds());
+    interi::destruction::DestructionWorld destruction(physics);
+    interi::destruction::DebrisSystem debrisSystem(physics);
+    destruction.SetDebrisSystem(&debrisSystem);
+    interi::destruction::BreakEffects breakEffects;
+
+    // Three pre-fractured walls between the pillars.
+    auto wall = BuildWall(jobs);
+    if (!wall)
+    {
+        std::fprintf(stderr, "wall: %s\n", wall.error().message.c_str());
+        return EXIT_FAILURE;
+    }
+    if (renderer != nullptr)
+    {
+        if (auto added = renderer->AddAsset(*wall); !added)
+        {
+            std::fprintf(stderr, "wall meshes: %s\n", added.error().message.c_str());
+            return EXIT_FAILURE;
+        }
+    }
+    constexpr std::array kWallX{-4.5f, 0.0f, 4.5f};
+    for (const float x : kWallX)
+    {
+        interi::Transform transform;
+        transform.position = {x, 0.0f, 0.0f};
+        (void)destruction.Spawn(world, jobs, *wall, transform);
+    }
 
     // Must match the scene SandboxRenderer draws: the ground plane and four 2 x 6 x 2 pillars.
     SpawnStatic(world, interi::physics::ObjectLayer::Static, {0.0f, -1.0f, 0.0f}, {40.0f, 1.0f, 40.0f});
@@ -191,6 +258,11 @@ int main(int argc, char** argv)
     interi::Vec3 spawnPoint{0.0f, 10.0f, 0.0f};
     std::vector<interi::InputEvent> events;
     std::vector<interi::Transform> debris;
+    std::vector<interi::render::Particle> particles;
+    std::deque<interi::render::Decal> scorches;
+    std::vector<interi::render::Decal> decals;
+    std::uint64_t stepCount = 0;
+    std::uint32_t blasts = 0;
     std::uint64_t presented = 0;
     const auto start = std::chrono::steady_clock::now();
     auto previous = start;
@@ -207,8 +279,10 @@ int main(int argc, char** argv)
         }
 
         const auto now = std::chrono::steady_clock::now();
+        const float frameSeconds = std::chrono::duration<float>(now - previous).count();
         const std::uint32_t steps = clock.Advance(now - previous);
         previous = now;
+        const double seconds = std::chrono::duration<double>(now - start).count();
         for (std::uint32_t step = 0; step < steps; ++step)
         {
             spawnPoint.x += input.AxisValue(moveX) * 5.0f * dt;
@@ -228,8 +302,33 @@ int main(int argc, char** argv)
                     (void)world.CreateEntity(body, debrisCollider, transform, Lifetime{6.0f});
                 }
             }
+            if (input.WasPressed(explode) || (options.autoSpawn && stepCount % 60 == 30))
+            {
+                // Behind the wall (-z), so the blast throws its pieces out towards +z.
+                const float x = kWallX[blasts % kWallX.size()] + 0.6f * static_cast<float>(blasts % 3) - 0.6f;
+                const interi::Vec3 center{x, 1.0f + 0.4f * static_cast<float>(blasts % 4), -0.4f};
+                destruction.QueueDamage({.center = center, .energy = 1.0e9f, .innerRadius = 0.8f, .radius = 1.3f},
+                                        interi::destruction::DamageKind::Explosion);
+                scorches.push_back(
+                    {.transform = interi::render::DecalBox({center.x, center.y, 0.15f}, {0, 0, 1}, 2.2f, 2.2f),
+                     .color = {0.02f, 0.02f, 0.02f},
+                     .intensity = 0.8f,
+                     .kind = interi::render::DecalKind::Scorch,
+                     .seed = blasts});
+                if (scorches.size() > 32)
+                {
+                    scorches.pop_front();
+                }
+                ++blasts;
+            }
             scheduler.Run(world, jobs, commands);
             physicsSync.Step(world, jobs, dt);
+            destruction.Update(world, jobs);
+            interi::destruction::DebrisView debrisView;
+            debrisView.position = sandbox::SandboxRenderer::CameraPosition(seconds);
+            debrisSystem.Update(world, jobs, debrisView, dt);
+            breakEffects.Spawn(destruction, particles);
+            ++stepCount;
         }
 
         if (renderer != nullptr)
@@ -243,15 +342,25 @@ int main(int argc, char** argv)
                                              debris.push_back(transform);
                                          }
                                      });
-            presented += renderer->Render(debris, std::chrono::duration<double>(now - start).count()) ? 1 : 0;
+            decals.assign(scorches.begin(), scorches.end());
+            presented += renderer->Render({.cubes = debris,
+                                           .world = &world,
+                                           .destruction = &destruction,
+                                           .particles = particles,
+                                           .decals = decals,
+                                           .seconds = seconds,
+                                           .dt = frameSeconds})
+                             ? 1
+                             : 0;
         }
 
+        particles.clear();
         ++framesSinceTitle;
         if (now - titleTime >= std::chrono::seconds(1))
         {
-            const double seconds = std::chrono::duration<double>(now - titleTime).count();
+            const double elapsed = std::chrono::duration<double>(now - titleTime).count();
             (*window)->SetTitle(std::format("Interi Sandbox - {} entities - {:.0f} fps", world.EntityCount(),
-                                            static_cast<double>(framesSinceTitle) / seconds));
+                                            static_cast<double>(framesSinceTitle) / elapsed));
             titleTime = now;
             framesSinceTitle = 0;
         }
@@ -259,8 +368,9 @@ int main(int argc, char** argv)
     if (options.maxFrames != 0)
     {
         // Smoke runs check this: every frame should have been presented when rendering is enabled.
-        std::printf("Presented %llu of %llu frames (%zu debris at exit)\n", static_cast<unsigned long long>(presented),
-                    static_cast<unsigned long long>(options.maxFrames), debris.size());
+        std::printf("Presented %llu of %llu frames (%zu debris at exit, %u blasts, %u debris pieces)\n",
+                    static_cast<unsigned long long>(presented), static_cast<unsigned long long>(options.maxFrames),
+                    debris.size(), blasts, debrisSystem.BodyCount() + debrisSystem.ParticleCount());
     }
     interi::SetGlobalLogger(nullptr);
     return EXIT_SUCCESS;

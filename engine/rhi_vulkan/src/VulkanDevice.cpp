@@ -145,6 +145,7 @@ struct FeatureChain
         v12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
         v13.dynamicRendering = VK_TRUE;
         v13.synchronization2 = VK_TRUE;
+        v13.shaderDemoteToHelperInvocation = VK_TRUE; // HLSL `discard` (SM 6.6 compiles it to demote)
     }
 
     /// True when every feature Require() asks for is present.
@@ -157,7 +158,8 @@ struct FeatureChain
                v12.descriptorBindingPartiallyBound && v12.descriptorBindingUpdateUnusedWhilePending &&
                v12.descriptorBindingSampledImageUpdateAfterBind && v12.descriptorBindingStorageImageUpdateAfterBind &&
                v12.descriptorBindingStorageBufferUpdateAfterBind && v12.shaderSampledImageArrayNonUniformIndexing &&
-               v12.shaderStorageBufferArrayNonUniformIndexing && v13.dynamicRendering && v13.synchronization2;
+               v12.shaderStorageBufferArrayNonUniformIndexing && v13.dynamicRendering && v13.synchronization2 &&
+               v13.shaderDemoteToHelperInvocation;
     }
 };
 

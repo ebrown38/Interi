@@ -133,19 +133,19 @@ Result<std::unique_ptr<SandboxRenderer>> SandboxRenderer::Create(SdlPlatform& pl
     state->graph = std::make_unique<FrameGraph>(gpu, *state->resources);
 
     // Upload the meshes and interior textures once, before the first frame.
+    // (A named lambda: INTERI_TRY_ASSIGN inside another macro's argument would get one __LINE__ on MSVC.)
     State& uploaded = *state;
-    INTERI_TRY(UploadNow(gpu,
-                         [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
-                         {
-                             INTERI_TRY_ASSIGN(cube, uploaded.meshes->Add(uploads, commands, MakeCube(0.25f)));
-                             INTERI_TRY_ASSIGN(ground, uploaded.meshes->Add(uploads, commands, MakePlane(1.0f)));
-                             uploaded.cube = cube;
-                             uploaded.ground = ground;
-                             INTERI_TRY_ASSIGN(
-                                 interior, destruction::CreateInteriorMaterials(*uploaded.device, uploads, commands));
-                             uploaded.interior = std::move(interior);
-                             return {};
-                         }));
+    const auto upload = [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
+    {
+        INTERI_TRY_ASSIGN(cube, uploaded.meshes->Add(uploads, commands, MakeCube(0.25f)));
+        INTERI_TRY_ASSIGN(ground, uploaded.meshes->Add(uploads, commands, MakePlane(1.0f)));
+        uploaded.cube = cube;
+        uploaded.ground = ground;
+        INTERI_TRY_ASSIGN(interior, destruction::CreateInteriorMaterials(*uploaded.device, uploads, commands));
+        uploaded.interior = std::move(interior);
+        return {};
+    };
+    INTERI_TRY(UploadNow(gpu, upload));
     state->chunkMaterials.surface = {Material{.baseColor = {0.72f, 0.71f, 0.68f}, .roughness = 0.85f}};
     state->chunkMaterials.interior = state->interior.materials;
     state->chunkMaterials.fallback = state->chunkMaterials.surface[0];

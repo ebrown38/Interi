@@ -2,6 +2,7 @@
 // ChunkMeshCache and ChunkGatherer on a real device (the cache uploads into a MeshPool) and real destruction.
 #include <interi/destruction_render/BreakEffects.h>
 #include <interi/destruction_render/ChunkGatherer.h>
+#include <interi/destruction_render/CrackDecals.h>
 #include <interi/render/MeshPool.h>
 #include <interi/rhi/ResourceManager.h>
 #include <interi/rhi/UploadQueue.h>
@@ -255,4 +256,74 @@ TEST(BreakEffects, DestructionUpdate_SpawnsParticlesAtBrokenBonds)
         EXPECT_LT(Length(p.position - Vec3(0.0f, 1.5f, 0.0f)), 2.5f);
         EXPECT_EQ(p.flags & render::kParticleAdditive, 0u);
     }
+}
+
+TEST(CrackDecals, DamagedBond_DecalOnTheBondInWorldSpace)
+{
+    // Weaken one bond to 30% health without breaking it: one crack decal sits on it; the wall is moved to x = 3.
+    DestructionScene scene;
+    const auto wall = MakeFracturedWall(scene.jobs);
+    const DestructibleId id = scene.Spawn(wall, {3.0f, 0.0f, 0.0f});
+    scene.Step();
+    std::vector<render::Decal> decals;
+    GatherCrackDecals(scene.world, scene.destruction, decals);
+    EXPECT_TRUE(decals.empty());
+
+    const Bond& bond = wall->bonds[0];
+    const float full = scene.destruction.BondFullHealth(id)[0];
+    scene.destruction.QueueDamage({.center = bond.centroid + Vec3(3.0f, 0.0f, 0.0f),
+                                   .energy = full * 0.7f,
+                                   .innerRadius = 0.01f,
+                                   .radius = 0.02f},
+                                  DamageKind::Melee);
+    scene.Step();
+    ASSERT_FALSE(scene.destruction.IsBondBroken(id, 0));
+    GatherCrackDecals(scene.world, scene.destruction, decals);
+    ASSERT_EQ(decals.size(), 1u);
+    EXPECT_NEAR(decals[0].intensity, CrackOverlayIntensity(full * 0.3f, full), 1e-5f);
+    EXPECT_GT(decals[0].intensity, 0.5f);
+    const Vec4 centre = decals[0].transform.columns[3];
+    EXPECT_NEAR(centre.x, bond.centroid.x + 3.0f, 1e-4f);
+    EXPECT_NEAR(centre.y, bond.centroid.y, 1e-4f);
+    EXPECT_NEAR(centre.z, bond.centroid.z, 1e-4f);
+    // Local z runs along the bond normal.
+    const Vec3 z = NormalizeOrZero(
+        Vec3(decals[0].transform.columns[2].x, decals[0].transform.columns[2].y, decals[0].transform.columns[2].z));
+    EXPECT_NEAR(Dot(z, bond.normal), 1.0f, 1e-4f);
+}
+
+TEST(CrackDecals, SeparatedBond_NoDecal)
+{
+    DestructionScene scene;
+    const auto wall = MakeFracturedWall(scene.jobs);
+    const DestructibleId id = scene.Spawn(wall);
+    scene.Step();
+    scene.destruction.QueueDamage(
+        {.center = {0.6f, 1.8f, -0.4f}, .energy = 1.0e9f, .innerRadius = 0.9f, .radius = 1.4f}, DamageKind::Explosion);
+    scene.Step(3);
+    std::vector<render::Decal> decals;
+    GatherCrackDecals(scene.world, scene.destruction, decals);
+    // Every broken bond either separated pieces (no decal) or is inside one piece (full crack).
+    std::uint32_t brokenTogether = 0;
+    std::vector<std::uint32_t> pieceOf(wall->chunks.size(), ~0u);
+    for (std::uint32_t piece = 0; piece < scene.destruction.PieceCount(id); ++piece)
+    {
+        for (const std::uint32_t chunk : scene.destruction.PieceChunks(id, piece))
+        {
+            pieceOf[chunk] = piece;
+        }
+    }
+    for (std::uint32_t bond = 0; bond < wall->bonds.size(); ++bond)
+    {
+        const Bond& b = wall->bonds[bond];
+        if (scene.destruction.IsBondBroken(id, bond) && pieceOf[b.chunkA] != ~0u &&
+            pieceOf[b.chunkA] == pieceOf[b.chunkB])
+        {
+            ++brokenTogether;
+        }
+    }
+    const auto full = static_cast<std::uint32_t>(
+        std::ranges::count_if(decals, [](const render::Decal& d) { return d.intensity == 1.0f; }));
+    EXPECT_GE(full, brokenTogether);
+    EXPECT_LT(decals.size(), wall->bonds.size());
 }

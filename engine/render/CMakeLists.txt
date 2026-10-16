@@ -7,6 +7,7 @@ interi_add_module(render
     SOURCES
         src/Camera.cpp
         src/Clusters.cpp
+        src/Decals.cpp
         src/ForwardRenderer.cpp
         src/FrameGraph.cpp
         src/HeaderCheck.cpp
@@ -20,6 +21,7 @@ interi_add_module(render
     TEST_SOURCES
         ${_tests}/CameraTests.cpp
         ${_tests}/ClustersTests.cpp
+        ${_tests}/DecalsTests.cpp
         ${_tests}/FrameGraphTests.cpp
         ${_tests}/MeshTests.cpp
         ${_tests}/ParticlesTests.cpp
@@ -28,6 +30,8 @@ interi_add_module(render
 interi_add_shaders(interi_render
     SOURCES
         shaders/Cull.cs.hlsl
+        shaders/Decal.ps.hlsl
+        shaders/Decal.vs.hlsl
         shaders/DepthOnly.vs.hlsl
         shaders/Forward.ps.hlsl
         shaders/Forward.vs.hlsl

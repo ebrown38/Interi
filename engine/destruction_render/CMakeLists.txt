@@ -8,6 +8,7 @@ interi_add_module(destruction_render
         src/BreakEffects.cpp
         src/ChunkGatherer.cpp
         src/ChunkMeshCache.cpp
+        src/CrackDecals.cpp
         src/HeaderCheck.cpp
         src/InteriorMaterials.cpp
     DEPS interi::render interi::destruction_runtime
@@ -15,6 +16,7 @@ interi_add_module(destruction_render
     TEST_SOURCES
         ${_tests}/BreakEffectsTests.cpp
         ${_tests}/ChunkMaterialsTests.cpp
+        ${_tests}/CrackDecalsTests.cpp
         ${_tests}/InteriorMaterialsTests.cpp)
 
 # Cache uploads and gathering on a real device and real destruction: label `integration`.
@@ -29,6 +31,7 @@ interi_add_test_executable(interi_destruction_render_gpu_tests
 interi_add_test_executable(interi_destruction_render_golden_tests
     SOURCES
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
+        ${_tests}/DecalGoldenTests.cpp
         ${_tests}/FracturedWallGoldenTests.cpp
         ${_tests}/InteriorGoldenTests.cpp
     DEPS interi::destruction_render interi::rhi_vulkan interi::vulkan_testing interi::testing interi::physics_testing

@@ -4,4 +4,5 @@
 #include <interi/destruction_render/BreakEffects.h>
 #include <interi/destruction_render/ChunkGatherer.h>
 #include <interi/destruction_render/ChunkMeshCache.h>
+#include <interi/destruction_render/CrackDecals.h>
 #include <interi/destruction_render/InteriorMaterials.h>

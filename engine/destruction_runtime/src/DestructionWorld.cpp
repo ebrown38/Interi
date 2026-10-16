@@ -248,6 +248,11 @@ std::span<const float> DestructionWorld::BondHealth(DestructibleId id) const
     return Get(id).health;
 }
 
+std::span<const float> DestructionWorld::BondFullHealth(DestructibleId id) const
+{
+    return Get(id).maxHealth;
+}
+
 bool DestructionWorld::IsBondBroken(DestructibleId id, std::uint32_t bond) const
 {
     return Get(id).broken[bond] != 0;
@@ -377,6 +382,23 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
 {
     INTERI_ZONE_NAMED("DestructionWorld::RebuildPieces");
     const DestructibleAsset& asset = *instance.asset;
+    for (const std::uint32_t bond : instance.newlyBroken)
+    {
+        // Where the bond was: the pose of the piece that held it, before pieces are rebuilt.
+        const Bond& b = asset.bonds[bond];
+        const Transform pose = PiecePose(world, instance, instance.chunkPiece[b.chunkA]);
+        const std::uint32_t materialA = asset.chunks[b.chunkA].material;
+        const std::uint32_t materialB = asset.chunks[b.chunkB].material;
+        const bool weakerB = materialB < asset.materials.size() && materialA < asset.materials.size() &&
+                             asset.materials[materialB].fractureEnergy < asset.materials[materialA].fractureEnergy;
+        m_breakEvents.push_back({.instance = instance.id,
+                                 .bond = bond,
+                                 .position = pose.TransformPoint(b.centroid),
+                                 .normal = pose.TransformVector(b.normal),
+                                 .material = weakerB ? materialB : materialA,
+                                 .area = b.area,
+                                 .energy = instance.maxHealth[bond]});
+    }
     const auto chunkCount = static_cast<std::uint32_t>(asset.chunks.size());
     std::vector<std::uint32_t> labels(chunkCount);
     LabelComponents(jobs, chunkCount, instance.edges, instance.broken, labels);
@@ -625,6 +647,7 @@ void DestructionWorld::Update(World& world, JobSystem& jobs)
 {
     INTERI_ZONE_NAMED("DestructionWorld::Update");
     m_stats = {};
+    m_breakEvents.clear();
 
     ApplyContactDamage(world);
     for (const auto& [damage, kind] : m_queuedDamage)

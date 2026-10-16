@@ -215,6 +215,31 @@ TEST_F(DestructionNoSeparationTest, Separation_InheritsParentVelocity)
     EXPECT_NEAR(Body(id, pieces[0]).mass, 1000.0f, 1e-3f);
 }
 
+TEST_F(DestructionWorldTest, BreakEvents_DamageBreak_ReportsWorldBond)
+{
+    // A two-cube column at x = 5: breaking the bond between the cubes reports it once, in world space.
+    DestructibleAsset asset = MakeGridAsset({{0, 0, 0}, {0, 1, 0}});
+    const std::uint32_t bond = *FindBond(asset, 0, 1);
+    const DestructibleId id = Spawn(std::move(asset), {5.0f, 0.0f, 0.0f});
+    Step();
+    EXPECT_TRUE(m_destruction.BreakEvents().empty());
+
+    m_destruction.QueueDamage(BreakAt({5.5f, 1.0f, 0.5f}), DamageKind::Melee);
+    Step();
+    ASSERT_EQ(m_destruction.BreakEvents().size(), 1u);
+    const BreakEvent& event = m_destruction.BreakEvents()[0];
+    EXPECT_EQ(event.instance, id);
+    EXPECT_EQ(event.bond, bond);
+    ExpectVecNear(event.position, {5.5f, 1.0f, 0.5f}, 1e-5f);
+    ExpectVecNear(event.normal, {0.0f, 1.0f, 0.0f}, 1e-5f);
+    EXPECT_EQ(event.material, 0u);
+    EXPECT_FLOAT_EQ(event.area, 1.0f);
+    EXPECT_FLOAT_EQ(event.energy, 100.0f); // fractureEnergy 100 J/m^2 x 1 m^2
+
+    Step();
+    EXPECT_TRUE(m_destruction.BreakEvents().empty()); // only the Update that broke it
+}
+
 TEST_F(DestructionWorldTest, Explosion_DetachesUnsupportedPart)
 {
     const DestructibleId id = Spawn(MakeGridAsset({{0, 0, 0}, {0, 1, 0}, {0, 2, 0}}));

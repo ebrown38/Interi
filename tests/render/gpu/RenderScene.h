@@ -39,13 +39,17 @@ struct SceneContext
 
 using PopulateScene = std::function<void(SceneContext&, std::vector<render::RenderObject>&)>;
 using AfterForward = std::function<void(render::FrameGraph&, const render::ForwardOutputs&)>;
+/// AfterForward that can also draw over the colour target (`color` is the version the forward pass wrote; passes
+/// that write it must update it).
+using AfterForwardColor =
+    std::function<void(render::FrameGraph&, const render::ForwardOutputs&, render::FGTexture& color)>;
 
 /// Renders a scene with the forward renderer into a size x size sRGB image and reads it back. `populate` uploads
 /// meshes and appends the objects to draw; `afterForward` can add passes that use the forward outputs (e.g. to read
 /// back the light clusters).
 inline Image RenderSceneWith(rhi::IDevice& device, std::uint32_t size, const render::SceneView& view,
                              const PopulateScene& populate, render::ForwardSettings settings = {},
-                             const AfterForward& afterForward = {})
+                             const AfterForwardColor& afterForward = {})
 {
     const std::uint32_t rowPitch = (size * 4 + rhi::kTextureRowPitchAlignment - 1) / rhi::kTextureRowPitchAlignment *
                                    rhi::kTextureRowPitchAlignment;
@@ -82,7 +86,7 @@ inline Image RenderSceneWith(rhi::IDevice& device, std::uint32_t size, const ren
             (*renderer)->AddPasses(graph, target, size, size, view, drawList, {0.10f, 0.12f, 0.15f});
         if (afterForward)
         {
-            afterForward(graph, outputs);
+            afterForward(graph, outputs, target);
         }
         EXPECT_TRUE(graph.Compile().has_value());
         EXPECT_TRUE(graph.Execute(commands).has_value());
@@ -134,7 +138,10 @@ inline Image RenderScene(rhi::IDevice& device, std::uint32_t size, const render:
                 drawList.back().mesh = ranges[entry.mesh];
             }
         },
-        settings, afterForward);
+        settings,
+        afterForward ? AfterForwardColor([&](render::FrameGraph& graph, const render::ForwardOutputs& outputs,
+                                             render::FGTexture&) { afterForward(graph, outputs); })
+                     : AfterForwardColor{});
 }
 
 } // namespace interi::testing

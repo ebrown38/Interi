@@ -12,6 +12,7 @@ interi_add_module(render
         src/HeaderCheck.cpp
         src/Mesh.cpp
         src/MeshPool.cpp
+        src/Particles.cpp
         src/Shadows.cpp
         src/Texture.cpp
     DEPS interi::rhi
@@ -21,6 +22,7 @@ interi_add_module(render
         ${_tests}/ClustersTests.cpp
         ${_tests}/FrameGraphTests.cpp
         ${_tests}/MeshTests.cpp
+        ${_tests}/ParticlesTests.cpp
         ${_tests}/ShadowsTests.cpp
         ${_tests}/TextureTests.cpp)
 interi_add_shaders(interi_render
@@ -31,6 +33,9 @@ interi_add_shaders(interi_render
         shaders/Forward.vs.hlsl
         shaders/HiZ.cs.hlsl
         shaders/LightCulling.cs.hlsl
+        shaders/Particle.ps.hlsl
+        shaders/Particle.vs.hlsl
+        shaders/Particles.cs.hlsl
         shaders/Shadow.ps.hlsl
         shaders/Shadow.vs.hlsl
     INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
@@ -41,6 +46,7 @@ interi_add_test_executable(interi_render_gpu_tests
         ${_tests}/gpu/ConventionTests.cpp
         ${_tests}/gpu/FrameGraphGpuTests.cpp
         ${_tests}/gpu/GpuCullingTests.cpp
+        ${_tests}/gpu/ParticleGpuTests.cpp
     DEPS interi::render interi::rhi_vulkan interi::vulkan_testing interi::testing
     LABELS integration)
 interi_add_shaders(interi_render_gpu_tests
@@ -51,7 +57,9 @@ interi_add_shaders(interi_render_gpu_tests
 # Golden image tests (label `golden`): renders compared with tests/render/golden/*.ppm. Mismatches write the actual
 # image and a diff to build/<preset>/golden-output (uploaded by CI on failure).
 interi_add_test_executable(interi_render_golden_tests
-    SOURCES ${_tests}/gpu/LitCubeGoldenTests.cpp
+    SOURCES
+        ${_tests}/gpu/LitCubeGoldenTests.cpp
+        ${_tests}/gpu/ParticleGoldenTests.cpp
     DEPS interi::render interi::rhi_vulkan interi::vulkan_testing
     LABELS golden)
 foreach(_target interi_render_golden_tests interi_render_gpu_tests)

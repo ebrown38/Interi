@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // ChunkMeshCache and ChunkGatherer on a real device (the cache uploads into a MeshPool) and real destruction.
+#include <interi/destruction_render/BreakEffects.h>
 #include <interi/destruction_render/ChunkGatherer.h>
 #include <interi/render/MeshPool.h>
 #include <interi/rhi/ResourceManager.h>
@@ -229,4 +230,29 @@ TEST_F(ChunkGathererTest, DebrisHandoff_DrawsDebrisWithItsChunks)
     ASSERT_GT(sourced, 0u) << "no piece was handed to the debris system";
     const ChunkGatherStats stats = gatherer.Gather(scene.world, scene.destruction, *cache, materials, objects, 100000);
     EXPECT_EQ(stats.debris, sourced);
+}
+
+TEST(BreakEffects, DestructionUpdate_SpawnsParticlesAtBrokenBonds)
+{
+    // The wall's material is concrete (interior look 0): blasting it spawns dust and chips near the blast.
+    DestructionScene scene;
+    const auto wall = MakeFracturedWall(scene.jobs);
+    (void)scene.Spawn(wall);
+    scene.Step();
+    BreakEffects effects;
+    std::vector<render::Particle> particles;
+    effects.Spawn(scene.destruction, particles);
+    EXPECT_TRUE(particles.empty());
+
+    scene.destruction.QueueDamage({.center = {0.0f, 1.5f, 0.0f}, .energy = 1.0e9f, .innerRadius = 0.6f, .radius = 0.9f},
+                                  DamageKind::Explosion);
+    scene.Step();
+    ASSERT_FALSE(scene.destruction.BreakEvents().empty());
+    effects.Spawn(scene.destruction, particles);
+    ASSERT_GE(particles.size(), scene.destruction.BreakEvents().size() * 6u); // >= 4 dust + 2 chips per bond
+    for (const render::Particle& p : particles)
+    {
+        EXPECT_LT(Length(p.position - Vec3(0.0f, 1.5f, 0.0f)), 2.5f);
+        EXPECT_EQ(p.flags & render::kParticleAdditive, 0u);
+    }
 }

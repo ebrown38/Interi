@@ -5,6 +5,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/destruction_render)
 
 interi_add_module(destruction_render
     SOURCES
+        src/BreakEffects.cpp
         src/ChunkGatherer.cpp
         src/ChunkMeshCache.cpp
         src/HeaderCheck.cpp
@@ -12,6 +13,7 @@ interi_add_module(destruction_render
     DEPS interi::render interi::destruction_runtime
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/BreakEffectsTests.cpp
         ${_tests}/ChunkMaterialsTests.cpp
         ${_tests}/InteriorMaterialsTests.cpp)
 

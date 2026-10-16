@@ -134,11 +134,11 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 - **`FixedStepClock`** takes the elapsed time from the caller and never reads a clock. It uses integer nanoseconds, clamps substeps after a hitch (dropping whole steps but keeping the fraction), and exposes `Alpha()` for `Interpolate(previous, current, alpha)`.
 - **`FramePipeline<Snapshot>`** double-buffers: render prep of frame N runs as a job while frame N+1 simulates on the calling thread. Neither side writes what the other reads. The TSan stress test lives in `interi_runtime_stress_tests`.
-- **`interi_sandbox`** (`game/sandbox`) is the playable demo: a third-person character with the sledgehammer, remote charges and rockets in `data/levels/sandbox.json` (ground, pillars, three pre-fractured walls generated at startup and served from a `MemoryFileSystem` mounted at `generated/`).
+- **`interi_sandbox`** (`game/sandbox`) is the playable demo: a third-person character with the sledgehammer, remote charges and rockets, and a truck (E enters and exits it, or brings a new one after a wreck) in `data/levels/sandbox.json` (ground, pillars, three pre-fractured walls generated at startup and served from a `MemoryFileSystem` mounted at `generated/`, and `player`/`vehicle` spawn points). Sounds are synthesized at startup; `--audio-driver default|null|none` (default falls back to null).
   - Bindings are in `data/gameplay/input.json`: F5 saves the destruction state, F9 reloads the level and restores it, F6 reloads the module.
   - Debris expiry lives in the hot-reloadable `game/sandbox_module` (`interi_sandbox_module`). Components shared with the module are in `SandboxComponents.h`.
   - `--hot-reload 1` rebuilds the module (`cmake --build` on the build dir) when its sources change. The module library is always watched.
-  - Smoke run: `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` (auto-spawn fires rockets and charges at the walls). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+  - Smoke run: `--video-driver offscreen --audio-driver null --frames N --auto-spawn 1 --validation 1` (auto-spawn fires rockets and charges at the walls and drives the truck into the middle one). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
 
 ## Hot reload (`engine/hotreload`, namespace `interi::hotreload`)
 
@@ -173,6 +173,12 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
     - `PlaceCharge`: sticks to a destructible's chunk and follows it through splits (`DestructionWorld::ChunkPose`), or to an entity's Transform. `DetonateCharges` sets them off.
     - `FireRocket`: a per-step segment cast; it blasts on a hit or at its range.
   - Blasts queue explosion damage and push dynamic bodies, in body-ID order.
+- **Vehicles** (`Vehicle.h`, `VehicleDef.h`, `data/gameplay/vehicles.json`): a Jolt `VehicleConstraint` with a `WheeledVehicleController` and a cylinder-cast tester, four wheels at the chassis box's bottom corners.
+  - Vehicle space is Jolt's: +Z forward, +X left. The body is created by the `Vehicle` (not PhysicsSync); its user data is an entity with `VehicleComponent` + Transform (no RigidBodyComponent, or PhysicsSync would add a second body).
+  - Like the character: `SetInput` between steps, `Update` after `PhysicsSync::Step`. Teardown is step listener, constraint, body.
+  - The torque curve falls to zero at max RPM (a rev limiter; Jolt clamps RPM only after the solve) and the chassis has no linear damping, so top speed is max RPM through gear and differential. Tests pin it analytically.
+  - Ramming uses the ordinary contact damage path: damage is linear in the impulse above `impactThreshold`, and the impulse is about mass x approach speed.
+  - Hard contacts and blasts (`ApplyRadialDamage`) cost health. At zero it turns into wreck debris: the chassis plus four `ColliderComponent::Cylinder` wheels as Debris entities with `WreckComponent`, moving with the vehicle's point velocities and optionally adopted by the DebrisSystem.
 - **Levels** (`Level.h`): JSON static boxes, destructibles and spawn points.
   - `SpawnLevel` reads every asset first (an error creates nothing), then creates everything in file order. Pass an `AssetCache` to reuse assets across reloads.
   - `ApplyInputConfig` binds actions and axes by input name ("Space", "Mouse.Left", "Gamepad.South", "Gamepad.LeftX"), all or nothing.
@@ -183,6 +189,29 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - The format is IDSS: payload hash, then a versioned Archive.
   - Restore into a freshly loaded level: `DestructionWorld::RestoreDamage` only adds damage, and pieces are rebuilt without break events.
   - Not saved: DebrisSystem entities (debris, rubble) and the stress warm start, so a load continues equivalently, not bit-identically.
+
+## Audio (`engine/audio`, namespace `interi::audio`)
+
+- **miniaudio** (header-only, Unlicense OR MIT-0) only drives the device and decodes WAV/FLAC/MP3 (`DecodeClip`, `LoadClip`). Its implementation is `src/MiniaudioImplementation.cpp`, and every audio TU includes it through the private `src/Miniaudio.h` (one set of `MA_NO_*` defines). No public header includes it.
+- **Pure, tested parts:**
+  - `Spatializer`: inverse-distance attenuation, offset so it reaches zero at `maxDistance` without a step; equal-power pan along the listener's right (forward x up).
+  - `VoiceLimiter`: fixed slots. A newcomer evicts the lowest priority only if it ranks strictly higher (ties never churn); among equal lowest the oldest goes.
+  - `Mixer`: mono clips into interleaved stereo float, gain ramps over one block, stops fade out over one block.
+  - `Synthesize`: procedural impact, explosion, rumble and creak clips (integer `Random`), so no recorded audio ships.
+- **`AudioEngine`** (`Default`, `Null` or `Offline` backend). Every call comes from one game thread. Commands reach the audio thread through an SPSC queue, and ended voices come back through a second one.
+  - The game side keeps each playing clip's `shared_ptr`, plus a retired list for cut voices, until the audio thread reports the voice ended. A clip is never freed on the audio thread.
+  - Voices are ranked by priority x audible gain. Inaudible plays are culled.
+  - Tests use `Offline` (`Render` mixes on the caller). The TSan test `AudioEngineStress` (`interi_audio_stress_tests`, label `stress`) runs on the null device. Never open a real device in tests: CI has no sound card.
+- **Designated initializers:** clang's `-Wmissing-designated-field-initializers` and tidy's `readability-redundant-member-init` conflict over class-type members without initializers. Engine code fills every field; tests assign fields instead.
+
+## Destruction audio (`engine/destruction_audio`, namespace `interi::destruction`)
+
+- **`DestructionAudioConfig`** (`data/audio/destruction_audio.json`) holds impact banks by material pair (`*` wildcard; exact beats one wildcard beats none; ties go to file order) plus creak, rumble and explosion cues. Clip names resolve through a game-provided `ClipLibrary`. Volumes rise with log impulse and log mass.
+- **Material identity** is a `StringId`: a destructible chunk's or debris/rubble source's DestructionMaterial name, else an `AudioMaterialComponent` (vehicles, ground), else none (matches only `*`).
+- **`ImpactBatcher`** gives one voice per (bank, region cell) per step at the impulse-weighted centroid. Cells are centred on multiples of the size, so a floor at y = 0 sits mid-cell. Results are independent of insertion order.
+- **`StressAudio`** computes bond utilization (`BondUtilization`: load over the health-scaled limit, as DestructionWorld checks), scanned round-robin within a bond budget, and only for converged solves. A region creaks once per crossing, then re-arms after relaxing below `rearmThreshold` and a cooldown.
+- **`CollapseAudio`** sums the mass of newly created unanchored pieces per region. A new instance's initial pieces don't count.
+- **`DestructionAudio::Update`** runs after `DestructionWorld::Update`. `PlayExplosion` is for blasts (the sandbox feeds `WeaponSystem::Blasts()`).
 
 ## RHI (`engine/rhi`, `engine/rhi_vulkan`, namespace `interi::rhi`)
 

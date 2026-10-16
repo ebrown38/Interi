@@ -52,6 +52,8 @@ struct ColliderComponent
 
     [[nodiscard]] static ColliderComponent Box(const Vec3& halfExtents);
     [[nodiscard]] static ColliderComponent Sphere(float radius);
+    /// Cylinder along the local Y axis (wheels).
+    [[nodiscard]] static ColliderComponent Cylinder(float halfHeight, float radius);
     /// Convex hull of the points (local space). Degenerate or too few points is an error.
     [[nodiscard]] static Result<ColliderComponent> ConvexHull(std::span<const Vec3> points);
 

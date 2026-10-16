@@ -219,6 +219,17 @@ bool SandboxRenderer::Render(const SandboxFrame& frame)
                                  .transform = Mat4::FromTRS(marker, Quat::Identity(), Vec3(0.6f)), // 0.3 m
                                  .material = {.baseColor = {1.0f, 0.85f, 0.1f}, .roughness = 0.3f}});
     }
+    for (const SandboxBox& box : frame.boxes)
+    {
+        if (state.objects.size() >= state.renderer->MaxObjects())
+        {
+            break;
+        }
+        state.objects.push_back({.mesh = state.cube,
+                                 .transform = Mat4::FromTRS(box.pose.position, box.pose.rotation,
+                                                            box.halfExtents * 4.0f), // the cube mesh is 0.5 m
+                                 .material = {.baseColor = box.color, .roughness = 0.5f}});
+    }
     if (frame.player && state.objects.size() < state.renderer->MaxObjects())
     {
         state.objects.push_back({.mesh = state.cube,

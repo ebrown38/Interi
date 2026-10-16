@@ -1,21 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Sandbox: an RFG-style playground. A third-person character (Jolt CharacterVirtual) with a sledgehammer, remote
-// charges and rockets in a level of pre-fractured concrete walls (data/levels/sandbox.json), on the ECS, Jolt
-// physics, destruction, debris and the Vulkan forward renderer (interior materials, GPU particles, crack and scorch
-// decals). Gameplay rules live in a hot-reloadable module (game/sandbox_module).
+// charges and rockets, and a truck to ram buildings with (Jolt VehicleConstraint), in a level of pre-fractured
+// concrete walls (data/levels/sandbox.json), on the ECS, Jolt physics, destruction, debris, the Vulkan forward
+// renderer (interior materials, GPU particles, crack and scorch decals) and the audio engine (synthesized impact,
+// creak, rumble and explosion sounds). Gameplay rules live in a hot-reloadable module (game/sandbox_module).
 //
-//   interi_sandbox [--video-driver <name>] [--frames <count>] [--validation 1] [--auto-spawn 1] [--hot-reload 1]
+//   interi_sandbox [--video-driver <name>] [--audio-driver default|null|none] [--frames <count>] [--validation 1]
+//                  [--auto-spawn 1] [--hot-reload 1]
 //
 // Controls (data/gameplay/input.json): WASD / left stick walk, mouse / right stick look, Space / South jump,
 // 1 2 3 / d-pad pick the sledgehammer, remote charges or rockets, left mouse / right shoulder uses the weapon
 // (swing, place a charge, fire), right mouse / left shoulder detonates the charges, G / North spawns a burst of
-// debris cubes, F5 saves the destruction state, F9 reloads the level and restores it, F6 reloads the gameplay
-// module, Escape quits.
+// debris cubes, E / West gets into or out of the truck (or brings a new one once it is wrecked; WASD / left stick
+// drive, Space / South is the hand brake), F5 saves the destruction state, F9 reloads the level and restores it, F6
+// reloads the gameplay module, Escape quits.
 //
 // --frames exits after that many frames (smoke runs; --video-driver dummy has no Vulkan so nothing is drawn,
-// offscreen renders without a display). --auto-spawn plays by itself: debris bursts, a rocket at a wall every second
-// and charges set off in between. --hot-reload watches game/sandbox_module, rebuilds the module when it changes
+// offscreen renders without a display; --audio-driver null mixes without a sound card). --auto-spawn plays by
+// itself: debris bursts, a rocket at a wall every second, charges set off in between, and the truck rams the middle
+// wall. --hot-reload watches game/sandbox_module, rebuilds the module when it changes
 // and swaps it in; the module library itself is always watched.
+#include <interi/audio/AudioEngine.h>
+#include <interi/audio/Synth.h>
 #include <interi/core/Log.h>
 #include <interi/core/math/Transform.h>
 #include <interi/core/math/Vec.h>
@@ -23,6 +29,7 @@
 #include <interi/destruction/ChunkHierarchy.h>
 #include <interi/destruction/DestructibleAsset.h>
 #include <interi/destruction/FractureMesh.h>
+#include <interi/destruction_audio/DestructionAudio.h>
 #include <interi/destruction_render/BreakEffects.h>
 #include <interi/destruction_runtime/DebrisSystem.h>
 #include <interi/destruction_runtime/DestructionWorld.h>
@@ -31,6 +38,8 @@
 #include <interi/gameplay/FollowCamera.h>
 #include <interi/gameplay/InputConfig.h>
 #include <interi/gameplay/Level.h>
+#include <interi/gameplay/Vehicle.h>
+#include <interi/gameplay/VehicleDef.h>
 #include <interi/gameplay/WeaponDef.h>
 #include <interi/gameplay/Weapons.h>
 #include <interi/hotreload/FileWatcher.h>
@@ -60,6 +69,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -74,6 +84,7 @@ namespace gameplay = interi::gameplay;
 struct Options
 {
     std::string videoDriver;
+    std::string audioDriver = "default";
     std::uint64_t maxFrames = 0; ///< 0 = run until quit.
     bool validation = false;
     bool autoSpawn = false;
@@ -89,6 +100,10 @@ Options ParseOptions(int argc, char** argv)
         if (flag == "--video-driver")
         {
             options.videoDriver = argv[i + 1];
+        }
+        else if (flag == "--audio-driver")
+        {
+            options.audioDriver = argv[i + 1];
         }
         else if (flag == "--frames")
         {
@@ -182,6 +197,54 @@ private:
     std::jthread m_thread;
 };
 
+/// The audio device for --audio-driver: the sound card, falling back to the null device (mixing without output),
+/// or none at all.
+std::unique_ptr<interi::audio::AudioEngine> CreateAudio(std::string_view driver)
+{
+    using interi::audio::AudioBackend;
+    if (driver == "none")
+    {
+        return nullptr;
+    }
+    for (const AudioBackend backend : driver == "null" ? std::array{AudioBackend::Null, AudioBackend::Null}
+                                                       : std::array{AudioBackend::Default, AudioBackend::Null})
+    {
+        auto engine = interi::audio::AudioEngine::Create({.backend = backend, .maxVoices = 48});
+        if (engine)
+        {
+            return std::move(*engine);
+        }
+        INTERI_LOG_WARN("Sandbox", "audio: {}", engine.error().message);
+    }
+    return nullptr;
+}
+
+/// The sounds data/audio/destruction_audio.json refers to, synthesized (no recorded audio ships with the engine).
+interi::destruction::ClipLibrary SynthesizeSounds(std::uint32_t sampleRate)
+{
+    using interi::audio::SynthDesc;
+    using interi::audio::SynthKind;
+    interi::destruction::ClipLibrary clips;
+    const auto add = [&](const char* name, const SynthDesc& desc)
+    { clips.Add(name, std::make_shared<const interi::audio::SoundClip>(interi::audio::Synthesize(desc, sampleRate))); };
+    add("impact_concrete_a",
+        {.kind = SynthKind::Impact, .duration = 0.5f, .brightness = 0.35f, .decay = 9.0f, .seed = 1});
+    add("impact_concrete_b",
+        {.kind = SynthKind::Impact, .duration = 0.5f, .brightness = 0.3f, .decay = 7.0f, .seed = 2});
+    add("impact_metal",
+        {.kind = SynthKind::Impact, .duration = 0.9f, .brightness = 0.7f, .pitch = 310.0f, .decay = 6.0f, .seed = 3});
+    add("impact_wood",
+        {.kind = SynthKind::Impact, .duration = 0.4f, .brightness = 0.45f, .pitch = 180.0f, .decay = 14.0f, .seed = 4});
+    add("impact_glass",
+        {.kind = SynthKind::Impact, .duration = 0.6f, .brightness = 0.95f, .pitch = 2400.0f, .decay = 9.0f, .seed = 5});
+    add("impact_generic", {.kind = SynthKind::Impact, .duration = 0.4f, .brightness = 0.4f, .decay = 11.0f, .seed = 6});
+    add("creak_a", {.kind = SynthKind::Creak, .duration = 1.6f, .pitch = 380.0f, .seed = 7});
+    add("creak_b", {.kind = SynthKind::Creak, .duration = 2.2f, .pitch = 260.0f, .seed = 8});
+    add("rumble", {.kind = SynthKind::Rumble, .duration = 3.5f, .brightness = 0.2f, .seed = 9});
+    add("explosion", {.kind = SynthKind::Explosion, .duration = 2.5f, .brightness = 0.6f, .decay = 2.5f, .seed = 10});
+    return clips;
+}
+
 /// The live level: what SpawnLevel made, and the assets (cached across reloads).
 struct LevelState
 {
@@ -235,6 +298,7 @@ int main(int argc, char** argv)
     const auto fire = input.AddAction("fire");
     const auto detonate = input.AddAction("detonate");
     const auto spawnDebris = input.AddAction("spawnDebris");
+    const auto enterVehicle = input.AddAction("enterVehicle");
     const auto save = input.AddAction("save");
     const auto load = input.AddAction("load");
     const auto reloadModule = input.AddAction("reloadModule");
@@ -257,6 +321,22 @@ int main(int argc, char** argv)
     if (weapons[0] == nullptr || weapons[1] == nullptr || weapons[2] == nullptr)
     {
         std::fprintf(stderr, "weapons.json needs sledgehammer, remote_charge and rocket\n");
+        return EXIT_FAILURE;
+    }
+
+    auto vehicleDefs = gameplay::ParseVehicleDefs(ReadText(files, "gameplay/vehicles.json"));
+    const gameplay::VehicleDef* truck = vehicleDefs ? gameplay::FindVehicle(vehicleDefs->vehicles, "truck") : nullptr;
+    if (truck == nullptr)
+    {
+        std::fprintf(stderr, "vehicles.json needs a truck%s\n",
+                     vehicleDefs ? "" : (": " + vehicleDefs.error().message).c_str());
+        return EXIT_FAILURE;
+    }
+    auto audioConfig =
+        interi::destruction::ParseDestructionAudioConfig(ReadText(files, "audio/destruction_audio.json"));
+    if (!audioConfig)
+    {
+        std::fprintf(stderr, "destruction audio: %s\n", audioConfig.error().message.c_str());
         return EXIT_FAILURE;
     }
 
@@ -333,6 +413,39 @@ int main(int argc, char** argv)
     gameplay::FollowCamera camera;
     camera.yaw = spawn.yaw;
 
+    // The truck: rams walls, takes damage from hard hits and blasts, and turns into wreck debris.
+    const gameplay::SpawnPoint* vehicleSpawnPoint = level.loaded.FindSpawnPoint("vehicle");
+    if (vehicleSpawnPoint == nullptr)
+    {
+        std::fprintf(stderr, "level: no \"vehicle\" spawn point\n");
+        return EXIT_FAILURE;
+    }
+    const gameplay::SpawnPoint vehicleSpawn = *vehicleSpawnPoint;
+    std::unique_ptr<gameplay::Vehicle> vehicle;
+    const auto spawnVehicle = [&]
+    {
+        vehicle.reset();
+        interi::Transform pose;
+        pose.position = vehicleSpawn.position;
+        // Spawn yaw is the camera's (0 looks along -Z); vehicle space faces +Z, hence the half turn.
+        pose.rotation =
+            interi::Quat::FromAxisAngle(Vec3(0.0f, 1.0f, 0.0f), vehicleSpawn.yaw + std::numbers::pi_v<float>);
+        vehicle = std::make_unique<gameplay::Vehicle>(physics, world, *truck, pose);
+        vehicle->SetDebrisSystem(&debrisSystem);
+        (void)world.Add(vehicle->GetEntity(),
+                        interi::destruction::AudioMaterialComponent{.material = interi::StringId("steel")});
+    };
+    spawnVehicle();
+    bool driving = false;
+
+    // Sound: impacts by material, creaks, collapse rumble and explosions.
+    std::unique_ptr<interi::audio::AudioEngine> audio = CreateAudio(options.audioDriver);
+    const interi::destruction::ClipLibrary sounds =
+        audio != nullptr ? SynthesizeSounds(audio->SampleRate()) : interi::destruction::ClipLibrary{};
+    std::unique_ptr<interi::destruction::DestructionAudio> destructionAudio =
+        audio != nullptr ? std::make_unique<interi::destruction::DestructionAudio>(*audio, audioConfig->config, sounds)
+                         : nullptr;
+
     // Gameplay rules: the hot-reloadable module.
     (void)world.CreateEntity(sandbox::StepTime{dt});
     interi::hotreload::ModuleHost modules(world);
@@ -357,6 +470,9 @@ int main(int argc, char** argv)
     std::vector<interi::InputEvent> events;
     std::vector<interi::Transform> debris;
     std::vector<Vec3> markers;
+    std::vector<sandbox::SandboxBox> boxes;
+    interi::Query wreckQuery;
+    wreckQuery.With<gameplay::WreckComponent, interi::Transform>();
     std::vector<interi::render::Particle> particles;
     std::deque<interi::render::Decal> scorches;
     std::vector<interi::render::Decal> decals;
@@ -433,6 +549,22 @@ int main(int argc, char** argv)
             }
         }
 
+        if (input.WasPressed(enterVehicle))
+        {
+            if (driving)
+            {
+                driving = false;
+                player.Teleport(vehicle->Pose().TransformPoint(Vec3(truck->halfExtents.x + 1.5f, 0.0f, 0.0f)));
+            }
+            else if (vehicle->IsDestroyed())
+            {
+                spawnVehicle(); // the wreck stays where it is
+            }
+            else if (Distance(player.FootPosition(), vehicle->Pose().position) < 5.0f)
+            {
+                driving = true;
+            }
+        }
         camera.Rotate(input.MouseDeltaX() + input.AxisValue(lookX) * 12.0f,
                       input.MouseDeltaY() + input.AxisValue(lookY) * 12.0f);
         for (std::size_t i = 0; i < selectWeapon.size(); ++i)
@@ -512,18 +644,55 @@ int main(int argc, char** argv)
                 }
             }
 
+            driving = driving && !vehicle->IsDestroyed();
+            if (driving)
+            {
+                vehicle->SetInput({.forward = input.AxisValue(moveY),
+                                   .right = input.AxisValue(moveX),
+                                   .handBrake = input.IsDown(jump) ? 1.0f : 0.0f});
+            }
+            else if (options.autoSpawn)
+            {
+                vehicle->SetInput({.forward = 1.0f});
+            }
+            else
+            {
+                vehicle->SetInput({.brake = 0.3f}); // parked
+            }
+
             modules.RunSystems(jobs, commands);
             physicsSync.Step(world, jobs, dt);
-            player.Update(dt, {.move = camera.MoveDirection(input.AxisValue(moveX), input.AxisValue(moveY)),
-                               .jump = firstStep && input.WasPressed(jump)});
+            vehicle->Update();
+            if (driving)
+            {
+                // The driver rides on the roof (the character is not simulated while driving).
+                player.Teleport(vehicle->Pose().TransformPoint(Vec3(0.0f, truck->halfExtents.y, 0.0f)));
+            }
+            else
+            {
+                player.Update(dt, {.move = camera.MoveDirection(input.AxisValue(moveX), input.AxisValue(moveY)),
+                                   .jump = firstStep && input.WasPressed(jump)});
+            }
             weaponSystem.Update(world, dt);
             destruction.Update(world, jobs);
             interi::destruction::DebrisView debrisView;
             debrisView.position = camera.Eye(player.EyePosition());
             debrisSystem.Update(world, jobs, debrisView, dt);
             breakEffects.Spawn(destruction, particles);
+            if (destructionAudio != nullptr)
+            {
+                destructionAudio->Update(world, physics, destruction, dt);
+            }
             for (const gameplay::Blast& blast : weaponSystem.Blasts())
             {
+                vehicle->ApplyRadialDamage({.center = blast.center,
+                                            .energy = blast.weapon->energy,
+                                            .innerRadius = blast.weapon->innerRadius,
+                                            .radius = blast.weapon->radius});
+                if (destructionAudio != nullptr)
+                {
+                    destructionAudio->PlayExplosion(blast.center, std::min(blast.weapon->energy / 20000.0f, 1.0f));
+                }
                 const Vec3 normal = LengthSquared(blast.normal) > 0.0f ? blast.normal : Vec3(0.0f, 1.0f, 0.0f);
                 scorches.push_back({.transform = interi::render::DecalBox(blast.center, normal, 2.2f, 2.2f),
                                     .color = {0.02f, 0.02f, 0.02f},
@@ -536,6 +705,23 @@ int main(int argc, char** argv)
                 }
             }
             ++stepCount;
+        }
+
+        const Vec3 target = driving ? vehicle->Pose().position + Vec3(0.0f, 1.5f, 0.0f) : player.EyePosition();
+        const Vec3 eye = camera.Eye(target);
+        if (audio != nullptr)
+        {
+            interi::audio::Listener listener;
+            listener.position = eye;
+            listener.forward = NormalizeOrZero(target - eye);
+            // Up perpendicular to forward: (forward x worldUp) x forward. The camera's pitch is clamped, so forward
+            // never points straight up or down.
+            listener.up = NormalizeOrZero(Cross(Cross(listener.forward, Vec3(0.0f, 1.0f, 0.0f)), listener.forward));
+            if (LengthSquared(listener.up) > 0.0f)
+            {
+                audio->SetListener(listener);
+            }
+            audio->Update();
         }
 
         if (renderer != nullptr)
@@ -558,16 +744,43 @@ int main(int argc, char** argv)
             {
                 markers.push_back(rocket.position);
             }
+            boxes.clear();
+            const Vec3 wheelHalf(0.5f * truck->wheelWidth, truck->wheelRadius, truck->wheelRadius);
+            if (!vehicle->IsDestroyed())
+            {
+                boxes.push_back(
+                    {.pose = vehicle->Pose(), .halfExtents = truck->halfExtents, .color = {0.75f, 0.12f, 0.08f}});
+                for (std::uint32_t wheel = 0; wheel < vehicle->WheelCount(); ++wheel)
+                {
+                    boxes.push_back(
+                        {.pose = vehicle->WheelPose(wheel), .halfExtents = wheelHalf, .color = {0.08f, 0.08f, 0.08f}});
+                }
+            }
+            wreckQuery.ForEachChunk(
+                world,
+                [&](interi::ChunkView& view)
+                {
+                    const auto wrecks = view.Read<gameplay::WreckComponent>();
+                    const auto poses = view.Read<interi::Transform>();
+                    for (std::size_t i = 0; i < wrecks.size(); ++i)
+                    {
+                        // Wreck wheels are cylinders along their local Y.
+                        boxes.push_back({.pose = poses[i],
+                                         .halfExtents = wrecks[i].wheel ? Vec3(wheelHalf.y, wheelHalf.x, wheelHalf.z)
+                                                                        : truck->halfExtents,
+                                         .color = {0.12f, 0.1f, 0.09f}});
+                    }
+                });
             decals.assign(scorches.begin(), scorches.end());
-            const Vec3 target = player.EyePosition();
             presented += renderer->Render({.cubes = debris,
                                            .world = &world,
                                            .destruction = &destruction,
                                            .particles = particles,
                                            .decals = decals,
                                            .markers = markers,
-                                           .player = player.FootPosition(),
-                                           .eye = camera.Eye(target),
+                                           .boxes = boxes,
+                                           .player = driving ? std::nullopt : std::optional(player.FootPosition()),
+                                           .eye = eye,
                                            .target = target + camera.Right() * camera.shoulder,
                                            .seconds = seconds,
                                            .dt = frameSeconds})
@@ -594,8 +807,20 @@ int main(int argc, char** argv)
                     static_cast<unsigned long long>(presented), static_cast<unsigned long long>(options.maxFrames),
                     debris.size(), blasts, debrisSystem.BodyCount() + debrisSystem.ParticleCount(),
                     modules.Generation(), moduleReloads);
+        const interi::audio::AudioStats sound = audio != nullptr ? audio->Stats() : interi::audio::AudioStats{};
+        std::printf(
+            "Truck: at z = %.1f, health %.0f%s, %zu wreck pieces. Audio: %s, %llu voices started, %llu culled, %llu "
+            "rejected, %llu evicted\n",
+            static_cast<double>(vehicle->Pose().position.z), static_cast<double>(vehicle->Health()),
+            vehicle->IsDestroyed() ? " (wrecked)" : "", vehicle->WreckEntities().size(),
+            audio != nullptr ? options.audioDriver.c_str() : "off", static_cast<unsigned long long>(sound.started),
+            static_cast<unsigned long long>(sound.culled), static_cast<unsigned long long>(sound.rejected),
+            static_cast<unsigned long long>(sound.evicted));
     }
     modules.Unload();
+    destructionAudio.reset();
+    audio.reset();
+    vehicle.reset();
     interi::SetGlobalLogger(nullptr);
     return EXIT_SUCCESS;
 }

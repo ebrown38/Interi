@@ -41,6 +41,10 @@
     "spawnDebris": [
       "G",
       "Gamepad.North"
+    ],
+    "enterVehicle": [
+      "E",
+      "Gamepad.West"
     ]
   },
   "axes": {

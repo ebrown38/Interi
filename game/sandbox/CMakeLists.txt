@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT
-# Demo of the platform, ECS, runtime, physics, destruction, gameplay and rendering layers, with the gameplay rules in
+# Demo of the platform, ECS, runtime, physics, destruction, gameplay, rendering and audio layers, with the gameplay rules in
 # a hot-reloadable module (../sandbox_module). Built in every preset; not run by CI.
 add_executable(interi_sandbox main.cpp SandboxRenderer.cpp)
 target_link_libraries(interi_sandbox PRIVATE
     interi::platform_sdl interi::ecs interi::physics interi::runtime interi::render interi::rhi_vulkan
-    interi::destruction_render interi::gameplay interi::hotreload interi::warnings)
+    interi::destruction_render interi::gameplay interi::hotreload interi::audio interi::destruction_audio interi::warnings)
 target_include_directories(interi_sandbox PRIVATE ${PROJECT_SOURCE_DIR}/game/sandbox_module)
 add_dependencies(interi_sandbox interi_sandbox_module)
 target_compile_definitions(interi_sandbox PRIVATE

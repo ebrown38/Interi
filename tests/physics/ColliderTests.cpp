@@ -24,6 +24,14 @@ TEST(Collider, Box_HasHalfExtents)
     EXPECT_NEAR(box.shape->GetVolume(), 2.0f * 4.0f * 6.0f, 1e-3f);
 }
 
+TEST(Collider, Cylinder_HasVolume)
+{
+    const ColliderComponent wheel = ColliderComponent::Cylinder(0.15f, 0.4f);
+    ASSERT_NE(wheel.shape, nullptr);
+    EXPECT_EQ(wheel.shape->GetSubType(), JPH::EShapeSubType::Cylinder);
+    EXPECT_NEAR(wheel.shape->GetVolume(), 3.14159265f * 0.4f * 0.4f * 0.3f, 1e-3f);
+}
+
 TEST(Collider, ThinBox_ConvexRadiusClamped)
 {
     // Jolt rejects a convex radius larger than a half extent; thin slabs are common in cooked debris.

@@ -28,6 +28,14 @@ struct DestructibleAsset;
 namespace sandbox
 {
 
+/// A coloured box (vehicle chassis and wheels, wreck pieces).
+struct SandboxBox
+{
+    interi::Transform pose;
+    interi::Vec3 halfExtents;
+    interi::Vec3 color;
+};
+
 /// What one rendered frame shows.
 struct SandboxFrame
 {
@@ -38,6 +46,7 @@ struct SandboxFrame
     std::span<const interi::render::Particle> particles; ///< Emitted since the previous frame.
     std::span<const interi::render::Decal> decals;       ///< Extra decals (scorch marks).
     std::span<const interi::Vec3> markers;               ///< Small bright cubes (placed charges, rockets).
+    std::span<const SandboxBox> boxes;                   ///< Vehicles and wrecks.
     std::optional<interi::Vec3> player;                  ///< The player's feet (drawn as a 0.6 x 1.8 m block).
     std::optional<interi::Vec3> eye;                     ///< Camera position; without it the camera circles.
     interi::Vec3 target{0.0f, 2.0f, 0.0f};               ///< What the camera looks at (with `eye`).

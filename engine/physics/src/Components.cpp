@@ -6,6 +6,7 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 // clang-format on
@@ -44,6 +45,12 @@ ColliderComponent ColliderComponent::Box(const Vec3& halfExtents)
 ColliderComponent ColliderComponent::Sphere(float radius)
 {
     return {.shape = new JPH::SphereShape(radius)};
+}
+
+ColliderComponent ColliderComponent::Cylinder(float halfHeight, float radius)
+{
+    const float convexRadius = std::min({JPH::cDefaultConvexRadius, halfHeight, radius});
+    return {.shape = new JPH::CylinderShape(halfHeight, radius, convexRadius)};
 }
 
 Result<ColliderComponent> ColliderComponent::ConvexHull(std::span<const Vec3> points)

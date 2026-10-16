@@ -297,7 +297,8 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                               .indexCount = object.mesh.indexCount,
                               .vertexOffset = object.mesh.vertexOffset,
                               .flags = (object.castsShadow ? kCastsShadow : 0u) | (object.occluder ? kOccluder : 0u)};
-        std::memcpy(mapped + sizeof(FrameData) + i * sizeof(ObjectData), &data, sizeof(data));
+        const std::size_t offset = sizeof(FrameData) + i * sizeof(ObjectData); // bytes: mapped is std::byte*
+        std::memcpy(mapped + offset, &data, sizeof(data));
     }
     if (!view.pointLights.empty())
     {

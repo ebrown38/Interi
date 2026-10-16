@@ -61,6 +61,10 @@ struct LevelDef
 [[nodiscard]] Result<LevelDef> ParseLevel(std::string_view json);
 [[nodiscard]] Result<LevelDef> LoadLevel(const IFileSystem& files, std::string_view path);
 
+/// The level as JSON that ParseLevel reads back to the same LevelDef (warnings aside): one entry per line,
+/// identity rotations and zero yaws left out.
+[[nodiscard]] std::string WriteLevel(const LevelDef& level);
+
 /// Assets by path, kept across loads so reloading a level reuses them (and whatever was built from them, such as
 /// uploaded chunk meshes).
 using AssetCache = std::map<std::string, std::shared_ptr<const destruction::DestructibleAsset>, std::less<>>;

@@ -38,3 +38,20 @@ The first runner run (2026-10-15, `workflow_dispatch`) was 20-90% slower than th
 workers oversubscribe the runner's 4 vCPUs (e.g. 50k-bond cold solve at 7 workers: 251 -> 355 ms; worst collapse
 frame: destruction 1.7 -> 2.1 ms, physics 0.9 -> 1.5 ms). To gate on CI, take the runner's `destruction-benchmarks`
 artifact from a few nights as the baseline instead.
+
+## Debris capacity (M8.4, 7 workers)
+
+Recorded 2026-10-15 in `destruction_runtime.json` (same command as above), with unrelated background load on the
+machine (load average ~10), so they lean pessimistic.
+
+| What | Result |
+|---|---|
+| Debris bodies falling and piling, 500 / 1k / 2k / 4k | physics step mean 0.32 / 0.56 / 1.1 / 2.9 ms, worst frame 0.45 / 0.81 / 1.5 / 5.8 ms; `DebrisSystem::Update` 0.03-0.10 ms |
+| Particles (CPU update), 10k / 50k / 100k | 0.20 / 1.0 / 2.1 ms per Update (~20 ns each) |
+| Churn at a 1k cap, 0 / 50 / 200 new pieces per frame | physics step 0.50 / 0.48 / 0.51 ms (body creation does not show); Update + adoption 0.04 / 0.22 / 0.72 ms |
+
+Proposed caps (`DebrisSettings` defaults; review before locking): `maxBodies` 2048, at which the worst frame is ~1.5 ms
+and leaves the rest of the 5 ms physics gate to structures and characters. `maxParticles` 16384 (~0.35 ms on the CPU).
+The 4k-body worst frame (5.8 ms) breaks the physics gate on its own. Body churn costs Jolt almost nothing, so bodies
+are not recycled. Adoption (ECS entity changes) is ~3.5 us per piece. GPU particle counts are measured in M9, when
+particles are rendered.

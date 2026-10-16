@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Frame cost of a whole-building collapse with 7 workers: destruction Update (damage, stress, islands, pieces) and
 // the physics step, worst and mean over the frames after the ground-floor columns are destroyed.
-#include <interi/physics/JoltRuntime.h>
 
 #include "../../tests/destruction_runtime/ScenarioUtil.h"
+#include "BenchmarkJolt.h"
 #include <benchmark/benchmark.h>
 
 #include <algorithm>
@@ -19,10 +19,7 @@ using namespace interi;
 using namespace interi::destruction;
 using namespace interi::destruction::testing;
 
-void EnsureJolt()
-{
-    static const physics::JoltRuntime runtime; // lives until exit, after every benchmark's PhysicsWorld
-}
+using interi::benchmarks::EnsureJolt;
 
 /// `size` x `size` floors on columns every 3 cells, `stories` storeys of 2 m columns plus a 1 m slab.
 std::vector<Cell> Building(int size, int stories)

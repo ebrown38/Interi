@@ -167,6 +167,15 @@ public:
     /// Each bond's health when undamaged (InitialBondHealth).
     [[nodiscard]] std::span<const float> BondFullHealth(DestructibleId id) const;
     [[nodiscard]] bool IsBondBroken(DestructibleId id, std::uint32_t bond) const;
+    /// True for a leaf chunk that left the instance with a piece handed to the DebrisSystem.
+    [[nodiscard]] bool IsChunkReleased(DestructibleId id, std::uint32_t chunk) const;
+    /// Puts an instance into a saved damage state: every bond's health (at or below zero: broken) and the leaf chunks
+    /// that had been handed to the DebrisSystem (they stay gone). Pieces are rebuilt at once, without break events
+    /// or separation speeds; new falling pieces start where the asset is, at rest, for the caller to move them.
+    /// Damage can only be added: InvalidArgument (and no change) if a bond broken here is alive in `health`, a
+    /// released chunk is not, the sizes don't match the asset, or a chunk index is not a leaf.
+    Result<> RestoreDamage(World& world, JobSystem& jobs, DestructibleId id, std::span<const float> health,
+                           std::span<const std::uint32_t> releasedChunks);
     [[nodiscard]] const StressSolver& Stress(DestructibleId id) const;
 
     /// Pieces of an instance, including removed ones (no entity, no chunks), in creation order.
@@ -178,6 +187,10 @@ public:
     /// The chunk a contact or query hit on a destructible's body (`subShape` as in ContactEvent / QueryHit), or
     /// nothing for other entities.
     [[nodiscard]] std::optional<std::uint32_t> ChunkAt(const World& world, Entity entity, std::uint32_t subShape) const;
+    /// Where asset space currently is for `chunk`: the pose of the piece that holds it (the instance transform for
+    /// the anchored piece). Nothing for a stale id or a chunk that left the instance (handed to the DebrisSystem).
+    /// Things attached to a chunk (remote charges) follow it through piece splits with this.
+    [[nodiscard]] std::optional<Transform> ChunkPose(const World& world, DestructibleId id, std::uint32_t chunk) const;
 
 private:
     struct Instance;

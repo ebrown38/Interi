@@ -142,6 +142,10 @@ private:
     void WorkerMain(std::uint32_t index);
 
     std::uint64_t m_id; ///< Unique per instance; identifies the system in thread-local state.
+    /// Returns the calling thread's scheduler state. Set by the constructor, so it is the constructing binary's
+    /// thread_local even when a hot-reloaded module's copy of this code calls into the object (a module that saw its
+    /// own, empty copy would treat every worker as an outside thread).
+    void* (*m_threadState)() noexcept;
     PoolAllocator m_jobPool;
     std::array<std::unique_ptr<MPMCQueue<Job*>>, kJobPriorityCount> m_injection;
     std::vector<std::unique_ptr<ThreadQueues>> m_queues; ///< Workers' deques, then the constructing thread's.

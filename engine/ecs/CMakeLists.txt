@@ -12,6 +12,7 @@ interi_add_module(ecs
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/CommandBufferTests.cpp
+        ${_tests}/ComponentRegistryTests.cpp
         ${_tests}/QueryTests.cpp
         ${_tests}/SchedulerTests.cpp
         ${_tests}/WorldTests.cpp)

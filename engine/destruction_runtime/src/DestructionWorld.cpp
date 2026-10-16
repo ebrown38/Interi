@@ -17,6 +17,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <format>
 #include <limits>
 #include <utility>
 
@@ -258,6 +259,85 @@ bool DestructionWorld::IsBondBroken(DestructibleId id, std::uint32_t bond) const
     return Get(id).broken[bond] != 0;
 }
 
+bool DestructionWorld::IsChunkReleased(DestructibleId id, std::uint32_t chunk) const
+{
+    const Instance& instance = Get(id);
+    return instance.asset->chunks[chunk].childCount == 0 && instance.leaf[chunk] == 0;
+}
+
+Result<> DestructionWorld::RestoreDamage(World& world, JobSystem& jobs, DestructibleId id,
+                                         std::span<const float> health, std::span<const std::uint32_t> releasedChunks)
+{
+    if (!IsAlive(id))
+    {
+        return MakeError(ErrorCode::InvalidArgument, "RestoreDamage: stale destructible id");
+    }
+    Instance& instance = Get(id);
+    const DestructibleAsset& asset = *instance.asset;
+    if (health.size() != asset.bonds.size())
+    {
+        return MakeError(ErrorCode::InvalidArgument,
+                         std::format("RestoreDamage: {} bond healths for {} bonds", health.size(), asset.bonds.size()));
+    }
+    std::vector<std::uint8_t> released(asset.chunks.size(), 0);
+    for (const std::uint32_t chunk : releasedChunks)
+    {
+        if (chunk >= asset.chunks.size() || asset.chunks[chunk].childCount != 0)
+        {
+            return MakeError(ErrorCode::InvalidArgument, std::format("RestoreDamage: chunk {} is not a leaf", chunk));
+        }
+        released[chunk] = 1;
+    }
+    for (std::size_t chunk = 0; chunk < asset.chunks.size(); ++chunk)
+    {
+        if (asset.chunks[chunk].childCount == 0 && instance.leaf[chunk] == 0 && released[chunk] == 0)
+        {
+            return MakeError(ErrorCode::InvalidArgument,
+                             std::format("RestoreDamage: chunk {} was released and can't come back", chunk));
+        }
+    }
+    for (std::size_t bond = 0; bond < health.size(); ++bond)
+    {
+        if (instance.broken[bond] != 0 && health[bond] > 0.0f)
+        {
+            return MakeError(ErrorCode::InvalidArgument,
+                             std::format("RestoreDamage: bond {} is broken and can't be repaired", bond));
+        }
+    }
+
+    for (std::size_t chunk = 0; chunk < asset.chunks.size(); ++chunk)
+    {
+        if (released[chunk] != 0)
+        {
+            instance.leaf[chunk] = 0;
+        }
+    }
+    for (std::uint32_t bond = 0; bond < health.size(); ++bond)
+    {
+        const float value = std::min(health[bond], instance.maxHealth[bond]);
+        if (value > 0.0f)
+        {
+            instance.health[bond] = value;
+        }
+        else if (instance.broken[bond] == 0)
+        {
+            instance.broken[bond] = 1;
+            instance.health[bond] = 0.0f;
+            instance.solver.BreakBond(bond);
+        }
+    }
+    instance.stressChecked = false;
+    RebuildPieces(world, jobs, instance);
+    for (std::size_t chunk = 0; chunk < asset.chunks.size(); ++chunk)
+    {
+        if (released[chunk] != 0)
+        {
+            instance.chunkPiece[chunk] = kNoPiece;
+        }
+    }
+    return {};
+}
+
 const StressSolver& DestructionWorld::Stress(DestructibleId id) const
 {
     return Get(id).solver;
@@ -295,6 +375,20 @@ std::optional<std::uint32_t> DestructionWorld::ChunkAt(const World& world, Entit
     JPH::SubShapeID id;
     id.SetValue(subShape);
     return static_cast<std::uint32_t>(collider->shape->GetSubShapeUserData(id));
+}
+
+std::optional<Transform> DestructionWorld::ChunkPose(const World& world, DestructibleId id, std::uint32_t chunk) const
+{
+    if (!IsAlive(id))
+    {
+        return std::nullopt;
+    }
+    const Instance& instance = Get(id);
+    if (chunk >= instance.chunkPiece.size() || instance.chunkPiece[chunk] == kNoPiece)
+    {
+        return std::nullopt;
+    }
+    return PiecePose(world, instance, instance.chunkPiece[chunk]);
 }
 
 Transform DestructionWorld::PiecePose(const World& world, const Instance& instance, std::uint32_t piece) const

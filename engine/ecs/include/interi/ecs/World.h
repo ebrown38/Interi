@@ -138,6 +138,9 @@ public:
     bool AddErased(Entity entity, const ErasedComponent& component);
     /// Type-erased Remove.
     bool RemoveErased(Entity entity, ComponentTypeId type);
+    /// Type-erased GetMut: the component's storage (marked changed), or nullptr if the entity is stale, doesn't have
+    /// it, or it is a tag.
+    [[nodiscard]] void* GetErased(Entity entity, ComponentTypeId type) noexcept;
 
     [[nodiscard]] std::size_t EntityCount() const noexcept { return m_entities.Size(); }
     [[nodiscard]] std::size_t ArchetypeCount() const noexcept { return m_archetypes.size(); }

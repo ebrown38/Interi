@@ -54,7 +54,7 @@ World::~World()
                 }
                 for (std::uint32_t row = 0; row < chunk.count; ++row)
                 {
-                    info.info->destroy(archetype->At(chunk, column, row));
+                    DestroyComponent(*info.info, archetype->At(chunk, column, row));
                 }
             }
             m_allocator->Free(chunk.memory, archetype->chunkBytes);
@@ -182,8 +182,8 @@ void World::RemoveRow(ArchetypeId archetypeId, std::uint32_t chunkIndex, std::ui
         {
             if (archetype.columns[column].size != 0)
             {
-                archetype.columns[column].info->relocate(archetype.At(chunk, column, row),
-                                                         archetype.At(lastChunk, column, lastRow));
+                RelocateComponent(*archetype.columns[column].info, archetype.At(chunk, column, row),
+                                  archetype.At(lastChunk, column, lastRow));
             }
             // The moved row may carry newer changes than the chunk it lands in.
             chunk.changedTicks[column] = std::max(ChunkTick(chunk, column), ChunkTick(lastChunk, column));
@@ -222,11 +222,12 @@ World::EntityRecord& World::MoveToArchetype(EntityRecord& record, ArchetypeId ta
         const std::int16_t targetColumn = to.columnOf[info.type];
         if (targetColumn != detail::Archetype::kNoColumn)
         {
-            info.info->relocate(to.At(toChunk, static_cast<std::size_t>(targetColumn), destination.row), value);
+            RelocateComponent(*info.info, to.At(toChunk, static_cast<std::size_t>(targetColumn), destination.row),
+                              value);
         }
         else
         {
-            info.info->destroy(value);
+            DestroyComponent(*info.info, value);
         }
     }
     RemoveRow(source.archetype, source.chunk, source.row);
@@ -248,7 +249,7 @@ bool World::DestroyEntity(Entity entity)
     {
         if (archetype.columns[column].size != 0)
         {
-            archetype.columns[column].info->destroy(archetype.At(chunk, column, record->row));
+            DestroyComponent(*archetype.columns[column].info, archetype.At(chunk, column, record->row));
         }
     }
     RemoveRow(record->archetype, record->chunk, record->row);
@@ -270,7 +271,7 @@ Entity World::CreateErased(std::span<const ErasedComponent> components)
     {
         if (component.data != nullptr)
         {
-            ComponentInfoOf(component.type).relocate(ComponentAt(record, component.type), component.data);
+            RelocateComponent(ComponentInfoOf(component.type), ComponentAt(record, component.type), component.data);
         }
     }
     return entity;
@@ -284,7 +285,7 @@ bool World::AddErased(Entity entity, const ErasedComponent& component)
     {
         if (component.data != nullptr)
         {
-            info.destroy(component.data);
+            DestroyComponent(info, component.data);
         }
         return false;
     }
@@ -292,8 +293,8 @@ bool World::AddErased(Entity entity, const ErasedComponent& component)
     {
         if (component.data != nullptr)
         {
-            info.moveAssign(ComponentAt(*record, component.type), component.data);
-            info.destroy(component.data);
+            MoveAssignComponent(info, ComponentAt(*record, component.type), component.data);
+            DestroyComponent(info, component.data);
             MarkChanged(*record, component.type);
         }
         return true;
@@ -301,9 +302,20 @@ bool World::AddErased(Entity entity, const ErasedComponent& component)
     EntityRecord& moved = MoveToArchetype(*record, AddEdge(record->archetype, component.type));
     if (component.data != nullptr)
     {
-        info.relocate(ComponentAt(moved, component.type), component.data);
+        RelocateComponent(info, ComponentAt(moved, component.type), component.data);
     }
     return true;
+}
+
+void* World::GetErased(Entity entity, ComponentTypeId type) noexcept
+{
+    const EntityRecord* record = m_entities.Get(ToRecordHandle(entity));
+    if (record == nullptr || !m_archetypes[record->archetype]->mask.test(type) || ComponentInfoOf(type).size == 0)
+    {
+        return nullptr;
+    }
+    MarkChanged(*record, type);
+    return ComponentAt(*record, type);
 }
 
 bool World::RemoveErased(Entity entity, ComponentTypeId type)

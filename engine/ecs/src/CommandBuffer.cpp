@@ -61,7 +61,7 @@ void CommandBuffer::Clear() noexcept
     {
         if (component.data != nullptr)
         {
-            ComponentInfoOf(component.type).destroy(component.data);
+            DestroyComponent(ComponentInfoOf(component.type), component.data);
         }
     }
     m_commands.clear();

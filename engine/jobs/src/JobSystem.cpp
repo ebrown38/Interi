@@ -42,7 +42,18 @@ struct ThreadState
     std::uint32_t random = 0x9E37'79B9; ///< xorshift state for picking steal victims
 };
 
-thread_local ThreadState t_thread;
+thread_local ThreadState t_threadStorage;
+
+void* ThreadStateOfThisBinary() noexcept
+{
+    return &t_threadStorage;
+}
+
+/// The calling thread's state, through the accessor of the binary that constructed the JobSystem.
+ThreadState& ThreadOf(void* (*accessor)() noexcept) noexcept
+{
+    return *static_cast<ThreadState*>(accessor());
+}
 
 std::atomic<std::uint64_t> g_nextSystemId{1};
 
@@ -96,8 +107,10 @@ std::uint32_t JobSystem::DefaultWorkerCount() noexcept
 
 JobSystem::JobSystem(const JobSystemDesc& desc)
     : m_id(g_nextSystemId.fetch_add(1, std::memory_order_relaxed))
+    , m_threadState(&ThreadStateOfThisBinary)
     , m_jobPool(sizeof(Job), std::max<std::uint32_t>(desc.maxJobs, 1), alignof(Job))
 {
+    ThreadState& state = ThreadOf(m_threadState);
     for (auto& queue : m_injection)
     {
         queue = std::make_unique<MPMCQueue<Job*>>(m_jobPool.BlockCount()); // fits every pooled job
@@ -111,11 +124,11 @@ JobSystem::JobSystem(const JobSystemDesc& desc)
     {
         m_queues.push_back(std::make_unique<ThreadQueues>(desc.dequeCapacity));
     }
-    if (t_thread.systemId == 0)
+    if (state.systemId == 0)
     {
-        t_thread.systemId = m_id;
-        t_thread.queueIndex = workerCount;
-        t_thread.isWorker = false;
+        state.systemId = m_id;
+        state.queueIndex = workerCount;
+        state.isWorker = false;
     }
     // Threads start only after every deque exists, since any worker may steal from any other.
     const std::uint32_t hardware = std::max(std::thread::hardware_concurrency(), 1u);
@@ -136,6 +149,7 @@ JobSystem::JobSystem(const JobSystemDesc& desc)
 
 JobSystem::~JobSystem()
 {
+    ThreadState& state = ThreadOf(m_threadState);
     {
         const std::scoped_lock lock(m_sleepMutex);
         m_stopping.store(true, std::memory_order_seq_cst);
@@ -150,26 +164,28 @@ JobSystem::~JobSystem()
     {
         Execute(job);
     }
-    if (t_thread.systemId == m_id)
+    if (state.systemId == m_id)
     {
-        t_thread = ThreadState{};
+        state = ThreadState{};
     }
 }
 
 std::optional<std::uint32_t> JobSystem::CurrentWorkerIndex() const noexcept
 {
-    if (t_thread.systemId == m_id && t_thread.isWorker)
+    ThreadState& state = ThreadOf(m_threadState);
+    if (state.systemId == m_id && state.isWorker)
     {
-        return t_thread.queueIndex;
+        return state.queueIndex;
     }
     return std::nullopt;
 }
 
 std::optional<std::uint32_t> JobSystem::CurrentQueueIndex() const noexcept
 {
-    if (t_thread.systemId == m_id)
+    ThreadState& state = ThreadOf(m_threadState);
+    if (state.systemId == m_id)
     {
-        return t_thread.queueIndex;
+        return state.queueIndex;
     }
     return std::nullopt;
 }
@@ -181,12 +197,13 @@ JobSystem::Job* JobSystem::AllocateJob() noexcept
 
 void JobSystem::Enqueue(Job* job, JobPriority priority) noexcept
 {
+    ThreadState& state = ThreadOf(m_threadState);
     const auto p = static_cast<std::size_t>(priority);
     INTERI_ASSERT(p < kJobPriorityCount, "invalid JobPriority");
     bool queued = false;
-    if (t_thread.systemId == m_id)
+    if (state.systemId == m_id)
     {
-        queued = m_queues[t_thread.queueIndex]->deques[p].Push(job);
+        queued = m_queues[state.queueIndex]->deques[p].Push(job);
     }
     if (!queued)
     {
@@ -256,7 +273,7 @@ JobSystem::Job* JobSystem::FindJob(std::optional<std::uint32_t> queueIndex, bool
             if (!m_injection[p]->TryPop(job))
             {
                 job = nullptr;
-                const std::uint32_t start = NextRandom(t_thread.random) % queueCount;
+                const std::uint32_t start = NextRandom(ThreadOf(m_threadState).random) % queueCount;
                 for (std::uint32_t i = 0; i < queueCount && job == nullptr; ++i)
                 {
                     const std::uint32_t victim = (start + i) % queueCount;
@@ -282,12 +299,13 @@ JobSystem::Job* JobSystem::FindJob(std::optional<std::uint32_t> queueIndex, bool
 
 void JobSystem::WaitFor(const JobCounter& counter)
 {
+    ThreadState& state = ThreadOf(m_threadState);
     INTERI_ZONE();
     const std::optional<std::uint32_t> queueIndex = CurrentQueueIndex();
-    ++t_thread.waitDepth;
+    ++state.waitDepth;
     // Past the nesting cap only take our own (usually descendant) jobs, to bound stack depth. Without workers the
     // caller is the only thread that can run anything, so it never restricts itself.
-    const bool ownDequeOnly = t_thread.waitDepth > kMaxWaitNesting && !m_threads.empty();
+    const bool ownDequeOnly = state.waitDepth > kMaxWaitNesting && !m_threads.empty();
     // Helpers skip Low (long background) jobs, unless there are no workers to run them.
     const std::size_t priorityCount = m_threads.empty() ? kJobPriorityCount : kJobPriorityCount - 1;
     int idlePolls = 0;
@@ -307,15 +325,16 @@ void JobSystem::WaitFor(const JobCounter& counter)
             std::this_thread::yield();
         }
     }
-    --t_thread.waitDepth;
+    --state.waitDepth;
 }
 
 void JobSystem::WorkerMain(std::uint32_t index)
 {
-    t_thread.systemId = m_id;
-    t_thread.queueIndex = index;
-    t_thread.isWorker = true;
-    t_thread.random = 0x9E37'79B9u ^ ((index + 1) * 0x85EB'CA6Bu);
+    ThreadState& state = ThreadOf(m_threadState);
+    state.systemId = m_id;
+    state.queueIndex = index;
+    state.isWorker = true;
+    state.random = 0x9E37'79B9u ^ ((index + 1) * 0x85EB'CA6Bu);
 #if INTERI_PROFILING_ACTIVE
     const std::string name = std::format("Interi Worker {}", index);
     INTERI_PROFILE_THREAD_NAME(name.c_str());
@@ -371,7 +390,7 @@ void JobSystem::WorkerMain(std::uint32_t index)
         }
         woken = true;
     }
-    t_thread = ThreadState{};
+    state = ThreadState{};
 }
 
 } // namespace interi

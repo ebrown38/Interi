@@ -5,8 +5,11 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/gameplay)
 interi_add_module(gameplay
     SOURCES
         src/Character.cpp
+        src/DestructionState.cpp
         src/FollowCamera.cpp
         src/HeaderCheck.cpp
+        src/InputConfig.cpp
+        src/Level.cpp
         src/WeaponDef.cpp
         src/Weapons.cpp
     DEPS interi::destruction_runtime interi::physics interi::ecs interi::platform
@@ -15,8 +18,12 @@ interi_add_module(gameplay
     TEST_SOURCES
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
         ${_tests}/CharacterTests.cpp
+        ${_tests}/DestructionStateTests.cpp
         ${_tests}/FollowCameraTests.cpp
+        ${_tests}/InputConfigTests.cpp
+        ${_tests}/LevelTests.cpp
         ${_tests}/WeaponDefTests.cpp
         ${_tests}/WeaponsTests.cpp)
 target_compile_definitions(interi_gameplay_tests PRIVATE
-    INTERI_TEST_WEAPONS_FILE="${PROJECT_SOURCE_DIR}/data/gameplay/weapons.json")
+    INTERI_TEST_WEAPONS_FILE="${PROJECT_SOURCE_DIR}/data/gameplay/weapons.json"
+    INTERI_TEST_INPUT_FILE="${PROJECT_SOURCE_DIR}/data/gameplay/input.json")

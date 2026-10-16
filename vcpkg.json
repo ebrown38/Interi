@@ -19,6 +19,7 @@
       ]
     },
     "meshoptimizer",
+    "miniaudio",
     "nlohmann-json",
     {
       "name": "sdl3",

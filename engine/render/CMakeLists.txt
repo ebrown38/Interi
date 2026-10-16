@@ -13,6 +13,7 @@ interi_add_module(render
         src/Mesh.cpp
         src/MeshPool.cpp
         src/Shadows.cpp
+        src/Texture.cpp
     DEPS interi::rhi
     TEST_DEPS interi::testing
     TEST_SOURCES
@@ -20,7 +21,8 @@ interi_add_module(render
         ${_tests}/ClustersTests.cpp
         ${_tests}/FrameGraphTests.cpp
         ${_tests}/MeshTests.cpp
-        ${_tests}/ShadowsTests.cpp)
+        ${_tests}/ShadowsTests.cpp
+        ${_tests}/TextureTests.cpp)
 interi_add_shaders(interi_render
     SOURCES
         shaders/Cull.cs.hlsl

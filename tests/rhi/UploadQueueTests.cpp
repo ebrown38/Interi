@@ -127,3 +127,58 @@ TEST_F(UploadFixture, UploadQueue_EmptyUpload_RecordsNothing)
     ASSERT_TRUE(queue.UploadBuffer(commands, destination, 0, {}).has_value());
     EXPECT_TRUE(staging.empty());
 }
+
+TEST_F(UploadFixture, UploadQueue_Texture_StagesRowsAtAlignedPitch)
+{
+    // 10 x 3 texels of 4 bytes: 40-byte rows staged 256 bytes apart.
+    const auto data = Pattern(10 * 3 * 4);
+    const auto texture = interi::rhi::TextureHandle::FromParts(7, 1);
+    UploadQueue queue(device, kChunk);
+
+    EXPECT_CALL(commands, CopyBufferToTexture(BufferHandle::FromParts(0, 1), 0, 256, texture, 2, 1));
+    ASSERT_TRUE(queue.UploadTexture(commands, texture, 2, 1, 10, 3, 4, data).has_value());
+
+    ASSERT_EQ(staging.size(), 1u);
+    for (std::size_t row = 0; row < 3; ++row)
+    {
+        for (std::size_t i = 0; i < 40; ++i)
+        {
+            ASSERT_EQ(staging[0][row * 256 + i], data[row * 40 + i]) << "row " << row << " byte " << i;
+        }
+    }
+}
+
+TEST_F(UploadFixture, UploadQueue_TextureAfterBuffer_StartsAtAlignedOffset)
+{
+    const auto bytes = Pattern(100);
+    const auto texels = Pattern(4 * 4 * 4);
+    const auto texture = interi::rhi::TextureHandle::FromParts(7, 1);
+    UploadQueue queue(device, kChunk);
+
+    EXPECT_CALL(commands, CopyBuffer(_, _, _, _, _));
+    EXPECT_CALL(commands, CopyBufferToTexture(BufferHandle::FromParts(0, 1), 256, 256, texture, 0, 0));
+    ASSERT_TRUE(queue.UploadBuffer(commands, destination, 0, bytes).has_value());
+    ASSERT_TRUE(queue.UploadTexture(commands, texture, 0, 0, 4, 4, 4, texels).has_value());
+}
+
+TEST_F(UploadFixture, UploadQueue_TextureLargerThanChunk_Fails)
+{
+    const auto data = Pattern(64 * 300 * 4);
+    UploadQueue queue(device, kChunk);
+    EXPECT_FALSE(
+        queue.UploadTexture(commands, interi::rhi::TextureHandle::FromParts(7, 1), 0, 0, 64, 300, 4, data).has_value());
+}
+
+TEST_F(UploadFixture, UploadQueue_TextureNotFittingCurrentChunk_UsesNextChunk)
+{
+    const auto bytes = Pattern(kChunk - 512);
+    const auto texels = Pattern(4 * 4 * 4); // needs 4 rows x 256 bytes
+    const auto texture = interi::rhi::TextureHandle::FromParts(7, 1);
+    UploadQueue queue(device, kChunk);
+
+    EXPECT_CALL(commands, CopyBuffer(_, _, _, _, _));
+    EXPECT_CALL(commands, CopyBufferToTexture(BufferHandle::FromParts(1, 1), 0, 256, texture, 0, 0));
+    ASSERT_TRUE(queue.UploadBuffer(commands, destination, 0, bytes).has_value());
+    ASSERT_TRUE(queue.UploadTexture(commands, texture, 0, 0, 4, 4, 4, texels).has_value());
+    EXPECT_EQ(staging.size(), 2u);
+}

@@ -143,3 +143,54 @@ TEST_F(VulkanTest, CommandListPool_RealDevice_MultithreadedRecordingOverFrames)
     device->DestroyBuffer(*src);
     device->DestroyBuffer(*dst);
 }
+
+TEST_F(VulkanTest, VulkanDevice_UploadTextureMips_ReadbackMatches)
+{
+    constexpr std::uint32_t kWidth = 20; // 80-byte rows: staged and read back at the 256-byte pitch
+    constexpr std::uint32_t kHeight = 6;
+    const auto mip0 = Pattern(std::size_t{kWidth} * kHeight * 4);
+    const auto mip1 = Pattern(std::size_t{kWidth / 2} * (kHeight / 2) * 4);
+    auto texture =
+        device->CreateTexture({.width = kWidth,
+                               .height = kHeight,
+                               .mipLevels = 2,
+                               .format = Format::R8G8B8A8Unorm,
+                               .usage = TextureUsage::CopyDst | TextureUsage::CopySrc | TextureUsage::Sampled});
+    auto readback = device->CreateBuffer({.size = std::uint64_t{kTextureRowPitchAlignment} * kHeight,
+                                          .usage = BufferUsage::CopyDst,
+                                          .memory = MemoryUsage::Readback});
+    auto pool = device->CreateCommandPool();
+    ASSERT_TRUE(texture && readback && pool);
+
+    {
+        UploadQueue uploads(*device, 64 * 1024);
+        ICommandList& commands = device->BeginCommandList(*pool);
+        const std::array toCopyDst{TextureBarrier{*texture, ResourceState::Undefined, ResourceState::CopyDst}};
+        commands.Barriers({}, toCopyDst);
+        ASSERT_TRUE(uploads.UploadTexture(commands, *texture, 0, 0, kWidth, kHeight, 4, mip0).has_value());
+        ASSERT_TRUE(uploads.UploadTexture(commands, *texture, 1, 0, kWidth / 2, kHeight / 2, 4, mip1).has_value());
+        const std::array toCopySrc{TextureBarrier{*texture, ResourceState::CopyDst, ResourceState::CopySrc}};
+        const std::array toReadback{BufferBarrier{*readback, ResourceState::Undefined, ResourceState::CopyDst}};
+        commands.Barriers(toReadback, toCopySrc);
+        commands.CopyTextureToBuffer(*texture, *readback, 0, kTextureRowPitchAlignment);
+        const std::array toHost{BufferBarrier{*readback, ResourceState::CopyDst, ResourceState::HostRead}};
+        commands.Barriers(toHost, {});
+        ICommandList* const lists[] = {&commands};
+        const std::uint64_t value = device->Submit(lists);
+        uploads.Submitted(value);
+        device->WaitForValue(value);
+    }
+
+    const auto mapped = device->MappedMemory(*readback);
+    for (std::uint32_t row = 0; row < kHeight; ++row)
+    {
+        EXPECT_EQ(std::memcmp(mapped.data() + std::size_t{row} * kTextureRowPitchAlignment,
+                              mip0.data() + std::size_t{row} * kWidth * 4, kWidth * 4),
+                  0)
+            << "row " << row;
+    }
+
+    device->DestroyCommandPool(*pool);
+    device->DestroyTexture(*texture);
+    device->DestroyBuffer(*readback);
+}

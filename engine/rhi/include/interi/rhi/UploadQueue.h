@@ -33,6 +33,13 @@ public:
     /// Stages `data` and records copies into `dst` at `dstOffset` on `commands`.
     [[nodiscard]] Result<void> UploadBuffer(ICommandList& commands, BufferHandle dst, std::uint64_t dstOffset,
                                             std::span<const std::byte> data);
+    /// Stages a `width` x `height` image of `bytesPerPixel`-byte texels (`data`: tightly packed rows) at the
+    /// texture row pitch alignment and records its copy into mip `mip` of layer `layer` of `texture` (in CopyDst).
+    /// The whole image goes into one staging chunk: InvalidArgument when it cannot fit in one.
+    [[nodiscard]] Result<void> UploadTexture(ICommandList& commands, TextureHandle texture, std::uint32_t mip,
+                                             std::uint32_t layer, std::uint32_t width, std::uint32_t height,
+                                             std::uint32_t bytesPerPixel, std::span<const std::byte> data);
+
     /// The command lists holding this queue's copies were submitted as `timelineValue`.
     void Submitted(std::uint64_t timelineValue);
 

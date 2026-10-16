@@ -63,7 +63,9 @@ struct ObjectData
     Vec3 baseColor;
     float metallic;
     float roughness;
-    float pad[3];
+    std::uint32_t albedoTexture;
+    float textureScale;
+    float opacity;
     Vec3 boundsCenter;
     float boundsRadius;
     std::uint32_t firstIndex;
@@ -79,7 +81,7 @@ struct ForwardPush
 {
     std::uint32_t vertices;
     std::uint32_t scene;
-    std::uint32_t pad0;
+    std::uint32_t materialSampler;
     std::uint32_t clusters;
     std::uint32_t shadowMap;
     std::uint32_t shadowSampler;
@@ -134,8 +136,10 @@ struct CullingPush
     std::uint32_t clusters;
 };
 
-constexpr std::uint64_t kLightsOffset = sizeof(FrameData) + sizeof(ObjectData) * ForwardRenderer::kMaxObjects;
-constexpr std::uint64_t kSceneBufferSize = kLightsOffset + sizeof(PointLight) * ForwardRenderer::kMaxPointLights;
+constexpr std::uint64_t LightsOffset(std::uint32_t maxObjects)
+{
+    return sizeof(FrameData) + sizeof(ObjectData) * std::uint64_t{maxObjects};
+}
 
 } // namespace
 
@@ -152,7 +156,8 @@ Result<std::unique_ptr<ForwardRenderer>> ForwardRenderer::Create(rhi::IDevice& d
                                                                  const MeshPool& meshes, rhi::Format colorFormat,
                                                                  const ForwardSettings& settings)
 {
-    INTERI_ASSERT(settings.framesInFlight > 0 && settings.cascadeCount <= kMaxShadowCascades);
+    INTERI_ASSERT(settings.framesInFlight > 0 && settings.cascadeCount <= kMaxShadowCascades &&
+                  settings.maxObjects > 0);
     std::unique_ptr<ForwardRenderer> renderer(new ForwardRenderer(device, resources, meshes, settings));
     const std::array formats{colorFormat};
     INTERI_TRY_ASSIGN(forward, device.CreateGraphicsPipeline({.vertexCode = std::as_bytes(std::span(kForwardVs)),
@@ -189,9 +194,14 @@ Result<std::unique_ptr<ForwardRenderer>> ForwardRenderer::Create(rhi::IDevice& d
                                                      .compare = true,
                                                      .compareOp = rhi::CompareOp::GreaterEqual}));
     renderer->m_shadowSampler = sampler;
+    INTERI_TRY_ASSIGN(materialSampler,
+                      device.CreateSampler({.filter = rhi::Filter::Linear, .address = rhi::AddressMode::Repeat}));
+    renderer->m_materialSampler = materialSampler;
+    const std::uint64_t sceneBufferSize =
+        LightsOffset(settings.maxObjects) + sizeof(PointLight) * std::uint64_t{kMaxPointLights};
     for (std::uint32_t i = 0; i < settings.framesInFlight; ++i)
     {
-        INTERI_TRY_ASSIGN(buffer, device.CreateBuffer({.size = kSceneBufferSize,
+        INTERI_TRY_ASSIGN(buffer, device.CreateBuffer({.size = sceneBufferSize,
                                                        .usage = rhi::BufferUsage::Storage,
                                                        .memory = rhi::MemoryUsage::Upload,
                                                        .debugName = "Forward scene"}));
@@ -209,9 +219,12 @@ ForwardRenderer::~ForwardRenderer()
             m_resources.DestroyPipeline(pipeline);
         }
     }
-    if (m_shadowSampler.IsValid())
+    for (const rhi::SamplerHandle sampler : {m_shadowSampler, m_materialSampler})
     {
-        m_resources.DestroySampler(m_shadowSampler);
+        if (sampler.IsValid())
+        {
+            m_resources.DestroySampler(sampler);
+        }
     }
     for (const rhi::BufferHandle buffer : m_sceneBuffers)
     {
@@ -223,7 +236,9 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                                           std::uint32_t height, const SceneView& view,
                                           std::span<const RenderObject> objects, Vec3 clearColor)
 {
-    INTERI_ASSERT(objects.size() <= kMaxObjects, "too many objects for the forward renderer");
+    const std::uint32_t maxObjects = m_settings.maxObjects;
+    INTERI_ASSERT(objects.size() <= maxObjects, "too many objects for the forward renderer");
+    const std::uint64_t lightsOffset = LightsOffset(maxObjects);
     INTERI_ASSERT(view.pointLights.size() <= kMaxPointLights, "too many point lights for the forward renderer");
     const rhi::BufferHandle sceneBuffer = m_sceneBuffers[m_nextSlot];
     m_nextSlot = (m_nextSlot + 1) % static_cast<std::uint32_t>(m_sceneBuffers.size());
@@ -255,7 +270,7 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
         }
     }
     frame.lightCount = static_cast<std::uint32_t>(view.pointLights.size());
-    frame.lightsOffset = static_cast<std::uint32_t>(kLightsOffset);
+    frame.lightsOffset = static_cast<std::uint32_t>(lightsOffset);
     frame.screenWidth = static_cast<float>(width);
     frame.screenHeight = static_cast<float>(height);
     frame.clusterNear = view.nearPlane;
@@ -273,7 +288,9 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                               .baseColor = object.material.baseColor,
                               .metallic = object.material.metallic,
                               .roughness = object.material.roughness,
-                              .pad = {},
+                              .albedoTexture = object.material.albedoTexture,
+                              .textureScale = object.material.textureScale,
+                              .opacity = object.material.opacity,
                               .boundsCenter = object.mesh.boundsCenter,
                               .boundsRadius = object.mesh.boundsRadius,
                               .firstIndex = object.mesh.firstIndex,
@@ -284,7 +301,7 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
     }
     if (!view.pointLights.empty())
     {
-        std::memcpy(mapped + kLightsOffset, view.pointLights.data(), view.pointLights.size_bytes());
+        std::memcpy(mapped + lightsOffset, view.pointLights.data(), view.pointLights.size_bytes());
     }
     const std::uint32_t scene = m_device.BindlessIndex(sceneBuffer);
     const auto objectCount = static_cast<std::uint32_t>(objects.size());
@@ -292,12 +309,12 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
     const std::uint32_t viewCount = 1 + cascadeCount;
     const std::uint32_t vertices = m_device.BindlessIndex(m_meshes.Vertices());
     const rhi::BufferHandle indices = m_meshes.Indices();
-    constexpr std::uint64_t kViewArguments = std::uint64_t{kDrawCommandSize} * kMaxObjects;
+    const std::uint64_t viewArguments = std::uint64_t{kDrawCommandSize} * maxObjects;
 
     // Object culling: one indirect command list per view (the camera, then each cascade).
     ForwardOutputs outputs;
     outputs.drawArguments = graph.CreateBuffer(
-        "Draw arguments", {.size = kViewArguments * kMaxViews,
+        "Draw arguments", {.size = viewArguments * kMaxViews,
                            .usage = rhi::BufferUsage::Storage | rhi::BufferUsage::Indirect | rhi::BufferUsage::CopySrc,
                            .debugName = "Draw arguments"});
     outputs.drawCounts =
@@ -310,8 +327,9 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
         { outputs.drawCounts = builder.Write(outputs.drawCounts, rhi::ResourceState::CopyDst); },
         [counts = outputs.drawCounts](PassContext& context)
         { context.Commands().FillBuffer(context.Buffer(counts), 0, std::uint64_t{4} * kMaxViews, 0); });
-    const auto cullPush = [this, scene, objectCount](PassContext& context, FGBuffer arguments, FGBuffer counts,
-                                                     std::uint32_t view, std::uint32_t requiredFlags, std::uint32_t hiZ)
+    const auto cullPush = [this, scene, objectCount, viewArguments](PassContext& context, FGBuffer arguments,
+                                                                    FGBuffer counts, std::uint32_t view,
+                                                                    std::uint32_t requiredFlags, std::uint32_t hiZ)
     {
         return CullPush{.scene = scene,
                         .objectCount = objectCount,
@@ -319,7 +337,7 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                             view == 0 || view == kOccluderView ? 0u : kFrameCascadesOffset + (view - 1) * 64,
                         .requiredFlags = requiredFlags,
                         .arguments = m_device.BindlessIndex(context.Buffer(arguments)),
-                        .argumentsOffset = static_cast<std::uint32_t>(kViewArguments * view),
+                        .argumentsOffset = static_cast<std::uint32_t>(viewArguments * view),
                         .count = m_device.BindlessIndex(context.Buffer(counts)),
                         .countOffset = 4 * view,
                         .hiZ = hiZ};
@@ -359,7 +377,8 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                 builder.Read(outputs.drawCounts, rhi::ResourceState::IndirectArgument);
                 occluderDepth = builder.Write(occluderDepth, rhi::ResourceState::DepthWrite);
             },
-            [this, scene, vertices, indices, width, height, occluderDepth, outputs](PassContext& context)
+            [this, scene, vertices, indices, width, height, occluderDepth, outputs, viewArguments,
+             maxObjects](PassContext& context)
             {
                 rhi::ICommandList& commands = context.Commands();
                 const rhi::DepthAttachment depth{.texture = context.Texture(occluderDepth)};
@@ -367,8 +386,8 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                 commands.BindPipeline(m_depthOnly);
                 commands.PushConstants(DepthOnlyPush{.vertices = vertices, .scene = scene});
                 commands.BindIndexBuffer(indices, 0, rhi::IndexFormat::Uint32);
-                commands.DrawIndexedIndirectCount(context.Buffer(outputs.drawArguments), kViewArguments * kOccluderView,
-                                                  context.Buffer(outputs.drawCounts), 4ull * kOccluderView, kMaxObjects,
+                commands.DrawIndexedIndirectCount(context.Buffer(outputs.drawArguments), viewArguments * kOccluderView,
+                                                  context.Buffer(outputs.drawCounts), 4ull * kOccluderView, maxObjects,
                                                   kDrawCommandSize);
                 commands.EndRendering();
             });
@@ -482,7 +501,8 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                 builder.Read(outputs.drawCounts, rhi::ResourceState::IndirectArgument);
                 outputs.shadowMap = builder.Write(outputs.shadowMap, rhi::ResourceState::DepthWrite);
             },
-            [this, scene, size, cascadeCount, vertices, indices, outputs](PassContext& context)
+            [this, scene, size, cascadeCount, vertices, indices, outputs, viewArguments,
+             maxObjects](PassContext& context)
             {
                 rhi::ICommandList& commands = context.Commands();
                 for (std::uint32_t cascade = 0; cascade < cascadeCount; ++cascade)
@@ -495,8 +515,8 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                         ShadowPush{.vertices = vertices, .scene = scene, .cascade = cascade, .pad = 0});
                     commands.BindIndexBuffer(indices, 0, rhi::IndexFormat::Uint32);
                     const std::uint32_t view = 1 + cascade;
-                    commands.DrawIndexedIndirectCount(context.Buffer(outputs.drawArguments), kViewArguments * view,
-                                                      context.Buffer(outputs.drawCounts), 4ull * view, kMaxObjects,
+                    commands.DrawIndexedIndirectCount(context.Buffer(outputs.drawArguments), viewArguments * view,
+                                                      context.Buffer(outputs.drawCounts), 4ull * view, maxObjects,
                                                       kDrawCommandSize);
                     commands.EndRendering();
                 }
@@ -504,11 +524,12 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
     }
 
     // Shading.
-    FGTexture depth = graph.CreateTexture("Forward depth", {.width = width,
-                                                            .height = height,
-                                                            .format = rhi::Format::D32Float,
-                                                            .usage = rhi::TextureUsage::DepthTarget,
-                                                            .debugName = "Forward depth"});
+    FGTexture depth =
+        graph.CreateTexture("Forward depth", {.width = width,
+                                              .height = height,
+                                              .format = rhi::Format::D32Float,
+                                              .usage = rhi::TextureUsage::DepthTarget | rhi::TextureUsage::Sampled,
+                                              .debugName = "Forward depth"});
     graph.AddPass(
         "Forward",
         [&](PassBuilder& builder)
@@ -523,7 +544,8 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
             color = builder.Write(color, rhi::ResourceState::ColorTarget);
             depth = builder.Write(depth, rhi::ResourceState::DepthWrite);
         },
-        [this, color, depth, width, height, scene, vertices, indices, clearColor, outputs](PassContext& context)
+        [this, color, depth, width, height, scene, vertices, indices, clearColor, outputs,
+         maxObjects](PassContext& context)
         {
             rhi::ICommandList& commands = context.Commands();
             const std::array colors{rhi::ColorAttachment{
@@ -536,16 +558,17 @@ ForwardOutputs ForwardRenderer::AddPasses(FrameGraph& graph, FGTexture& color, s
                                                 : rhi::kInvalidBindlessIndex;
             commands.PushConstants(ForwardPush{.vertices = vertices,
                                                .scene = scene,
-                                               .pad0 = 0,
+                                               .materialSampler = m_device.BindlessIndex(m_materialSampler),
                                                .clusters = m_device.BindlessIndex(context.Buffer(outputs.clusters)),
                                                .shadowMap = shadowMap,
                                                .shadowSampler = m_device.BindlessIndex(m_shadowSampler),
                                                .pad = {}});
             commands.BindIndexBuffer(indices, 0, rhi::IndexFormat::Uint32);
             commands.DrawIndexedIndirectCount(context.Buffer(outputs.drawArguments), 0,
-                                              context.Buffer(outputs.drawCounts), 0, kMaxObjects, kDrawCommandSize);
+                                              context.Buffer(outputs.drawCounts), 0, maxObjects, kDrawCommandSize);
             commands.EndRendering();
         });
+    outputs.depth = depth;
     return outputs;
 }
 

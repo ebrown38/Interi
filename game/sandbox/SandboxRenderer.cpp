@@ -129,7 +129,7 @@ bool SandboxRenderer::Render(std::span<const Transform> debris, double seconds)
                                  .material = {.baseColor = {0.7f, 0.68f, 0.62f}, .roughness = 0.7f},
                                  .occluder = true});
     }
-    const std::size_t debrisCount = std::min(debris.size(), ForwardRenderer::kMaxObjects - state.objects.size());
+    const std::size_t debrisCount = std::min(debris.size(), state.renderer->MaxObjects() - state.objects.size());
     for (std::size_t i = 0; i < debrisCount; ++i)
     {
         state.objects.push_back({.mesh = state.cube,

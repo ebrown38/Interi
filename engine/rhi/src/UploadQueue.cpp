@@ -66,6 +66,40 @@ Result<void> UploadQueue::UploadBuffer(ICommandList& commands, BufferHandle dst,
     return {};
 }
 
+Result<void> UploadQueue::UploadTexture(ICommandList& commands, TextureHandle texture, std::uint32_t mip,
+                                        std::uint32_t layer, std::uint32_t width, std::uint32_t height,
+                                        std::uint32_t bytesPerPixel, std::span<const std::byte> data)
+{
+    const std::uint64_t rowSize = std::uint64_t{width} * bytesPerPixel;
+    INTERI_ASSERT(data.size() == rowSize * height);
+    const std::uint64_t rowPitch =
+        (rowSize + kTextureRowPitchAlignment - 1) / kTextureRowPitchAlignment * kTextureRowPitchAlignment;
+    const std::uint64_t size = rowPitch * height;
+    if (size > m_chunkSize)
+    {
+        return MakeError(ErrorCode::InvalidArgument, "texture upload is larger than an upload chunk");
+    }
+    const auto alignedUsed = [&]
+    {
+        return (m_chunks[m_current].used + kTextureRowPitchAlignment - 1) / kTextureRowPitchAlignment *
+               kTextureRowPitchAlignment;
+    };
+    if (m_current == kNoChunk || alignedUsed() + size > m_chunkSize)
+    {
+        INTERI_TRY(NextChunk());
+    }
+    Chunk& chunk = m_chunks[m_current];
+    const std::uint64_t offset = alignedUsed();
+    std::byte* const mapped = m_device.MappedMemory(chunk.buffer).data() + offset;
+    for (std::uint32_t row = 0; row < height; ++row)
+    {
+        std::memcpy(mapped + row * rowPitch, data.data() + row * rowSize, rowSize);
+    }
+    commands.CopyBufferToTexture(chunk.buffer, offset, static_cast<std::uint32_t>(rowPitch), texture, mip, layer);
+    chunk.used = std::min(m_chunkSize, offset + size);
+    return {};
+}
+
 void UploadQueue::Submitted(std::uint64_t timelineValue)
 {
     for (const std::size_t index : m_recording)

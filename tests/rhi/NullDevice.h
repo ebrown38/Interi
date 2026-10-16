@@ -32,6 +32,10 @@ public:
     {
     }
     void CopyTextureToBuffer(rhi::TextureHandle, rhi::BufferHandle, std::uint64_t, std::uint32_t) override {}
+    void CopyBufferToTexture(rhi::BufferHandle, std::uint64_t, std::uint32_t, rhi::TextureHandle, std::uint32_t,
+                             std::uint32_t) override
+    {
+    }
 };
 
 /// A device that hands out increasing handles, allocates no memory and completes all work instantly.

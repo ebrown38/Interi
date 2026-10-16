@@ -85,12 +85,37 @@ float SunVisibility(float3 worldPosition, float3 normal, float viewDepth)
     return lit / 9.0;
 }
 
+/// Albedo from a texture projected along the three world axes, blended by the normal (no UVs needed, so fracture
+/// faces of any orientation get undistorted texture).
+float3 TriplanarAlbedo(uint texture, float3 worldPosition, float3 n, float scale)
+{
+    float3 weights = pow(abs(n), 4.0);
+    weights /= weights.x + weights.y + weights.z;
+    const float3 p = worldPosition * scale;
+    const SamplerState s = g_Samplers[NonUniformResourceIndex(g_Push.materialSampler)];
+    const Texture2D t = g_Textures[NonUniformResourceIndex(texture)];
+    return t.Sample(s, p.zy).rgb * weights.x + t.Sample(s, p.xz).rgb * weights.y + t.Sample(s, p.xy).rgb * weights.z;
+}
+
+/// 4x4 ordered-dither threshold in (0, 1) for a pixel.
+float DitherThreshold(float2 pixel)
+{
+    static const float kBayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+    const uint2 p = uint2(pixel) & 3u;
+    return (kBayer[p.y * 4 + p.x] + 0.5) / 16.0;
+}
+
 float4 main(ForwardVaryings input) : SV_Target0
 {
     const uint scene = g_Push.scene;
     const uint object = ObjectOffset(input.objectIndex);
+    const float opacity = LoadFloat(scene, object + kObjectOpacity);
+    if (opacity < 1.0 && opacity < DitherThreshold(input.position.xy))
+    {
+        discard;
+    }
     const float4 baseColorMetallic = g_Buffers[scene].Load<float4>(object + kObjectBaseColorMetallic);
-    const float3 baseColor = baseColorMetallic.rgb;
+    float3 baseColor = baseColorMetallic.rgb;
     const float metallic = baseColorMetallic.a;
     const float roughness = max(LoadFloat(scene, object + kObjectRoughness), 0.04);
     const float3 cameraPosition = g_Buffers[scene].Load<float3>(kFrameCameraPosition);
@@ -99,6 +124,11 @@ float4 main(ForwardVaryings input) : SV_Target0
     const float3 ambient = g_Buffers[scene].Load<float3>(kFrameAmbient);
 
     const float3 n = normalize(input.normal);
+    const uint albedoTexture = LoadUint(scene, object + kObjectAlbedoTexture);
+    if (albedoTexture != kInvalidIndex)
+    {
+        baseColor *= TriplanarAlbedo(albedoTexture, input.worldPosition, n, LoadFloat(scene, object + kObjectTextureScale));
+    }
     const float3 v = normalize(cameraPosition - input.worldPosition);
     const float viewDepth = -mul(LoadMat4(scene, kFrameView), float4(input.worldPosition, 1.0)).z;
 

@@ -232,6 +232,14 @@ enum class StoreOp : std::uint8_t
 /// Rasterization pipeline. Conventions: counter-clockwise triangles (seen in clip space with +Y up) are front
 /// faces; clip-space depth is 0..1. Vertices are pulled by the shaders from bindless buffers, so there is no vertex
 /// input layout.
+/// How a pipeline's colour output combines with the target (the same for every colour attachment).
+enum class BlendMode : std::uint8_t
+{
+    Opaque,   ///< Replace.
+    Alpha,    ///< rgb = src * a + dst * (1 - a); alpha keeps dst.
+    Additive, ///< rgb = src * a + dst; alpha keeps dst.
+};
+
 struct GraphicsPipelineDesc
 {
     std::span<const std::byte> vertexCode{}; // NOLINT(readability-redundant-member-init)
@@ -244,6 +252,7 @@ struct GraphicsPipelineDesc
     CompareOp depthCompare = CompareOp::Greater; ///< Reverse-Z: larger depth is nearer.
     float depthBiasConstant = 0.0f;
     float depthBiasSlope = 0.0f;
+    BlendMode blend = BlendMode::Opaque;
     std::string_view debugName{}; // NOLINT(readability-redundant-member-init)
 };
 

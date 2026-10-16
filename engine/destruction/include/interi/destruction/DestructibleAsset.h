@@ -42,9 +42,12 @@ void Serialize(Archive& archive, RenderVertex& vertex)
 /// A range of a chunk's indices drawn with one render material.
 struct Submesh
 {
+    /// The glTF surface material, or for interior faces the DestructionMaterial's interiorMaterialId (a separate
+    /// number space, told apart by `interior`).
     std::uint32_t surfaceMaterial = 0;
     std::uint32_t indexOffset = 0;
     std::uint32_t indexCount = 0;
+    bool interior = false; ///< Faces exposed by fracture.
 
     friend bool operator==(const Submesh&, const Submesh&) = default;
 };
@@ -53,9 +56,14 @@ template <typename Archive>
 void Serialize(Archive& archive, Submesh& submesh)
 {
     archive(submesh.surfaceMaterial, submesh.indexOffset, submesh.indexCount);
+    if (archive.Version() >= 2)
+    {
+        archive(submesh.interior);
+    }
 }
 
-/// Indexed triangle list with one submesh per render material, ordered by material.
+/// Indexed triangle list with one submesh per render material: exterior submeshes by surface material, then
+/// interior ones by interior material.
 struct RenderMesh
 {
     std::vector<RenderVertex> vertices;
@@ -124,7 +132,7 @@ void Serialize(Archive& archive, DestructibleAsset& asset)
 
 inline constexpr FourCC kDestructibleMagic = MakeFourCC("IDST");
 inline constexpr FourCC kDestructiblePayloadMagic = MakeFourCC("IDSP");
-inline constexpr std::uint32_t kDestructibleVersion = 1;
+inline constexpr std::uint32_t kDestructibleVersion = 2; ///< 2: Submesh::interior.
 
 /// Serializes an asset to the `.idest` format: a header (magic, version, cook key, XXH3 of the payload) followed
 /// by the payload. `cookKey` identifies the inputs it was cooked from (see the cooker).

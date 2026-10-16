@@ -143,6 +143,8 @@ public:
                                   std::uint64_t countOffset, std::uint32_t maxDraws, std::uint32_t stride) override;
     void CopyTextureToBuffer(TextureHandle texture, BufferHandle buffer, std::uint64_t bufferOffset,
                              std::uint32_t rowPitch) override;
+    void CopyBufferToTexture(BufferHandle buffer, std::uint64_t bufferOffset, std::uint32_t rowPitch,
+                             TextureHandle texture, std::uint32_t mip, std::uint32_t layer) override;
 
     [[nodiscard]] VkCommandBuffer Native() const noexcept { return m_commandBuffer; }
 

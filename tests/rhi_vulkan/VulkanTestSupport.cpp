@@ -39,14 +39,19 @@ extern "C" const char* __lsan_default_suppressions() // NOLINT(bugprone-reserved
 /// uninstrumented code (Mesa, LLVM, the loader and the validation layer), so TSan sees only part of each
 /// synchronisation and reports races and lock-order inversions that are not there. Reports are suppressed only
 /// when a frame of the report is in one of those libraries; interceptors stay active so lock tracking is
-/// consistent.
+/// consistent. Executables that also run Jolt (interi::physics_testing) get its suppression here, because a
+/// process has only one list (see tests/physics/JoltSanitizerSupport.cpp).
 extern "C" const char* __tsan_default_suppressions() // NOLINT(bugprone-reserved-identifier)
 {
-    return "race:libvulkan_lvp.so\n"
-           "race:libLLVM\n"
-           "race:libVkLayer_khronos_validation.so\n"
-           "deadlock:libvulkan_lvp.so\n"
-           "deadlock:libLLVM\n"
-           "deadlock:libvulkan.so\n";
+    return
+#ifdef INTERI_PHYSICS_TESTING
+        "race:JPH::Mutex::try_lock\n"
+#endif
+        "race:libvulkan_lvp.so\n"
+        "race:libLLVM\n"
+        "race:libVkLayer_khronos_validation.so\n"
+        "deadlock:libvulkan_lvp.so\n"
+        "deadlock:libLLVM\n"
+        "deadlock:libvulkan.so\n";
 }
 #endif

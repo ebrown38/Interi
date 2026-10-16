@@ -9,7 +9,7 @@ struct ForwardPush
 {
     uint vertices;      ///< Bindless index of the MeshPool vertex buffer (24-byte Vertex).
     uint scene;         ///< Bindless index of this frame's scene buffer.
-    uint pad2;
+    uint materialSampler; ///< Bindless index of the linear repeat sampler for albedo textures.
     uint clusters;      ///< Bindless index of the light-culling result.
     uint shadowMap;     ///< Bindless index of the cascade texture array, or kInvalidIndex.
     uint shadowSampler; ///< Bindless index of the depth-comparison sampler.

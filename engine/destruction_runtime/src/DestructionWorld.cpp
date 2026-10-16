@@ -220,6 +220,24 @@ const DestructionWorld::Instance& DestructionWorld::Get(DestructibleId id) const
     return *m_instances[id.index];
 }
 
+std::vector<DestructibleId> DestructionWorld::Instances() const
+{
+    std::vector<DestructibleId> ids;
+    for (const std::unique_ptr<Instance>& instance : m_instances)
+    {
+        if (instance != nullptr)
+        {
+            ids.push_back(instance->id);
+        }
+    }
+    return ids;
+}
+
+const Transform& DestructionWorld::InstanceTransform(DestructibleId id) const
+{
+    return Get(id).transform;
+}
+
 const DestructibleAsset& DestructionWorld::Asset(DestructibleId id) const
 {
     return *Get(id).asset;
@@ -228,6 +246,11 @@ const DestructibleAsset& DestructionWorld::Asset(DestructibleId id) const
 std::span<const float> DestructionWorld::BondHealth(DestructibleId id) const
 {
     return Get(id).health;
+}
+
+std::span<const float> DestructionWorld::BondFullHealth(DestructibleId id) const
+{
+    return Get(id).maxHealth;
 }
 
 bool DestructionWorld::IsBondBroken(DestructibleId id, std::uint32_t bond) const
@@ -359,6 +382,23 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
 {
     INTERI_ZONE_NAMED("DestructionWorld::RebuildPieces");
     const DestructibleAsset& asset = *instance.asset;
+    for (const std::uint32_t bond : instance.newlyBroken)
+    {
+        // Where the bond was: the pose of the piece that held it, before pieces are rebuilt.
+        const Bond& b = asset.bonds[bond];
+        const Transform pose = PiecePose(world, instance, instance.chunkPiece[b.chunkA]);
+        const std::uint32_t materialA = asset.chunks[b.chunkA].material;
+        const std::uint32_t materialB = asset.chunks[b.chunkB].material;
+        const bool weakerB = materialB < asset.materials.size() && materialA < asset.materials.size() &&
+                             asset.materials[materialB].fractureEnergy < asset.materials[materialA].fractureEnergy;
+        m_breakEvents.push_back({.instance = instance.id,
+                                 .bond = bond,
+                                 .position = pose.TransformPoint(b.centroid),
+                                 .normal = pose.TransformVector(b.normal),
+                                 .material = weakerB ? materialB : materialA,
+                                 .area = b.area,
+                                 .energy = instance.maxHealth[bond]});
+    }
     const auto chunkCount = static_cast<std::uint32_t>(asset.chunks.size());
     std::vector<std::uint32_t> labels(chunkCount);
     LabelComponents(jobs, chunkCount, instance.edges, instance.broken, labels);
@@ -550,7 +590,9 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
         }
         if (!piece.anchored && small && m_debris != nullptr)
         {
-            const Entity entity = world.CreateEntity(source.pose, body, std::move(collider));
+            const Entity entity =
+                world.CreateEntity(source.pose, body, std::move(collider),
+                                   DebrisSourceComponent{.asset = instance.asset, .chunks = piece.chunks});
             ReleaseToDebris(instance, index);
             (void)m_debris->Adopt(world, entity, volume);
             ++m_stats.piecesSpawned;
@@ -605,6 +647,7 @@ void DestructionWorld::Update(World& world, JobSystem& jobs)
 {
     INTERI_ZONE_NAMED("DestructionWorld::Update");
     m_stats = {};
+    m_breakEvents.clear();
 
     ApplyContactDamage(world);
     for (const auto& [damage, kind] : m_queuedDamage)

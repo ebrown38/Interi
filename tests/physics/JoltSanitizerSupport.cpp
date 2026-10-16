@@ -7,7 +7,8 @@
 #endif
 #endif
 
-#ifdef INTERI_TEST_TSAN
+// With interi::vulkan_testing too, VulkanTestSupport.cpp defines the (single) suppression list and includes these.
+#if defined(INTERI_TEST_TSAN) && !defined(INTERI_VULKAN_TESTING)
 /// ThreadSanitizer suppressions. Jolt's Mutex::try_lock reads the owner thread id, a debug-only field kept for
 /// JPH_ASSERT (the tsan triplet builds Jolt with asserts), without holding the lock, so heavily contended body locks
 /// (many bodies falling asleep in one step) report a race on that field. The mutex itself is correct.

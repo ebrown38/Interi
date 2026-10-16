@@ -62,6 +62,10 @@ public:
     /// must be a multiple of kTextureRowPitchAlignment.
     virtual void CopyTextureToBuffer(TextureHandle texture, BufferHandle buffer, std::uint64_t bufferOffset,
                                      std::uint32_t rowPitch) = 0;
+    /// Copies `buffer` (CopySrc) into mip `mip` of array layer `layer` of `texture` (CopyDst), rows `rowPitch`
+    /// bytes apart. rowPitch must be a multiple of kTextureRowPitchAlignment.
+    virtual void CopyBufferToTexture(BufferHandle buffer, std::uint64_t bufferOffset, std::uint32_t rowPitch,
+                                     TextureHandle texture, std::uint32_t mip, std::uint32_t layer) = 0;
 
     /// PushConstants for a trivially copyable struct.
     template <typename T>

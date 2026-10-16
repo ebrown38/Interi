@@ -24,12 +24,18 @@ class ResourceManager;
 namespace interi::render
 {
 
-/// Metallic-roughness material parameters (constant per object for now).
+/// Metallic-roughness material parameters, constant per object, optionally textured.
 struct Material
 {
     Vec3 baseColor{0.8f, 0.8f, 0.8f};
     float metallic = 0.0f;
     float roughness = 0.5f;
+    /// Bindless index (IDevice::BindlessIndex) of an albedo texture that multiplies baseColor, or
+    /// rhi::kInvalidBindlessIndex. Meshes have no UVs: textures are mapped triplanar in world space.
+    std::uint32_t albedoTexture = rhi::kInvalidBindlessIndex;
+    float textureScale = 1.0f; ///< Texture repeats per metre.
+    /// 1 = opaque. Lower values drop that fraction of pixels in a fixed 4x4 pattern (screen-door fade).
+    float opacity = 1.0f;
 };
 
 struct RenderObject
@@ -71,6 +77,7 @@ struct ForwardSettings
     float cascadeLambda = 0.75f;        ///< Logarithmic vs uniform cascade splits (see CascadeSplits).
     float clusterFar = 100.0f;          ///< Point lights are shaded up to this view distance.
     bool occlusionCulling = true;       ///< Cull objects hidden behind occluders (needs at least one occluder).
+    std::uint32_t maxObjects = 4096;    ///< Objects per frame (sizes the scene and indirect argument buffers).
 };
 
 /// Graph resources the forward passes produce, for later passes (and tests) to read.
@@ -78,10 +85,11 @@ struct ForwardOutputs
 {
     FGBuffer clusters;      ///< Per-cluster light lists (ClusterGrid layout).
     FGTexture shadowMap;    ///< Cascade depth array; invalid when shadows are disabled.
-    FGBuffer drawArguments; ///< Culled DrawIndexedIndirect commands: view v starts at v * kMaxObjects * 20 bytes.
+    FGBuffer drawArguments; ///< Culled DrawIndexedIndirect commands: view v starts at v * maxObjects * 20 bytes.
     FGBuffer drawCounts;    ///< uint32 draw count per view (view 0 = camera, 1 + i = shadow cascade i, then the
                             ///< occluder prepass).
     FGTexture hiZ;          ///< Occluder depth pyramid; invalid when occlusion culling did not run.
+    FGTexture depth;        ///< The forward pass's depth (reverse-Z), sampleable by later passes (e.g. decals).
 };
 
 /// GPU-driven, physically based forward rendering through the frame graph. Per frame: a compute pass culls every
@@ -95,7 +103,6 @@ struct ForwardOutputs
 class ForwardRenderer
 {
 public:
-    static constexpr std::uint32_t kMaxObjects = 4096;
     static constexpr std::uint32_t kMaxPointLights = 1024;
 
     /// Objects reference meshes in `meshes`. `colorFormat` is the format of the targets passed to AddPasses.
@@ -108,6 +115,8 @@ public:
     ForwardRenderer& operator=(const ForwardRenderer&) = delete;
     ForwardRenderer(ForwardRenderer&&) = delete;
     ForwardRenderer& operator=(ForwardRenderer&&) = delete;
+
+    [[nodiscard]] std::uint32_t MaxObjects() const noexcept { return m_settings.maxObjects; }
 
     /// Adds the passes that clear `color` (width x height) to `clearColor` and draw `objects`. `color` is replaced
     /// by the version the forward pass writes.
@@ -129,6 +138,7 @@ private:
     rhi::PipelineHandle m_shadow;
     rhi::PipelineHandle m_lightCulling;
     rhi::SamplerHandle m_shadowSampler;
+    rhi::SamplerHandle m_materialSampler;          ///< Linear, repeat, mipmapped (albedo textures).
     std::vector<rhi::BufferHandle> m_sceneBuffers; ///< One per frame in flight.
     std::uint32_t m_nextSlot = 0;
 };

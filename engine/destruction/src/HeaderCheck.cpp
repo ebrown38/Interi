@@ -3,6 +3,7 @@
 // the engine's warnings and checked by clang-tidy.
 #include <interi/destruction/BondGraph.h>
 #include <interi/destruction/ChunkHierarchy.h>
+#include <interi/destruction/ChunkRenderSet.h>
 #include <interi/destruction/CollisionHulls.h>
 #include <interi/destruction/Damage.h>
 #include <interi/destruction/Debris.h>

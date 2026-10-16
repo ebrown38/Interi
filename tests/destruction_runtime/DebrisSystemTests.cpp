@@ -317,6 +317,54 @@ TEST_F(DebrisSystemTest, RubbleMerge_SleepingCluster_SingleStaticBody)
     EXPECT_NEAR(5.0f - hit.mFraction * 10.0f, 0.4f, 0.02f);
 }
 
+TEST_F(DebrisSystemTest, RubbleMerge_KeepsMemberChunkSources)
+{
+    // Four resting boxes in one cell; three came from a destructible (DebrisSourceComponent), one did not.
+    const auto asset = std::make_shared<const DestructibleAsset>(MakeGridAsset({{0, 0, 0}, {1, 0, 0}, {2, 0, 0}}));
+    for (std::uint32_t i = 0; i < 4; ++i)
+    {
+        const Vec3 position(0.3f + 0.45f * static_cast<float>(i), 0.2f, 0.5f);
+        const Entity entity = Box(position, 0.2f);
+        if (i < 3)
+        {
+            ASSERT_TRUE(m_world.Add(entity, DebrisSourceComponent{.asset = asset, .chunks = {i}}));
+        }
+        ASSERT_TRUE(m_debris.Adopt(m_world, entity, 0.064f));
+    }
+    std::uint32_t piles = 0;
+    for (int i = 0; i < 300 && piles == 0; ++i)
+    {
+        Step();
+        piles += m_debris.LastStats().rubblePiles;
+    }
+    ASSERT_EQ(piles, 1u);
+
+    Query query;
+    query.With<RubbleComponent, RubbleSourceComponent, Transform>();
+    std::uint32_t count = 0;
+    query.ForEachChunk(m_world,
+                       [&](ChunkView& chunk)
+                       {
+                           for (std::uint32_t row = 0; row < chunk.Count(); ++row)
+                           {
+                               ++count;
+                               const RubbleSourceComponent& sources = chunk.Read<RubbleSourceComponent>()[row];
+                               const Transform& pile = chunk.Read<Transform>()[row];
+                               ASSERT_EQ(sources.parts.size(), 3u);
+                               for (std::uint32_t part = 0; part < 3; ++part)
+                               {
+                                   EXPECT_EQ(sources.parts[part].asset, asset);
+                                   EXPECT_EQ(sources.parts[part].chunks, std::vector<std::uint32_t>{part});
+                                   // Parts are placed relative to the pile: they land back where the boxes rested.
+                                   const Vec3 world = pile.position + sources.parts[part].position;
+                                   EXPECT_NEAR(world.x, 0.3f + 0.45f * static_cast<float>(part), 0.05f);
+                                   EXPECT_NEAR(world.y, 0.2f, 0.05f);
+                               }
+                           }
+                       });
+    EXPECT_EQ(count, 1u);
+}
+
 TEST_F(DebrisSystemTest, RubbleMerge_TooFewPieces_StayBodies)
 {
     for (int i = 0; i < 3; ++i)

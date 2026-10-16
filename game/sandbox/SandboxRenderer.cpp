@@ -4,12 +4,18 @@
 #include <interi/core/Log.h>
 #include <interi/core/math/Mat4.h>
 #include <interi/core/math/Quat.h>
+#include <interi/destruction_render/ChunkGatherer.h>
+#include <interi/destruction_render/ChunkMeshCache.h>
+#include <interi/destruction_render/CrackDecals.h>
+#include <interi/destruction_render/InteriorMaterials.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/render/Camera.h>
+#include <interi/render/Decals.h>
 #include <interi/render/ForwardRenderer.h>
 #include <interi/render/FrameGraph.h>
 #include <interi/render/MeshPool.h>
+#include <interi/render/Particles.h>
 #include <interi/rhi/CommandListPool.h>
 #include <interi/rhi/ResourceManager.h>
 #include <interi/rhi/UploadQueue.h>
@@ -30,6 +36,28 @@ namespace
 {
 
 constexpr std::uint32_t kFramesInFlight = 2;
+constexpr std::uint32_t kMaxObjects = 16384;
+constexpr float kVerticalFov = 1.0471976f; // 60 degrees
+constexpr float kNearPlane = 0.1f;
+
+/// Records uploads into a one-off command list, submits it and waits.
+template <typename Record>
+Result<void> UploadNow(rhi::IDevice& device, Record&& record)
+{
+    rhi::UploadQueue uploads(device, 4 * 1024 * 1024);
+    INTERI_TRY_ASSIGN(pool, device.CreateCommandPool());
+    rhi::ICommandList& commands = device.BeginCommandList(pool);
+    Result<void> recorded = record(uploads, commands);
+    if (recorded)
+    {
+        rhi::ICommandList* const lists[] = {&commands};
+        const std::uint64_t value = device.Submit(lists);
+        uploads.Submitted(value);
+        device.WaitForValue(value);
+    }
+    device.DestroyCommandPool(pool);
+    return recorded;
+}
 
 } // namespace
 
@@ -42,6 +70,13 @@ struct SandboxRenderer::State
     std::unique_ptr<rhi::CommandListPool> commandPools;
     std::unique_ptr<MeshPool> meshes;
     std::unique_ptr<ForwardRenderer> renderer;
+    std::unique_ptr<GpuParticleSystem> particles;
+    std::unique_ptr<DecalRenderer> decalRenderer;
+    std::unique_ptr<destruction::ChunkMeshCache> chunkMeshes;
+    destruction::InteriorMaterials interior;
+    destruction::ChunkMaterials chunkMaterials;
+    destruction::ChunkGatherer gatherer;
+    std::vector<Decal> decals;
     std::unique_ptr<rhi::ISwapchain> swapchain;
     std::unique_ptr<FrameGraph> graph;
     MeshRange cube;
@@ -54,7 +89,13 @@ SandboxRenderer::SandboxRenderer(std::unique_ptr<State> state)
 {
 }
 
-SandboxRenderer::~SandboxRenderer() = default;
+SandboxRenderer::~SandboxRenderer()
+{
+    if (m_state != nullptr && m_state->resources != nullptr)
+    {
+        destruction::DestroyInteriorMaterials(*m_state->resources, m_state->interior);
+    }
+}
 
 Result<std::unique_ptr<SandboxRenderer>> SandboxRenderer::Create(SdlPlatform& platform, IWindow& window,
                                                                  JobSystem& jobs, bool validation)
@@ -75,34 +116,58 @@ Result<std::unique_ptr<SandboxRenderer>> SandboxRenderer::Create(SdlPlatform& pl
     state->resources = std::make_unique<rhi::ResourceManager>(gpu);
     INTERI_TRY_ASSIGN(pools, rhi::CommandListPool::Create(gpu, jobs, kFramesInFlight));
     state->commandPools = std::make_unique<rhi::CommandListPool>(std::move(pools));
-    INTERI_TRY_ASSIGN(meshes, MeshPool::Create(gpu, *state->resources, 16 * 1024, 64 * 1024));
+    // Destructible assets put every hierarchy level of every chunk in the pool.
+    INTERI_TRY_ASSIGN(meshes, MeshPool::Create(gpu, *state->resources, 512 * 1024, 2 * 1024 * 1024));
     state->meshes = std::move(meshes);
-    INTERI_TRY_ASSIGN(renderer,
-                      ForwardRenderer::Create(gpu, *state->resources, *state->meshes, state->swapchain->ImageFormat(),
-                                              ForwardSettings{.framesInFlight = kFramesInFlight}));
+    INTERI_TRY_ASSIGN(renderer, ForwardRenderer::Create(
+                                    gpu, *state->resources, *state->meshes, state->swapchain->ImageFormat(),
+                                    ForwardSettings{.framesInFlight = kFramesInFlight, .maxObjects = kMaxObjects}));
     state->renderer = std::move(renderer);
+    INTERI_TRY_ASSIGN(particles, GpuParticleSystem::Create(gpu, *state->resources, state->swapchain->ImageFormat(),
+                                                           ParticleSettings{.framesInFlight = kFramesInFlight}));
+    state->particles = std::move(particles);
+    INTERI_TRY_ASSIGN(decalRenderer, DecalRenderer::Create(gpu, *state->resources, state->swapchain->ImageFormat(),
+                                                           4096, kFramesInFlight));
+    state->decalRenderer = std::move(decalRenderer);
+    state->chunkMeshes = std::make_unique<destruction::ChunkMeshCache>(*state->meshes);
     state->graph = std::make_unique<FrameGraph>(gpu, *state->resources);
 
-    // Upload the meshes once, before the first frame.
+    // Upload the meshes and interior textures once, before the first frame.
+    // (A named lambda: INTERI_TRY_ASSIGN inside another macro's argument would get one __LINE__ on MSVC.)
+    State& uploaded = *state;
+    const auto upload = [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
     {
-        rhi::UploadQueue uploads(gpu, 1024 * 1024);
-        INTERI_TRY_ASSIGN(pool, gpu.CreateCommandPool());
-        rhi::ICommandList& commands = gpu.BeginCommandList(pool);
-        INTERI_TRY_ASSIGN(cube, state->meshes->Add(uploads, commands, MakeCube(0.25f)));
-        INTERI_TRY_ASSIGN(ground, state->meshes->Add(uploads, commands, MakePlane(1.0f)));
-        state->cube = cube;
-        state->ground = ground;
-        rhi::ICommandList* const lists[] = {&commands};
-        const std::uint64_t value = gpu.Submit(lists);
-        uploads.Submitted(value);
-        gpu.WaitForValue(value);
-        gpu.DestroyCommandPool(pool);
-    }
+        INTERI_TRY_ASSIGN(cube, uploaded.meshes->Add(uploads, commands, MakeCube(0.25f)));
+        INTERI_TRY_ASSIGN(ground, uploaded.meshes->Add(uploads, commands, MakePlane(1.0f)));
+        uploaded.cube = cube;
+        uploaded.ground = ground;
+        INTERI_TRY_ASSIGN(interior, destruction::CreateInteriorMaterials(*uploaded.device, uploads, commands));
+        uploaded.interior = std::move(interior);
+        return {};
+    };
+    INTERI_TRY(UploadNow(gpu, upload));
+    state->chunkMaterials.surface = {Material{.baseColor = {0.72f, 0.71f, 0.68f}, .roughness = 0.85f}};
+    state->chunkMaterials.interior = state->interior.materials;
+    state->chunkMaterials.fallback = state->chunkMaterials.surface[0];
     return std::unique_ptr<SandboxRenderer>(new SandboxRenderer(std::move(state)));
 }
 
-bool SandboxRenderer::Render(std::span<const Transform> debris, double seconds)
+Result<void> SandboxRenderer::AddAsset(const std::shared_ptr<const destruction::DestructibleAsset>& asset)
 {
+    State& state = *m_state;
+    return UploadNow(*state.device, [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands)
+                     { return state.chunkMeshes->Add(uploads, commands, asset); });
+}
+
+Vec3 SandboxRenderer::CameraPosition(double seconds)
+{
+    const auto angle = static_cast<float>(seconds * 0.15);
+    return {std::cos(angle) * 22.0f, 10.0f, std::sin(angle) * 22.0f};
+}
+
+bool SandboxRenderer::Render(const SandboxFrame& frame)
+{
+    const std::span<const Transform> debris = frame.cubes;
     State& state = *m_state;
     state.commandPools->BeginFrame();
     state.resources->Collect();
@@ -129,7 +194,14 @@ bool SandboxRenderer::Render(std::span<const Transform> debris, double seconds)
                                  .material = {.baseColor = {0.7f, 0.68f, 0.62f}, .roughness = 0.7f},
                                  .occluder = true});
     }
-    const std::size_t debrisCount = std::min(debris.size(), ForwardRenderer::kMaxObjects - state.objects.size());
+    state.decals.assign(frame.decals.begin(), frame.decals.end());
+    if (frame.world != nullptr && frame.destruction != nullptr)
+    {
+        (void)state.gatherer.Gather(*frame.world, *frame.destruction, *state.chunkMeshes, state.chunkMaterials,
+                                    state.objects, state.renderer->MaxObjects());
+        destruction::GatherCrackDecals(*frame.world, *frame.destruction, state.decals);
+    }
+    const std::size_t debrisCount = std::min(debris.size(), state.renderer->MaxObjects() - state.objects.size());
     for (std::size_t i = 0; i < debrisCount; ++i)
     {
         state.objects.push_back({.mesh = state.cube,
@@ -137,9 +209,10 @@ bool SandboxRenderer::Render(std::span<const Transform> debris, double seconds)
                                  .material = {.baseColor = {0.75f, 0.35f, 0.2f}, .roughness = 0.5f}});
     }
 
-    const auto angle = static_cast<float>(seconds * 0.15);
     SceneView view;
-    view.cameraPosition = {std::cos(angle) * 22.0f, 10.0f, std::sin(angle) * 22.0f};
+    view.cameraPosition = CameraPosition(frame.seconds);
+    view.verticalFov = kVerticalFov;
+    view.nearPlane = kNearPlane;
     view.view = LookAt(view.cameraPosition, {0.0f, 2.0f, 0.0f}, {0.0f, 1.0f, 0.0f});
     view.sun = {.direction = {-0.5f, -1.0f, -0.3f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
     const std::array lights{
@@ -152,8 +225,19 @@ bool SandboxRenderer::Render(std::span<const Transform> debris, double seconds)
     graph.Reset();
     FGTexture target =
         graph.ImportTexture("swapchain", *image, rhi::ResourceState::Undefined, rhi::ResourceState::Present);
-    state.renderer->AddPasses(graph, target, state.swapchain->Width(), state.swapchain->Height(), view, state.objects,
-                              {0.45f, 0.6f, 0.8f});
+    const std::uint32_t width = state.swapchain->Width();
+    const std::uint32_t height = state.swapchain->Height();
+    const ForwardOutputs outputs =
+        state.renderer->AddPasses(graph, target, width, height, view, state.objects, {0.45f, 0.6f, 0.8f});
+    const Mat4 viewProjection =
+        PerspectiveReverseZ(kVerticalFov, static_cast<float>(width) / static_cast<float>(height), kNearPlane) *
+        view.view;
+    state.decalRenderer->AddPasses(graph, state.decals, DecalView{.viewProjection = viewProjection}, target,
+                                   outputs.depth, width, height);
+    (void)state.particles->Emit(frame.particles);
+    state.particles->AddPasses(
+        graph, frame.dt, ParticleView{.viewProjection = viewProjection, .view = view.view, .nearPlane = kNearPlane},
+        target, outputs.depth, width, height);
     if (auto compiled = graph.Compile(); !compiled)
     {
         INTERI_LOG_ERROR("Sandbox", "frame graph: {}", compiled.error().message);

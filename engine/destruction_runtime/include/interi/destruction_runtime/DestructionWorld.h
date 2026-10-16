@@ -85,6 +85,18 @@ struct DestructionSettings
     float smallPieceVolume = 0.05f; ///< m^3; falling pieces up to this volume use smallPieceLayer.
 };
 
+/// A bond that broke during the last Update (by damage or by stress), for effects such as dust and sparks.
+struct BreakEvent
+{
+    DestructibleId instance;
+    std::uint32_t bond = 0;
+    Vec3 position;              ///< World-space bond centroid when it broke.
+    Vec3 normal;                ///< World space, from the bond's chunkA towards chunkB.
+    std::uint32_t material = 0; ///< Index into the asset's materials: the side with the lower fractureEnergy.
+    float area = 0.0f;          ///< m^2.
+    float energy = 0.0f;        ///< J: the bond's full health (fracture energy x area).
+};
+
 /// Per-Update counters.
 struct DestructionStats
 {
@@ -125,7 +137,8 @@ public:
 
     /// Hands small falling pieces (volume <= smallPieceVolume) to `debris` from now on (nullptr: keep them). A handed
     /// over piece leaves its instance: its chunks no longer take damage or form pieces, and its entity (without a
-    /// DestructibleComponent) belongs to the DebrisSystem, so Despawn does not destroy it.
+    /// DestructibleComponent, with a DebrisSourceComponent) belongs to the DebrisSystem, so Despawn does not destroy
+    /// it.
     void SetDebrisSystem(DebrisSystem* debris) noexcept { m_debris = debris; }
 
     /// Destroys every entity of the instance. Returns false for a stale id.
@@ -139,11 +152,20 @@ public:
     void Update(World& world, JobSystem& jobs);
 
     [[nodiscard]] const DestructionStats& LastStats() const noexcept { return m_stats; }
+    /// Bonds broken by the last Update, in instance order, then in the order they broke. Recording them does not
+    /// affect the simulation.
+    [[nodiscard]] std::span<const BreakEvent> BreakEvents() const noexcept { return m_breakEvents; }
     [[nodiscard]] std::size_t InstanceCount() const noexcept;
     [[nodiscard]] bool IsAlive(DestructibleId id) const noexcept;
 
+    /// Every live instance, in index order.
+    [[nodiscard]] std::vector<DestructibleId> Instances() const;
+    /// Where the instance was spawned (the pose of its anchored piece).
+    [[nodiscard]] const Transform& InstanceTransform(DestructibleId id) const;
     [[nodiscard]] const DestructibleAsset& Asset(DestructibleId id) const;
     [[nodiscard]] std::span<const float> BondHealth(DestructibleId id) const;
+    /// Each bond's health when undamaged (InitialBondHealth).
+    [[nodiscard]] std::span<const float> BondFullHealth(DestructibleId id) const;
     [[nodiscard]] bool IsBondBroken(DestructibleId id, std::uint32_t bond) const;
     [[nodiscard]] const StressSolver& Stress(DestructibleId id) const;
 
@@ -181,6 +203,7 @@ private:
     std::vector<std::pair<const DestructibleAsset*, std::weak_ptr<const AssetShapes>>> m_shapeCache;
     std::vector<std::pair<RadialDamage, DamageKind>> m_queuedDamage;
     DestructionStats m_stats;
+    std::vector<BreakEvent> m_breakEvents;
 };
 
 } // namespace interi::destruction

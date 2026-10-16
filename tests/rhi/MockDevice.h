@@ -52,6 +52,10 @@ public:
                 (rhi::TextureHandle texture, rhi::BufferHandle buffer, std::uint64_t bufferOffset,
                  std::uint32_t rowPitch),
                 (override));
+    MOCK_METHOD(void, CopyBufferToTexture,
+                (rhi::BufferHandle buffer, std::uint64_t bufferOffset, std::uint32_t rowPitch,
+                 rhi::TextureHandle texture, std::uint32_t mip, std::uint32_t layer),
+                (override));
 };
 
 class MockDevice : public rhi::IDevice

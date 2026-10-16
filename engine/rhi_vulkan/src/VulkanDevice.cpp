@@ -145,6 +145,7 @@ struct FeatureChain
         v12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
         v13.dynamicRendering = VK_TRUE;
         v13.synchronization2 = VK_TRUE;
+        v13.shaderDemoteToHelperInvocation = VK_TRUE; // HLSL `discard` (SM 6.6 compiles it to demote)
     }
 
     /// True when every feature Require() asks for is present.
@@ -157,7 +158,8 @@ struct FeatureChain
                v12.descriptorBindingPartiallyBound && v12.descriptorBindingUpdateUnusedWhilePending &&
                v12.descriptorBindingSampledImageUpdateAfterBind && v12.descriptorBindingStorageImageUpdateAfterBind &&
                v12.descriptorBindingStorageBufferUpdateAfterBind && v12.shaderSampledImageArrayNonUniformIndexing &&
-               v12.shaderStorageBufferArrayNonUniformIndexing && v13.dynamicRendering && v13.synchronization2;
+               v12.shaderStorageBufferArrayNonUniformIndexing && v13.dynamicRendering && v13.synchronization2 &&
+               v13.shaderDemoteToHelperInvocation;
     }
 };
 
@@ -621,6 +623,26 @@ void VulkanCommandList::CopyTextureToBuffer(TextureHandle texture, BufferHandle 
         .imageExtent = {data.width, data.height, 1}};
     m_impl.vk.vkCmdCopyImageToBuffer(m_commandBuffer, data.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                      m_impl.Buffer(buffer).buffer, 1, &region);
+}
+
+void VulkanCommandList::CopyBufferToTexture(BufferHandle buffer, std::uint64_t bufferOffset, std::uint32_t rowPitch,
+                                            TextureHandle texture, std::uint32_t mip, std::uint32_t layer)
+{
+    const TextureData data = m_impl.Texture(texture);
+    const std::uint32_t pixelSize = BytesPerPixel(data.rhiFormat);
+    INTERI_ASSERT(rowPitch % kTextureRowPitchAlignment == 0 && pixelSize != 0 && rowPitch % pixelSize == 0);
+    INTERI_ASSERT(mip < data.mipLevels && layer < data.arrayLayers);
+    const std::uint32_t width = std::max(data.width >> mip, 1u);
+    const std::uint32_t height = std::max(data.height >> mip, 1u);
+    const VkBufferImageCopy region{
+        .bufferOffset = bufferOffset,
+        .bufferRowLength = rowPitch / pixelSize,
+        .bufferImageHeight = height,
+        .imageSubresource = {.aspectMask = data.aspect, .mipLevel = mip, .baseArrayLayer = layer, .layerCount = 1},
+        .imageOffset = {0, 0, 0},
+        .imageExtent = {width, height, 1}};
+    m_impl.vk.vkCmdCopyBufferToImage(m_commandBuffer, m_impl.Buffer(buffer).buffer, data.image,
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 }
 
 // --- Device ------------------------------------------------------------------------------------------------------
@@ -1511,10 +1533,21 @@ Result<PipelineHandle> VulkanDevice::CreateGraphicsPipeline(const GraphicsPipeli
         .depthTestEnable = desc.depthTest ? VK_TRUE : VK_FALSE,
         .depthWriteEnable = desc.depthWrite ? VK_TRUE : VK_FALSE,
         .depthCompareOp = ToVk(desc.depthCompare)};
-    const std::vector<VkPipelineColorBlendAttachmentState> blends(
-        colorFormats.size(),
-        VkPipelineColorBlendAttachmentState{.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT});
+    VkPipelineColorBlendAttachmentState attachmentBlend{.colorWriteMask =
+                                                            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+    if (desc.blend != BlendMode::Opaque)
+    {
+        attachmentBlend.blendEnable = VK_TRUE;
+        attachmentBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        attachmentBlend.dstColorBlendFactor =
+            desc.blend == BlendMode::Alpha ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : VK_BLEND_FACTOR_ONE;
+        attachmentBlend.colorBlendOp = VK_BLEND_OP_ADD;
+        attachmentBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        attachmentBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        attachmentBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
+    const std::vector<VkPipelineColorBlendAttachmentState> blends(colorFormats.size(), attachmentBlend);
     const VkPipelineColorBlendStateCreateInfo blend{.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
                                                     .attachmentCount = static_cast<std::uint32_t>(blends.size()),
                                                     .pAttachments = blends.data()};

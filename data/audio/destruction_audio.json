@@ -1,0 +1,31 @@
+{
+  "impacts": [
+    { "materials": ["concrete", "concrete"], "clips": ["impact_concrete_a", "impact_concrete_b"],
+      "minImpulse": 300, "fullImpulse": 30000, "minVolume": 0.15, "volume": 1.0, "priority": 0.6,
+      "minDistance": 2, "maxDistance": 90, "rolloff": 1 },
+    { "materials": ["concrete", "*"], "clips": ["impact_concrete_a"],
+      "minImpulse": 300, "fullImpulse": 30000, "minVolume": 0.15, "volume": 0.9, "priority": 0.5,
+      "minDistance": 2, "maxDistance": 80, "rolloff": 1 },
+    { "materials": ["steel", "*"], "clips": ["impact_metal"],
+      "minImpulse": 200, "fullImpulse": 20000, "minVolume": 0.2, "volume": 0.9, "priority": 0.6,
+      "minDistance": 2, "maxDistance": 90, "rolloff": 1 },
+    { "materials": ["metal_sheet", "*"], "clips": ["impact_metal"],
+      "minImpulse": 150, "fullImpulse": 15000, "minVolume": 0.2, "volume": 0.8, "priority": 0.5,
+      "minDistance": 2, "maxDistance": 80, "rolloff": 1 },
+    { "materials": ["wood", "*"], "clips": ["impact_wood"],
+      "minImpulse": 150, "fullImpulse": 15000, "minVolume": 0.15, "volume": 0.9, "priority": 0.5,
+      "minDistance": 2, "maxDistance": 70, "rolloff": 1 },
+    { "materials": ["glass", "*"], "clips": ["impact_glass"],
+      "minImpulse": 50, "fullImpulse": 5000, "minVolume": 0.3, "volume": 0.8, "priority": 0.7,
+      "minDistance": 2, "maxDistance": 70, "rolloff": 1 },
+    { "materials": ["*", "*"], "clips": ["impact_generic"],
+      "minImpulse": 400, "fullImpulse": 30000, "minVolume": 0.1, "volume": 0.7, "priority": 0.3,
+      "minDistance": 2, "maxDistance": 60, "rolloff": 1 }
+  ],
+  "creak": { "clips": ["creak_a", "creak_b"], "volume": 0.8, "priority": 0.8,
+             "minDistance": 4, "maxDistance": 70, "rolloff": 1 },
+  "rumble": { "clips": ["rumble"], "minMass": 800, "fullMass": 200000, "volume": 1.0, "priority": 1.0,
+              "minDistance": 8, "maxDistance": 200, "rolloff": 0.7 },
+  "explosion": { "clips": ["explosion"], "volume": 1.0, "priority": 1.0,
+                 "minDistance": 6, "maxDistance": 250, "rolloff": 0.8 }
+}

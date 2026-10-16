@@ -12,6 +12,7 @@
     { "asset": "generated/wall.idest", "position": [4.5, 0, 0] }
   ],
   "spawnPoints": [
-    { "name": "player", "position": [0, 0, 9], "yawDegrees": 0 }
+    { "name": "player", "position": [0, 0, 9], "yawDegrees": 0 },
+    { "name": "vehicle", "position": [0, 1.5, -14], "yawDegrees": 180 }
   ]
 }

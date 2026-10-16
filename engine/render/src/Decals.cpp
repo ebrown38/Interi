@@ -139,7 +139,8 @@ void DecalRenderer::AddPasses(FrameGraph& graph, std::span<const Decal> decals, 
                              .kind = static_cast<std::uint32_t>(decal.kind),
                              .seed = decal.seed,
                              .pad = {}};
-        std::memcpy(mapped + sizeof(DecalHeader) + i * sizeof(DecalData), &data, sizeof(data));
+        const std::size_t offset = sizeof(DecalHeader) + i * sizeof(DecalData); // bytes: mapped is std::byte*
+        std::memcpy(mapped + offset, &data, sizeof(data));
     }
 
     const std::uint32_t frame = m_device.BindlessIndex(frameBuffer);

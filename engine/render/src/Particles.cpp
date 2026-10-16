@@ -162,7 +162,8 @@ void GpuParticleSystem::AddPasses(FrameGraph& graph, float dt, const ParticleVie
     std::memcpy(mapped, &header, sizeof(header));
     if (emitCount > 0)
     {
-        std::memcpy(mapped + sizeof(FrameHeader), m_pending.data(), m_pending.size() * sizeof(Particle));
+        constexpr std::size_t kParticlesOffset = sizeof(FrameHeader); // bytes: mapped is std::byte*
+        std::memcpy(mapped + kParticlesOffset, m_pending.data(), m_pending.size() * sizeof(Particle));
     }
     m_head = (m_head + emitCount) % m_settings.capacity;
     m_pending.clear();

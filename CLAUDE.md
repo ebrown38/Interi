@@ -158,6 +158,8 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`FileWatcher`** polls size and mtime of files or directory trees.
 - Tests load six variants of `tests/hotreload/modules/TestModule.cpp`. `ModuleHostTest.Load_RunsSystemsOnHostWorld` under TSan catches the module-copy thread-state race.
 - Libraries a module links get `POSITION_INDEPENDENT_CODE` (set in `engine/hotreload/CMakeLists.txt`).
+- **Tracy:** a process must have one Tracy instance. On Windows the overlay triplet `cmake/triplets/x64-windows-static-md.cmake` builds only the tracy port as a DLL. A static TracyClient in each module DLL deadlocks under the loader lock: the profile preset hung in `ModuleHostTest`.
+  - On Linux a module carries its own static Tracy. That works, but the module's zones go to a separate instance.
 
 ## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
 

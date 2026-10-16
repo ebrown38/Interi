@@ -297,6 +297,20 @@ std::optional<std::uint32_t> DestructionWorld::ChunkAt(const World& world, Entit
     return static_cast<std::uint32_t>(collider->shape->GetSubShapeUserData(id));
 }
 
+std::optional<Transform> DestructionWorld::ChunkPose(const World& world, DestructibleId id, std::uint32_t chunk) const
+{
+    if (!IsAlive(id))
+    {
+        return std::nullopt;
+    }
+    const Instance& instance = Get(id);
+    if (chunk >= instance.chunkPiece.size() || instance.chunkPiece[chunk] == kNoPiece)
+    {
+        return std::nullopt;
+    }
+    return PiecePose(world, instance, instance.chunkPiece[chunk]);
+}
+
 Transform DestructionWorld::PiecePose(const World& world, const Instance& instance, std::uint32_t piece) const
 {
     if (piece == kNoPiece || instance.pieces[piece].anchored || !instance.pieces[piece].entity.IsValid())

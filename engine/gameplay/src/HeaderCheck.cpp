@@ -3,3 +3,5 @@
 // engine's warnings and checked by clang-tidy.
 #include <interi/gameplay/Character.h>
 #include <interi/gameplay/FollowCamera.h>
+#include <interi/gameplay/WeaponDef.h>
+#include <interi/gameplay/Weapons.h>

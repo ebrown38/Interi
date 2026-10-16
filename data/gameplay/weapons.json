@@ -1,0 +1,38 @@
+{
+  "weapons": [
+    {
+      "name": "sledgehammer",
+      "kind": "melee",
+      "energy": 400,
+      "innerRadius": 0.3,
+      "radius": 0.8,
+      "impulse": 600,
+      "cooldown": 0.6,
+      "range": 2.2,
+      "hitRadius": 0.25
+    },
+    {
+      "name": "remote_charge",
+      "kind": "remoteCharge",
+      "energy": 20000,
+      "innerRadius": 1.0,
+      "radius": 3.0,
+      "impulse": 3000,
+      "cooldown": 0.3,
+      "range": 4.0,
+      "maxCharges": 6
+    },
+    {
+      "name": "rocket",
+      "kind": "rocket",
+      "energy": 8000,
+      "innerRadius": 0.8,
+      "radius": 2.5,
+      "impulse": 2000,
+      "cooldown": 1.0,
+      "range": 120,
+      "speed": 40,
+      "hitRadius": 0.1
+    }
+  ]
+}

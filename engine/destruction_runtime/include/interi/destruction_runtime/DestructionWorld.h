@@ -178,6 +178,10 @@ public:
     /// The chunk a contact or query hit on a destructible's body (`subShape` as in ContactEvent / QueryHit), or
     /// nothing for other entities.
     [[nodiscard]] std::optional<std::uint32_t> ChunkAt(const World& world, Entity entity, std::uint32_t subShape) const;
+    /// Where asset space currently is for `chunk`: the pose of the piece that holds it (the instance transform for
+    /// the anchored piece). Nothing for a stale id or a chunk that left the instance (handed to the DebrisSystem).
+    /// Things attached to a chunk (remote charges) follow it through piece splits with this.
+    [[nodiscard]] std::optional<Transform> ChunkPose(const World& world, DestructibleId id, std::uint32_t chunk) const;
 
 private:
     struct Instance;

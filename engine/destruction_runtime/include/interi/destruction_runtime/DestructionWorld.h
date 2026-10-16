@@ -125,7 +125,8 @@ public:
 
     /// Hands small falling pieces (volume <= smallPieceVolume) to `debris` from now on (nullptr: keep them). A handed
     /// over piece leaves its instance: its chunks no longer take damage or form pieces, and its entity (without a
-    /// DestructibleComponent) belongs to the DebrisSystem, so Despawn does not destroy it.
+    /// DestructibleComponent, with a DebrisSourceComponent) belongs to the DebrisSystem, so Despawn does not destroy
+    /// it.
     void SetDebrisSystem(DebrisSystem* debris) noexcept { m_debris = debris; }
 
     /// Destroys every entity of the instance. Returns false for a stale id.
@@ -142,6 +143,10 @@ public:
     [[nodiscard]] std::size_t InstanceCount() const noexcept;
     [[nodiscard]] bool IsAlive(DestructibleId id) const noexcept;
 
+    /// Every live instance, in index order.
+    [[nodiscard]] std::vector<DestructibleId> Instances() const;
+    /// Where the instance was spawned (the pose of its anchored piece).
+    [[nodiscard]] const Transform& InstanceTransform(DestructibleId id) const;
     [[nodiscard]] const DestructibleAsset& Asset(DestructibleId id) const;
     [[nodiscard]] std::span<const float> BondHealth(DestructibleId id) const;
     [[nodiscard]] bool IsBondBroken(DestructibleId id, std::uint32_t bond) const;

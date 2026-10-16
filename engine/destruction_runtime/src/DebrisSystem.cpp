@@ -270,12 +270,20 @@ void DebrisSystem::MergeRubble(World& world, std::span<const Entity> settled)
         Transform origin;
         origin.position = world.Get<Transform>(settled[cluster.front()])->position;
         parts.clear();
+        RubbleSourceComponent sources;
         for (const std::uint32_t member : cluster)
         {
             const Transform& pose = *world.Get<Transform>(settled[member]);
             parts.push_back({.position = pose.position - origin.position,
                              .rotation = pose.rotation,
                              .collider = *world.Get<physics::ColliderComponent>(settled[member])});
+            if (const auto* source = world.Get<DebrisSourceComponent>(settled[member]); source != nullptr)
+            {
+                sources.parts.push_back({.asset = source->asset,
+                                         .chunks = source->chunks,
+                                         .position = pose.position - origin.position,
+                                         .rotation = pose.rotation});
+            }
         }
         Result<physics::ColliderComponent> compound = physics::ColliderComponent::Compound(parts);
         if (!compound)
@@ -286,8 +294,15 @@ void DebrisSystem::MergeRubble(World& world, std::span<const Entity> settled)
         physics::RigidBodyComponent body;
         body.motion = physics::MotionType::Static;
         body.layer = m_settings.rubbleLayer;
-        world.CreateEntity(origin, body, std::move(*compound),
-                           RubbleComponent{.pieces = static_cast<std::uint32_t>(cluster.size())});
+        const RubbleComponent rubble{.pieces = static_cast<std::uint32_t>(cluster.size())};
+        if (sources.parts.empty())
+        {
+            world.CreateEntity(origin, body, std::move(*compound), rubble);
+        }
+        else
+        {
+            world.CreateEntity(origin, body, std::move(*compound), rubble, std::move(sources));
+        }
         for (const std::uint32_t member : cluster)
         {
             Destroy(world, settled[member]);

@@ -6,6 +6,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/physics)
 add_library(interi_physics_testing INTERFACE)
 add_library(interi::physics_testing ALIAS interi_physics_testing)
 target_sources(interi_physics_testing INTERFACE ${_tests}/JoltSanitizerSupport.cpp)
+target_compile_definitions(interi_physics_testing INTERFACE INTERI_PHYSICS_TESTING=1)
 
 interi_add_module(physics
     SOURCES

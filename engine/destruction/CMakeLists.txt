@@ -6,6 +6,7 @@ interi_add_module(destruction
     SOURCES
         src/BondGraph.cpp
         src/ChunkHierarchy.cpp
+        src/ChunkRenderSet.cpp
         src/CollisionHulls.cpp
         src/Damage.cpp
         src/Debris.cpp
@@ -35,7 +36,8 @@ interi_add_module(destruction
         ${_tests}/DamageTests.cpp
         ${_tests}/IslandTests.cpp
         ${_tests}/DebrisPoolTests.cpp
-        ${_tests}/DebrisTests.cpp)
+        ${_tests}/DebrisTests.cpp
+        ${_tests}/ChunkRenderSetTests.cpp)
 
 target_compile_definitions(interi_destruction_tests PRIVATE
     INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json")

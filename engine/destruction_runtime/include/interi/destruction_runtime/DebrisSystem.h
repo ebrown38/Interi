@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <interi/core/math/Quat.h>
 #include <interi/core/math/Vec.h>
 #include <interi/core/memory/Allocator.h>
 #include <interi/destruction/Debris.h>
 #include <interi/destruction/DebrisPool.h>
+#include <interi/destruction/DestructibleAsset.h>
 #include <interi/ecs/Component.h>
 #include <interi/ecs/Query.h>
 #include <interi/ecs/World.h>
@@ -13,7 +15,9 @@
 #include <interi/physics/PhysicsWorld.h>
 
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <vector>
 
 namespace interi::destruction
 {
@@ -52,7 +56,32 @@ struct RubbleComponent
     std::uint32_t pieces = 0;
 };
 
+/// On a debris entity handed over by DestructionWorld: the leaf chunks it is made of, in asset space (the entity's
+/// Transform maps them to the world). For rendering.
+struct DebrisSourceComponent
+{
+    std::shared_ptr<const DestructibleAsset> asset;
+    std::vector<std::uint32_t> chunks; ///< Ascending leaf chunk indices.
+};
+
+/// One member of a rubble pile: its chunks and its pose relative to the pile entity.
+struct RubblePart
+{
+    std::shared_ptr<const DestructibleAsset> asset;
+    std::vector<std::uint32_t> chunks;
+    Vec3 position;
+    Quat rotation;
+};
+
+/// On a rubble pile whose members had a DebrisSourceComponent: what to draw (the members are destroyed).
+struct RubbleSourceComponent
+{
+    std::vector<RubblePart> parts;
+};
+
 static_assert(Component<DebrisComponent>);
+static_assert(Component<DebrisSourceComponent>);
+static_assert(Component<RubbleSourceComponent>);
 static_assert(Component<DebrisParticleComponent>);
 static_assert(Component<RubbleComponent>);
 

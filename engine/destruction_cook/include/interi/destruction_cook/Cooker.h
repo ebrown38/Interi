@@ -18,7 +18,7 @@ namespace interi::destruction
 {
 
 /// Bump when cooking changes in a way that alters output for the same inputs, so stale assets are recooked.
-inline constexpr std::uint32_t kCookerVersion = 1;
+inline constexpr std::uint32_t kCookerVersion = 2; ///< 2: interior submeshes flagged.
 
 struct CookRequest
 {

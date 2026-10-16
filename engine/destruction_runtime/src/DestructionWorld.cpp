@@ -220,6 +220,24 @@ const DestructionWorld::Instance& DestructionWorld::Get(DestructibleId id) const
     return *m_instances[id.index];
 }
 
+std::vector<DestructibleId> DestructionWorld::Instances() const
+{
+    std::vector<DestructibleId> ids;
+    for (const std::unique_ptr<Instance>& instance : m_instances)
+    {
+        if (instance != nullptr)
+        {
+            ids.push_back(instance->id);
+        }
+    }
+    return ids;
+}
+
+const Transform& DestructionWorld::InstanceTransform(DestructibleId id) const
+{
+    return Get(id).transform;
+}
+
 const DestructibleAsset& DestructionWorld::Asset(DestructibleId id) const
 {
     return *Get(id).asset;
@@ -550,7 +568,9 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
         }
         if (!piece.anchored && small && m_debris != nullptr)
         {
-            const Entity entity = world.CreateEntity(source.pose, body, std::move(collider));
+            const Entity entity =
+                world.CreateEntity(source.pose, body, std::move(collider),
+                                   DebrisSourceComponent{.asset = instance.asset, .chunks = piece.chunks});
             ReleaseToDebris(instance, index);
             (void)m_debris->Adopt(world, entity, volume);
             ++m_stats.piecesSpawned;

@@ -9,6 +9,7 @@
 #include <format>
 #include <map>
 #include <numeric>
+#include <utility>
 
 namespace interi::destruction
 {
@@ -37,9 +38,10 @@ RenderMesh BuildRenderMesh(const FractureMesh& mesh, std::span<const Destruction
         }
         return t.material < materials.size() ? materials[t.material].interiorMaterialId : 0u;
     };
+    const auto keyOf = [&](const FractureTriangle& t) { return std::pair(t.interior, surfaceOf(t)); };
     std::vector<std::uint32_t> order(mesh.triangles.size());
     std::ranges::iota(order, 0u);
-    std::ranges::stable_sort(order, {}, [&](std::uint32_t t) { return surfaceOf(mesh.triangles[t]); });
+    std::ranges::stable_sort(order, {}, [&](std::uint32_t t) { return keyOf(mesh.triangles[t]); });
 
     RenderMesh render;
     std::map<VertexKey, std::uint32_t> vertexIndex;
@@ -47,11 +49,13 @@ RenderMesh BuildRenderMesh(const FractureMesh& mesh, std::span<const Destruction
     {
         const FractureTriangle& triangle = mesh.triangles[t];
         const std::uint32_t surface = surfaceOf(triangle);
-        if (render.submeshes.empty() || render.submeshes.back().surfaceMaterial != surface)
+        if (render.submeshes.empty() || render.submeshes.back().surfaceMaterial != surface ||
+            render.submeshes.back().interior != triangle.interior)
         {
             render.submeshes.push_back({.surfaceMaterial = surface,
                                         .indexOffset = static_cast<std::uint32_t>(render.indices.size()),
-                                        .indexCount = 0});
+                                        .indexCount = 0,
+                                        .interior = triangle.interior});
         }
         for (std::size_t k = 0; k < 3; ++k)
         {

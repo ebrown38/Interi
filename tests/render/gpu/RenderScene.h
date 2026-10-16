@@ -27,13 +27,25 @@ struct SceneObject
     render::RenderObject object;
 };
 
-/// Renders a scene with the forward renderer into a size x size sRGB image and reads it back. `afterForward` can add
-/// passes that use the forward outputs (e.g. to read back the light clusters).
-inline Image
-RenderScene(rhi::IDevice& device, std::uint32_t size, const render::SceneView& view,
-            const std::vector<render::MeshData>& meshes, const std::vector<SceneObject>& objects,
-            render::ForwardSettings settings = {},
-            const std::function<void(render::FrameGraph&, const render::ForwardOutputs&)>& afterForward = {})
+/// What a scene's populate callback can use to upload its geometry and textures before the frame is recorded.
+struct SceneContext
+{
+    rhi::IDevice& device;
+    rhi::ResourceManager& resources;
+    rhi::UploadQueue& uploads;
+    rhi::ICommandList& commands; ///< Uploads recorded here run before the frame.
+    render::MeshPool& meshes;
+};
+
+using PopulateScene = std::function<void(SceneContext&, std::vector<render::RenderObject>&)>;
+using AfterForward = std::function<void(render::FrameGraph&, const render::ForwardOutputs&)>;
+
+/// Renders a scene with the forward renderer into a size x size sRGB image and reads it back. `populate` uploads
+/// meshes and appends the objects to draw; `afterForward` can add passes that use the forward outputs (e.g. to read
+/// back the light clusters).
+inline Image RenderSceneWith(rhi::IDevice& device, std::uint32_t size, const render::SceneView& view,
+                             const PopulateScene& populate, render::ForwardSettings settings = {},
+                             const AfterForward& afterForward = {})
 {
     const std::uint32_t rowPitch = (size * 4 + rhi::kTextureRowPitchAlignment - 1) / rhi::kTextureRowPitchAlignment *
                                    rhi::kTextureRowPitchAlignment;
@@ -59,19 +71,9 @@ RenderScene(rhi::IDevice& device, std::uint32_t size, const render::SceneView& v
         EXPECT_TRUE(renderer.has_value()) << renderer.error().message;
         rhi::ICommandList& commands = device.BeginCommandList(*pool);
 
-        std::vector<render::MeshRange> ranges;
-        for (const render::MeshData& mesh : meshes)
-        {
-            auto added = (*meshPool)->Add(uploads, commands, mesh);
-            EXPECT_TRUE(added.has_value());
-            ranges.push_back(*added);
-        }
         std::vector<render::RenderObject> drawList;
-        for (const SceneObject& entry : objects)
-        {
-            drawList.push_back(entry.object);
-            drawList.back().mesh = ranges[entry.mesh];
-        }
+        SceneContext context{device, resources, uploads, commands, **meshPool};
+        populate(context, drawList);
 
         render::FrameGraph graph(device, resources);
         render::FGTexture target =
@@ -108,6 +110,31 @@ RenderScene(rhi::IDevice& device, std::uint32_t size, const render::SceneView& v
     device.DestroyBuffer(*readback);
     device.DestroyTexture(*color);
     return image;
+}
+
+/// RenderSceneWith for objects that reference `meshes` by index.
+inline Image RenderScene(rhi::IDevice& device, std::uint32_t size, const render::SceneView& view,
+                         const std::vector<render::MeshData>& meshes, const std::vector<SceneObject>& objects,
+                         render::ForwardSettings settings = {}, const AfterForward& afterForward = {})
+{
+    return RenderSceneWith(
+        device, size, view,
+        [&](SceneContext& context, std::vector<render::RenderObject>& drawList)
+        {
+            std::vector<render::MeshRange> ranges;
+            for (const render::MeshData& mesh : meshes)
+            {
+                auto added = context.meshes.Add(context.uploads, context.commands, mesh);
+                EXPECT_TRUE(added.has_value());
+                ranges.push_back(*added);
+            }
+            for (const SceneObject& entry : objects)
+            {
+                drawList.push_back(entry.object);
+                drawList.back().mesh = ranges[entry.mesh];
+            }
+        },
+        settings, afterForward);
 }
 
 } // namespace interi::testing

@@ -15,6 +15,7 @@
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 // clang-format on
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <vector>
@@ -407,6 +408,13 @@ TEST_F(DebrisHandoffTest, SmallPiece_HandedToDebrisAndLeavesInstance)
         StepAll();
     }
     EXPECT_EQ(m_destruction.LastStats().piecesSpawned, 0u);
+    // Damage where the released chunks were breaks nothing more.
+    const std::vector<float> health(m_destruction.BondHealth(id).begin(), m_destruction.BondHealth(id).end());
+    m_destruction.QueueDamage({.center = Vec3(0.5f, 3.0f, 0.5f), .energy = 1.0e9f, .innerRadius = 0.4f, .radius = 0.4f},
+                              DamageKind::Explosion);
+    StepAll();
+    EXPECT_EQ(m_destruction.LastStats().bondsBrokenByDamage, 0u);
+    EXPECT_TRUE(std::ranges::equal(health, m_destruction.BondHealth(id)));
     EXPECT_TRUE(m_destruction.Despawn(m_world, id));
     EXPECT_TRUE(m_world.IsAlive(debrisEntity));
 }

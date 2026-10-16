@@ -8,6 +8,8 @@ interi_add_module(destruction
         src/ChunkHierarchy.cpp
         src/CollisionHulls.cpp
         src/Damage.cpp
+        src/Debris.cpp
+        src/DebrisPool.cpp
         src/DestructibleAsset.cpp
         src/FractureMesh.cpp
         src/HeaderCheck.cpp
@@ -31,7 +33,9 @@ interi_add_module(destruction
         ${_tests}/StressSolverTests.cpp
         ${_tests}/StressBudgetTests.cpp
         ${_tests}/DamageTests.cpp
-        ${_tests}/IslandTests.cpp)
+        ${_tests}/IslandTests.cpp
+        ${_tests}/DebrisPoolTests.cpp
+        ${_tests}/DebrisTests.cpp)
 
 target_compile_definitions(interi_destruction_tests PRIVATE
     INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json")

@@ -276,6 +276,25 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Baselines**: `benchmarks/baselines/` (see its README); the nightly CI `benchmarks` job compares report-only via
   `tools/bench_compare/compare_benchmarks.py`.
 
+## Debris (`destruction/Debris*.h`, `destruction_runtime/DebrisSystem.h`)
+
+- **Pure parts** (`interi::destruction`):
+  - `DebrisPool` holds fixed-capacity slots (a user value and a priority each). Its storage is allocated once, so acquire, evict and release never allocate.
+  - When the pool is full, the lowest priority is evicted, and ties go to the lowest slot index. A newcomer that ranks lower than every live slot is rejected.
+  - `Debris.h` holds `DebrisPolicy` and the decision functions: priority, fade opacity, `ChooseDebrisAction`, particle integration, sphere-vs-planes culling and `ClusterByGrid`.
+- **`DebrisSystem`** owns debris entities: Transform, ColliderComponent, RigidBodyComponent and DebrisComponent.
+  - Hard caps (`maxBodies`, `maxParticles`) evict the lowest priority, which is size up, age down, distance down.
+  - A small, far piece becomes a particle: its RigidBodyComponent is removed, so PhysicsSync drops the body, and it falls ballistically until `particleLifetime` runs out.
+  - Bodies up to `fadeMaxVolume` fade out and are then removed.
+  - Sleeping bodies that share a grid cell merge into one static `RubbleComponent` compound once there are `rubbleMinPieces` of them.
+  - `Update` runs after `DestructionWorld::Update`. Per-debris work runs in parallel over chunks; structural changes are applied serially in query order. `DebrisDeterminism` compares 1/4/32 workers.
+- **Handoff is opt-in**: `DestructionWorld::SetDebrisSystem`. Pieces up to `smallPieceVolume` are adopted, and they leave the instance at that moment:
+  - their chunks are excluded from islands and their internal bonds count as broken;
+  - they get no DestructibleComponent, so they take no contact damage but can still deal it;
+  - `Despawn` leaves them alive.
+  Without a debris system the M7 behaviour and golden hash are unchanged.
+- **Not in M8:** Jolt bodies are not recycled (see the churn benchmark), and rubble is physics-only. Rendering of debris, particles and rubble is M9's job (`DebrisComponent::visible`/`opacity` are ready for it).
+
 ## Dependencies and licensing
 
 Interi is MIT open source. Every dependency must be permissive (allowlist in `tools/license_check/license_policy.json`; no GPL/LGPL/AGPL). Add dependencies to `vcpkg.json` in the milestone that first uses them. After changing dependencies:

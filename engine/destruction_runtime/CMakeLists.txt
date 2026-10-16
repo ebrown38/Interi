@@ -4,6 +4,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/destruction_runtime)
 
 interi_add_module(destruction_runtime
     SOURCES
+        src/DebrisSystem.cpp
         src/DestructionWorld.cpp
         src/HeaderCheck.cpp
     DEPS interi::destruction interi::physics interi::ecs interi::platform
@@ -11,7 +12,8 @@ interi_add_module(destruction_runtime
     TEST_SOURCES
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
         ${_tests}/DestructionWorldTests.cpp
-        ${_tests}/CookedAssetTests.cpp)
+        ${_tests}/CookedAssetTests.cpp
+        ${_tests}/DebrisSystemTests.cpp)
 
 # Whole collapses on Jolt (seconds of simulated time each): label `integration`.
 interi_add_test_executable(interi_destruction_runtime_scenario_tests

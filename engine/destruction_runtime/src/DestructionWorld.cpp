@@ -4,6 +4,7 @@
 #include <interi/core/Profiling.h>
 #include <interi/destruction/Islands.h>
 #include <interi/destruction/StressBudget.h>
+#include <interi/destruction_runtime/DebrisSystem.h>
 #include <interi/destruction_runtime/DestructionWorld.h>
 #include <interi/physics/Components.h>
 #include <interi/physics/JoltMath.h>
@@ -70,7 +71,7 @@ struct DestructionWorld::Instance
     std::vector<std::uint8_t> broken; ///< Per bond.
     std::vector<GraphEdge> edges;
     std::vector<std::uint8_t> anchored; ///< Per chunk.
-    std::vector<std::uint8_t> leaf;     ///< Per chunk.
+    std::vector<std::uint8_t> leaf;     ///< Per chunk; cleared for chunks released to debris (no longer grouped).
     std::vector<std::uint32_t> chunkPiece;
     std::vector<Piece> pieces;
     std::uint32_t staticPiece = kNoPiece;
@@ -533,6 +534,7 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
         }
 
         physics::RigidBodyComponent body;
+        const bool small = volume <= m_settings.smallPieceVolume;
         if (piece.anchored)
         {
             body.motion = physics::MotionType::Static;
@@ -541,10 +543,19 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
         else
         {
             body.motion = physics::MotionType::Dynamic;
-            body.layer = volume <= m_settings.smallPieceVolume ? m_settings.smallPieceLayer : m_settings.pieceLayer;
+            body.layer = small ? m_settings.smallPieceLayer : m_settings.pieceLayer;
             body.mass = mass;
             body.linearVelocity = piece.linearVelocity;
             body.angularVelocity = piece.angularVelocity;
+        }
+        if (!piece.anchored && small && m_debris != nullptr)
+        {
+            const Entity entity = world.CreateEntity(source.pose, body, std::move(collider));
+            ReleaseToDebris(instance, index);
+            (void)m_debris->Adopt(world, entity, volume);
+            ++m_stats.piecesSpawned;
+            ++m_stats.piecesToDebris;
+            continue;
         }
         piece.entity = world.CreateEntity(source.pose, body, std::move(collider),
                                           DestructibleComponent{.instance = id, .piece = index});
@@ -564,6 +575,30 @@ void DestructionWorld::RebuildPieces(World& world, JobSystem& jobs, Instance& in
     }
     instance.newlyBroken.clear();
     instance.piecesDirty = false;
+}
+
+void DestructionWorld::ReleaseToDebris(Instance& instance, std::uint32_t piece)
+{
+    // The piece's chunks leave the instance: no islands, and its internal bonds count as gone (not as broken).
+    Piece& released = instance.pieces[piece];
+    const DestructibleAsset& asset = *instance.asset;
+    for (const std::uint32_t chunk : released.chunks)
+    {
+        instance.leaf[chunk] = 0;
+        instance.chunkPiece[chunk] = kNoPiece;
+    }
+    for (std::uint32_t bond = 0; bond < asset.bonds.size(); ++bond)
+    {
+        if (instance.broken[bond] == 0 && std::ranges::binary_search(released.chunks, asset.bonds[bond].chunkA) &&
+            std::ranges::binary_search(released.chunks, asset.bonds[bond].chunkB))
+        {
+            instance.broken[bond] = 1;
+            instance.health[bond] = 0.0f;
+            instance.solver.BreakBond(bond);
+        }
+    }
+    released.chunks.clear();
+    released.entity = {};
 }
 
 void DestructionWorld::Update(World& world, JobSystem& jobs)

@@ -28,6 +28,8 @@ class IFileSystem;
 namespace interi::destruction
 {
 
+class DebrisSystem;
+
 /// Reads and parses an `.idest` file through the engine's file system.
 [[nodiscard]] Result<std::shared_ptr<const DestructibleAsset>> LoadDestructibleAsset(const IFileSystem& files,
                                                                                      std::string_view path);
@@ -89,6 +91,7 @@ struct DestructionStats
     std::uint32_t bondsBrokenByDamage = 0;
     std::uint32_t bondsBrokenByStress = 0;
     std::uint32_t piecesSpawned = 0;
+    std::uint32_t piecesToDebris = 0; ///< Of piecesSpawned: small pieces handed to the DebrisSystem.
     std::uint32_t breakRounds = 0;
     std::uint64_t stressWork = 0; ///< Bond-iterations.
     double injectedEnergy = 0.0;  ///< Kinetic energy (J) added to pieces by separation speeds and pushes.
@@ -119,6 +122,11 @@ public:
     /// bodies appear at the next PhysicsSync step.
     DestructibleId Spawn(World& world, JobSystem& jobs, std::shared_ptr<const DestructibleAsset> asset,
                          const Transform& transform);
+
+    /// Hands small falling pieces (volume <= smallPieceVolume) to `debris` from now on (nullptr: keep them). A handed
+    /// over piece leaves its instance: its chunks no longer take damage or form pieces, and its entity (without a
+    /// DestructibleComponent) belongs to the DebrisSystem, so Despawn does not destroy it.
+    void SetDebrisSystem(DebrisSystem* debris) noexcept { m_debris = debris; }
 
     /// Destroys every entity of the instance. Returns false for a stale id.
     bool Despawn(World& world, DestructibleId id);
@@ -162,9 +170,11 @@ private:
     void ApplyContactDamage(World& world);
     void ApplyPush(World& world, Instance& instance, const RadialDamage& damage, float speed);
     void RebuildPieces(World& world, JobSystem& jobs, Instance& instance);
+    void ReleaseToDebris(Instance& instance, std::uint32_t piece);
     [[nodiscard]] Transform PiecePose(const World& world, const Instance& instance, std::uint32_t piece) const;
 
     physics::PhysicsWorld* m_physics;
+    DebrisSystem* m_debris = nullptr;
     DestructionSettings m_settings;
     std::vector<std::unique_ptr<Instance>> m_instances; ///< By DestructibleId::index; null = free slot.
     std::vector<std::uint32_t> m_generations;

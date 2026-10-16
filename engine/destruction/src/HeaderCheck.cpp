@@ -5,6 +5,7 @@
 #include <interi/destruction/ChunkHierarchy.h>
 #include <interi/destruction/CollisionHulls.h>
 #include <interi/destruction/Damage.h>
+#include <interi/destruction/Debris.h>
 #include <interi/destruction/DebrisPool.h>
 #include <interi/destruction/DestructibleAsset.h>
 #include <interi/destruction/FractureMesh.h>

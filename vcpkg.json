@@ -13,6 +13,12 @@
     },
     "gtest",
     {
+      "name": "imgui",
+      "features": [
+        "docking-experimental"
+      ]
+    },
+    {
       "name": "joltphysics",
       "features": [
         "rtti"

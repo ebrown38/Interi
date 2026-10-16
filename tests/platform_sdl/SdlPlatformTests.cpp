@@ -94,6 +94,20 @@ TEST(SdlTranslation, MouseAndWindowEvents_Translated)
     EXPECT_FALSE(interi::TranslateSdlEvent(MakeEvent(SDL_EVENT_CLIPBOARD_UPDATE)).has_value());
 }
 
+TEST(SdlTranslation, TextInput_TranslatedAndCutAtCharacterBoundary)
+{
+    SDL_Event text = MakeEvent(SDL_EVENT_TEXT_INPUT);
+    text.text.text = "h\xC3\xA9";
+    const auto translated = interi::TranslateSdlEvent(text);
+    ASSERT_TRUE(translated.has_value());
+    EXPECT_STREQ(std::get<interi::TextInputEvent>(*translated).text.data(), "h\xC3\xA9");
+
+    // 30 ASCII bytes then a 2-byte character: 32 bytes do not fit with the terminator, so the character is dropped.
+    const std::string longText = std::string(30, 'a') + "\xC3\xA9";
+    EXPECT_EQ(std::string(interi::TranslateText(longText.c_str()).text.data()), std::string(30, 'a'));
+    EXPECT_STREQ(interi::TranslateText(nullptr).text.data(), "");
+}
+
 #if defined(__linux__)
 TEST(SdlPlatform, LinuxBuild_HasDesktopVideoDriver)
 {

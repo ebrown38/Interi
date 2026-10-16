@@ -55,7 +55,7 @@ bool MigrateHealth(std::uint32_t fromVersion, const void* from, std::size_t from
 }
 #endif
 
-void Increment(SystemContext& context)
+[[maybe_unused]] void Increment(SystemContext& context)
 {
     static const Query query = Query{}.With<HrCounter>();
     context.ParallelForEachChunk(query,
@@ -69,7 +69,7 @@ void Increment(SystemContext& context)
 }
 
 // Structural changes from worker threads: exercises CommandBuffers::Local from module code.
-void Mark(SystemContext& context)
+[[maybe_unused]] void Mark(SystemContext& context)
 {
     static const Query query = Query{}.With<HrCounter>().Without<HrMarked>();
     context.ParallelForEachChunk(query,
@@ -88,7 +88,7 @@ void Mark(SystemContext& context)
                                  });
 }
 
-void Regenerate(SystemContext& context)
+[[maybe_unused]] void Regenerate(SystemContext& context)
 {
     static const Query query = Query{}.With<Health>();
     context.ForEachChunk(query,
@@ -105,12 +105,14 @@ void Regenerate(SystemContext& context)
                          });
 }
 
+#if INTERI_TEST_MODULE_VARIANT == 5
+bool Register(ModuleRegistrar&)
+{
+    return false; // (a preprocessor branch: MSVC reports code after an `if constexpr` return as unreachable)
+}
+#else
 bool Register(ModuleRegistrar& registrar)
 {
-    if constexpr (kVariant == 5)
-    {
-        return false;
-    }
     interi::hotreload::DeclareComponent<HrCounter>(registrar);
     interi::hotreload::DeclareComponent<HrMarked>(registrar);
 #if INTERI_TEST_MODULE_VARIANT == 3
@@ -128,6 +130,7 @@ bool Register(ModuleRegistrar& registrar)
     }
     return true;
 }
+#endif
 
 } // namespace
 

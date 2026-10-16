@@ -55,3 +55,25 @@ and leaves the rest of the 5 ms physics gate to structures and characters. `maxP
 The 4k-body worst frame (5.8 ms) breaks the physics gate on its own. Body churn costs Jolt almost nothing, so bodies
 are not recycled. Adoption (ECS entity changes) is ~3.5 us per piece. GPU particle counts are measured in M9, when
 particles are rendered.
+
+## Destruction rendering and GPU particles (M9)
+
+`destruction_render.json` (same flags as above, `interi_destruction_render_benchmarks`), recorded 2026-10-16:
+
+| What | Result |
+|---|---|
+| `ChunkRenderSet::Cover`, 2048 leaves (64 regions x 32) | intact: 11 us (1 mesh); every region lost a leaf: 21 us (2048 meshes) |
+| `SpawnBreakParticles`, concrete, 10 / 100 / 1000 bond breaks | 1.9 us / 19 us / 0.21 ms (10 particles per break, ~20 ns each) |
+
+GPU particle capacity (the GPU count M8.4 deferred), `interi_render_gpu_benchmarks` (not stored: it measures the
+machine's GPU, and CI only has lavapipe). One frame of simulate + draw at 1280 x 720, every particle alive and on
+screen, submitted and waited for (so it includes ~0.25 ms of submission and fence latency), on an AMD Radeon
+RX 9070 XT (RADV):
+
+| Particles | 16k | 64k | 256k |
+|---|---|---|---|
+| Frame | 0.28 ms | 0.34 ms | 0.75 ms |
+
+`ParticleSettings::capacity` defaults to 65536; a console-class GPU has room for several times that, so the cap is
+set by the CPU side (`BreakEffects` spawning) and by overdraw of large dust particles close to the camera, which this
+benchmark does not stress. Review together with the debris caps before locking.

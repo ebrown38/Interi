@@ -129,7 +129,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 - **`FixedStepClock`** takes the elapsed time from the caller and never reads a clock. It uses integer nanoseconds, clamps substeps after a hitch (dropping whole steps but keeping the fraction), and exposes `Alpha()` for `Interpolate(previous, current, alpha)`.
 - **`FramePipeline<Snapshot>`** double-buffers: render prep of frame N runs as a job while frame N+1 simulates on the calling thread. Neither side writes what the other reads. The TSan stress test lives in `interi_runtime_stress_tests`.
-- **`interi_sandbox`** (`game/sandbox`) is the window + input + ECS + physics + rendering demo. Its debris are Jolt bodies that fall onto a static ground and pillars matching the rendered scene. Run `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` for a headless rendering smoke run on lavapipe. `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+- **`interi_sandbox`** (`game/sandbox`) is the window + input + ECS + physics + destruction + rendering demo. Its debris cubes are Jolt bodies that fall onto a static ground and pillars matching the rendered scene, and three pre-fractured concrete walls are blown up with E (interior materials, particles, crack and scorch decals). Run `--video-driver offscreen --frames N --auto-spawn 1 --validation 1` for a headless rendering smoke run on lavapipe (`--auto-spawn` also blasts a wall every second). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
 
 ## RHI (`engine/rhi`, `engine/rhi_vulkan`, namespace `interi::rhi`)
 
@@ -137,7 +137,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - It holds `IDevice`, `ICommandList` and `ISwapchain` with typed handles, plus CPU-side helpers tested against `tests/rhi/MockDevice.h` (gmock):
     - `ResourceManager`: deferred destroy.
     - `CommandListPool`: one pool per thread per frame in flight.
-    - `UploadQueue`: a chunked staging ring.
+    - `UploadQueue`: a chunked staging ring. `UploadTexture` stages one mip at the 256-byte row pitch for `CopyBufferToTexture`.
   - `tests/rhi/NullDevice.h` is a do-nothing device for benchmarks.
   - Every new `IDevice`/`ICommandList` virtual needs a `MOCK_METHOD` and a `NullDevice` override in the same change.
 - **Timeline.**
@@ -154,7 +154,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - Clip space is +Y up with depth 0..1 (the Vulkan backend flips the viewport). Counter-clockwise triangles are front faces.
   - Depth is reverse-Z: clear 0, compare `Greater`.
   - HLSL `LoadMat4` returns M with `mul(M, v)` == engine `M * v`.
-  - Texture-to-buffer row pitch is aligned to 256 bytes.
+  - Texture-to-buffer and buffer-to-texture row pitch is aligned to 256 bytes.
   - Vertices are pulled from buffers, so there is no vertex input layout.
 - **`interi::rhi_vulkan`** implements the RHI on Vulkan 1.3: dynamic rendering, sync2, timeline semaphores, descriptor indexing and BDA.
   - volk loads the system loader at runtime, so there is no vulkan-loader port, and `Create` returns `Unsupported` without a driver.
@@ -166,7 +166,8 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - They run on lavapipe when it is installed: `VK_DRIVER_FILES` is set in-process.
   - Validation plus synchronization validation is on; any validation error fails the test.
   - They skip without a device unless `INTERI_REQUIRE_GPU` is set, which Linux CI does.
-  - Locally, install `vulkan-validation-layers`, or nothing is validated.
+  - Locally, install `vulkan-validation-layers`, or nothing is validated. Without root, build the vcpkg port `vulkan-validationlayers` in classic mode into a scratch directory and set `VK_ADD_LAYER_PATH` (its `share/vulkan/explicit_layer.d`) and `LD_LIBRARY_PATH` (its `lib`).
+  - HLSL `discard` compiles to demote-to-helper (SM 6.6), so the device requires `shaderDemoteToHelperInvocation`.
   - `tests/rhi_vulkan/VulkanTestSupport.cpp` holds the LSan/TSan suppressions for Mesa, LLVM, the loader and the validation layer. Lavapipe stays loaded so LSan can symbolize its frames.
 
 ## Renderer (`engine/render`, namespace `interi::render`)
@@ -183,7 +184,11 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   4. Cascaded sun shadows.
   5. One PBR forward pass.
   All draws are `DrawIndexedIndirectCount` over a `MeshPool`, which holds all geometry in one vertex buffer and one index buffer.
-  - Scene data has one persistently mapped slot per frame in flight. The C++ and HLSL layouts (`ForwardRenderer.cpp`, `shaders/ForwardCommon.hlsli`) must match.
+  - Scene data has one persistently mapped slot per frame in flight, sized by `ForwardSettings::maxObjects`. The C++ and HLSL layouts (`ForwardRenderer.cpp`, `shaders/ForwardCommon.hlsli`) must match.
+  - `Material` is constant per object. Meshes have no UVs, so an `albedoTexture` is mapped triplanar in world space. `opacity` < 1 is a 4x4 screen-door dither (fading debris) in the opaque pass. `ForwardOutputs::depth` is sampleable by later passes.
+- **Textures** (`Texture.h`): `GenerateMips` (exact integer box filter) and `CreateTexture` (upload plus transitions). Pipelines pick a `BlendMode` (Opaque, Alpha, Additive).
+- **`GpuParticleSystem`** (`Particles.h`): a ring of 64-byte particles in a GPU buffer. Each frame a compute pass copies the emitted particles in and a second integrates every live one; `IntegrateParticles` is the CPU reference (same operations and order; GPU tests compare with a tolerance, since GPU compilers may fuse). Quads are drawn alpha, then additive, as soft particles tested against the forward depth in the pixel shader (no depth attachment).
+- **`DecalRenderer`** (`Decals.h`): deferred box decals after the forward pass. The pixel shader rebuilds the surface position from the depth, keeps what is inside the box and blends a crack (along local z = 0) or scorch pattern. `DecalBox` orients a box along a normal.
   - CPU references are tested against the GPU: `CascadeSplits`/`FitCascade` (texel-snapped, stable) and `ClusterGrid`/`AssignLights`.
 - **Golden images.** `tests/render/golden/*.ppm` are 128x128 images rendered on lavapipe and compared with a per-channel tolerance plus a cap on the fraction of differing pixels.
   - Regenerate with `INTERI_UPDATE_GOLDEN=1`, then look at the image before committing.
@@ -293,7 +298,16 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - they get no DestructibleComponent, so they take no contact damage but can still deal it;
   - `Despawn` leaves them alive.
   Without a debris system the M7 behaviour and golden hash are unchanged.
-- **Not in M8:** Jolt bodies are not recycled (see the churn benchmark), and rubble is physics-only. Rendering of debris, particles and rubble is M9's job (`DebrisComponent::visible`/`opacity` are ready for it).
+- **Not in M8:** Jolt bodies are not recycled (see the churn benchmark). Debris handed over by `DestructionWorld` carries a `DebrisSourceComponent` (asset and leaf chunks), and rubble piles keep their members' chunks and poses in a `RubbleSourceComponent`, for rendering (M9).
+
+## Destruction rendering (`engine/destruction_render`, namespace `interi::destruction`)
+
+- **`ChunkRenderSet`** (in `interi::destruction`, pure) covers a set of leaves that move together with the highest chunks whose leaves all belong to it. Every cooked chunk, inner ones too, has a render mesh, so an intact structure draws its root mesh and only regions that broke apart fall back to smaller chunks.
+- **`Submesh::interior`** (asset format v2) marks fracture faces: their `surfaceMaterial` is the DestructionMaterial's `interiorMaterialId`, a separate number space from glTF surface materials.
+- **`ChunkMeshCache`** uploads every chunk of an asset into the `MeshPool` once (every hierarchy level, so size the pool for it). **`ChunkGatherer`** turns pieces (anchored ones as occluders), debris (with opacity, skipped when not visible) and rubble into `RenderObject`s, one per chunk submesh, with `ChunkMaterials` (surface and interior tables).
+- **Interior materials** (`InteriorMaterials.h`): tileable procedural albedos (concrete aggregate, rusted steel, wood, glass, sheet metal) by `interiorMaterialId`, generated with integer arithmetic only (a test pins the concrete hash), mapped triplanar.
+- **Effects:** `DestructionWorld::BreakEvents()` lists the bonds broken in the last Update (recording them does not change the simulation). `BreakEffects` spawns per-material particles from them (dust and chips, sparks, splinters, shards) with seeded integer randomness. `GatherCrackDecals` puts a crack decal on every damaged bond whose chunks still move together, with `CrackOverlayIntensity` (none until 10% of the bond's health is lost, full at 90%).
+- **Tests and goldens:** `interi_destruction_render_gpu_tests` (integration) and `interi_destruction_render_golden_tests` (`tests/destruction_render/golden`) run on lavapipe with Jolt. The fractured-wall and decal goldens depend on the simulation, so a Jolt bump or a destruction change can move them. An executable linking both `physics_testing` and `vulkan_testing` gets one merged TSan suppression list.
 
 ## Dependencies and licensing
 

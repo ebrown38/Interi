@@ -28,5 +28,6 @@ interi_add_test_executable(interi_destruction_runtime_stress_tests
     SOURCES
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
         ${_tests}/stress/CollapseDeterminismTests.cpp
+        ${_tests}/stress/DebrisDeterminismTests.cpp
     DEPS interi::destruction_runtime interi::testing interi::physics_testing
     LABELS stress)

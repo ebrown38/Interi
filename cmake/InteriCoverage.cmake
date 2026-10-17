@@ -14,7 +14,8 @@ set(INTERI_COVERAGE_DIR "${PROJECT_BINARY_DIR}/coverage")
 
 get_property(_test_targets GLOBAL PROPERTY INTERI_TEST_EXECUTABLES)
 set(_objects "")
-foreach(_target IN LISTS _test_targets)
+get_property(_shared_libraries GLOBAL PROPERTY INTERI_SHARED_LIBRARIES) # their code isn't in the executables
+foreach(_target IN LISTS _test_targets _shared_libraries)
     list(APPEND _objects "-object=$<TARGET_FILE:${_target}>")
 endforeach()
 

@@ -5,7 +5,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/audio)
 find_path(INTERI_MINIAUDIO_INCLUDE_DIR miniaudio.h REQUIRED)
 find_package(Threads REQUIRED)
 
-interi_add_module(audio
+interi_add_module(audio SHARED
     SOURCES
         src/AudioEngine.cpp
         src/HeaderCheck.cpp

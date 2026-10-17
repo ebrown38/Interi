@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 set(_tests ${PROJECT_SOURCE_DIR}/tests/platform)
 
-interi_add_module(platform
+interi_add_module(platform SHARED
     SOURCES
         src/AsyncFileReader.cpp
         src/DynamicLibrary.cpp

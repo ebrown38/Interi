@@ -2,7 +2,7 @@
 # Hot-reloadable gameplay modules: the module ABI, the host that loads, migrates and reloads them, a file watcher.
 set(_tests ${PROJECT_SOURCE_DIR}/tests/hotreload)
 
-interi_add_module(hotreload
+interi_add_module(hotreload SHARED
     SOURCES
         src/FileWatcher.cpp
         src/HeaderCheck.cpp

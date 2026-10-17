@@ -8,7 +8,7 @@ Interi is an MIT-licensed C++23 game engine built only for large-scale, multithr
 
 ## Starting a milestone
 
-The milestone plan is `~/.claude/plans/cheeky-kindling-moth.md`; its M5 section starts with work carried over from M1. When asked to start a milestone:
+The milestone plan is `~/.claude/plans/create-a-plan-for-starry-dove.md` (modular engine and Chain Reaction, M13–M24). It supersedes the old plan `~/.claude/plans/cheeky-kindling-moth.md`, which still governs M12 (the editor); the old M13/M14 move to the Destruction Module's backlog. When asked to start a milestone:
 
 1. **Plan first, with the `planning-with-files` skill.** Invoke it before writing any code, and give it that milestone's section of the plan as input. It produces a Manus-style plan in the repo root:
    - `task_plan.md`: phases (the milestone's sub-areas) with explicit verification steps.

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#include <interi/core/Assert.h>
+#include <interi/core/Log.h>
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleHost.h>
@@ -205,4 +207,39 @@ TEST_F(ModuleHostTest, Unload_ComponentsStayReadable)
     }
     EXPECT_EQ(world.Get<HrCounter>(entities[2])->value, 2);
     EXPECT_TRUE(world.DestroyEntity(entities[2]));
+}
+
+namespace
+{
+
+interi::AssertAction ContinueHandler(const interi::AssertInfo& /*info*/)
+{
+    return interi::AssertAction::Continue;
+}
+
+// Not trivially copyable: a module-mode registry would refuse it.
+struct HrNonTrivial
+{
+    std::string text;
+};
+
+} // namespace
+
+TEST_F(ModuleHostTest, Unload_KeepsHostLoggerAndAssertHandler)
+{
+    interi::Logger logger;
+    interi::Logger* const previousLogger = interi::SetGlobalLogger(&logger);
+    const interi::ScopedAssertHandler handler(&ContinueHandler);
+    {
+        ModuleHost host(world, Desc());
+        ASSERT_TRUE(host.Load(kModuleV1).has_value());
+        host.Unload();
+    }
+
+    EXPECT_EQ(interi::GetGlobalLogger(), &logger);
+    EXPECT_EQ(interi::GetAssertHandler(), &ContinueHandler);
+    // The host's registry is not left in module mode: a non-trivial type still registers.
+    const interi::ComponentTypeId id = interi::ComponentId<HrNonTrivial>();
+    EXPECT_NE(interi::ComponentInfoOf(id).destroy, nullptr);
+    (void)interi::SetGlobalLogger(previousLogger);
 }

@@ -21,6 +21,13 @@ option(INTERI_CLANG_TIDY "Run clang-tidy on engine (non-test) targets" OFF)
 set(INTERI_SANITIZER "" CACHE STRING "Sanitizer build: '', 'asan' (ASan+UBSan), 'tsan'")
 option(INTERI_COVERAGE "Instrument for llvm-cov source coverage (Clang only)" OFF)
 option(INTERI_PROFILING "Link Tracy and enable the INTERI_ZONE profiling macros" OFF)
+option(INTERI_BUILD_SHARED "Build the engine core libraries as shared libraries (required by gameplay modules)" ON)
+
+# Windows finds DLLs next to the executable, so every executable and engine DLL goes to one directory (test discovery
+# runs the test executables at build time).
+if(WIN32)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
+endif()
 
 if(INTERI_CLANG_TIDY)
     find_program(INTERI_CLANG_TIDY_EXE NAMES clang-tidy REQUIRED)

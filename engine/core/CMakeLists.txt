@@ -3,7 +3,7 @@ configure_file(src/Version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.
 
 set(_tests ${PROJECT_SOURCE_DIR}/tests/core)
 
-interi_add_module(core
+interi_add_module(core SHARED
     SOURCES
         ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.cpp
         src/Archive.cpp

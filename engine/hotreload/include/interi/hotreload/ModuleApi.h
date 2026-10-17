@@ -105,7 +105,15 @@ inline constexpr const char* kModuleApiSymbol = "InteriGetModuleApi";
 namespace detail
 {
 
-/// The module side of ModuleApi::load: redirect this copy's globals to the host, then register.
+/// True while this module's own (static) copy of the engine is redirected to the host. A module linked against the
+/// shared engine uses the host's globals directly and must not touch them.
+inline bool& AttachedToHost() noexcept
+{
+    static bool attached = false;
+    return attached;
+}
+
+/// The module side of ModuleApi::load: redirect this copy's globals to the host (static engine only), then register.
 template <bool (*Register)(ModuleRegistrar&)>
 bool LoadModule(const ModuleContext& context)
 {
@@ -113,14 +121,23 @@ bool LoadModule(const ModuleContext& context)
     {
         return false;
     }
-    AttachToHostComponentRegistry(*context.registry);
-    (void)SetGlobalLogger(context.logger);
-    (void)SetAssertHandler(context.assertHandler);
+    AttachedToHost() = &ActiveComponentRegistry() != context.registry;
+    if (AttachedToHost())
+    {
+        AttachToHostComponentRegistry(*context.registry);
+        (void)SetGlobalLogger(context.logger);
+        (void)SetAssertHandler(context.assertHandler);
+    }
     return Register(*context.registrar);
 }
 
 inline void UnloadModule()
 {
+    if (!AttachedToHost())
+    {
+        return;
+    }
+    AttachedToHost() = false;
     (void)SetGlobalLogger(nullptr);
     (void)SetAssertHandler(nullptr);
     DetachFromHostComponentRegistry();

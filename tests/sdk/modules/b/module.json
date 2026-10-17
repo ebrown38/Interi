@@ -1,0 +1,7 @@
+{
+  "id": "com.test.b", "name": "Test Module B", "version": "2.0.0", "kind": "Module",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Higher module",
+  "engine": "*",
+  "dependencies": [{ "id": "com.test.ext", "version": "^1" }],
+  "overrides": [{ "target": "com.test.a:Fire", "version": "^1.2" }]
+}

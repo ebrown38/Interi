@@ -1,0 +1,6 @@
+{
+  "id": "com.test.ext", "name": "Test Extension", "version": "1.0.0", "kind": "Extension",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Declares shared ids",
+  "engine": "*",
+  "contracts": ["service.Greeter", "input.Jump", "attr.Health"]
+}

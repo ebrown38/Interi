@@ -64,6 +64,15 @@ TEST(Manifest, Full_ParsesEveryField)
     EXPECT_TRUE(manifest->warnings.empty());
 }
 
+TEST(Manifest, DataSections_NoWarning)
+{
+    auto manifest = ParseManifest(R"({ "id": "com.a.b", "name": "B", "version": "1.0.0", "kind": "Module",
+        "author": "a", "license": "MIT", "copyright": "c", "description": "d", "engine": "*",
+        "values": [], "attributes": [], "attributeSets": [], "archetypes": [], "dataTables": [] })");
+    ASSERT_TRUE(manifest.has_value()) << manifest.error().message;
+    EXPECT_TRUE(manifest->warnings.empty()) << manifest->warnings.front();
+}
+
 TEST(Manifest, MissingId_Error)
 {
     auto manifest = ParseManifest(R"({ "version": "1.0.0" })");
@@ -156,7 +165,7 @@ TEST(Manifest, CurrentHost_UsesEngineFingerprint)
     EXPECT_EQ(host.toolchain, interi::sdk::EngineToolchainFingerprint());
     // This test is compiled with the same toolchain as the engine.
     EXPECT_EQ(host.toolchain, interi::sdk::kToolchainFingerprint);
-    EXPECT_EQ(host.toolchain.rfind("abi2;", 0), 0u);
+    EXPECT_EQ(host.toolchain.rfind("abi3;", 0), 0u);
 }
 
 TEST(Manifest, LoadManifest_ReadsDirectory)

@@ -16,6 +16,9 @@
 //     pointers, std::functions. Systems, hooks and the state saver are destroyed before the module is unloaded.
 //   - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking against
 //     its library (a shadow-copied DLL wouldn't satisfy a link-time import on Windows).
+// Module data (Values, attributes, data tables) is declared in module.json, not in code; the host registers it
+// before the module's Register runs, and module code reads it through Data() (owned by the host, so a system may
+// keep the reference).
 //
 // Write a module like this:
 //
@@ -33,6 +36,7 @@
 #include <interi/ecs/Scheduler.h>
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Toolchain.h>
+#include <interi/values/DataRegistry.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -45,7 +49,8 @@
 namespace interi::hotreload
 {
 
-/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar or the hook types change (part of the fingerprint).
+/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar, the hook types or DataRegistry change (part of the
+/// fingerprint).
 inline constexpr std::uint32_t kModuleAbiVersion = INTERI_MODULE_ABI_VERSION;
 
 /// Converts one component from an older layout version to the declared one: reads `fromSize` bytes at `from`
@@ -75,6 +80,9 @@ public:
 
     /// The module's provider id and the project's hooks (declare hooks and factories, override other modules').
     [[nodiscard]] virtual const sdk::ModuleScope& Scope() const = 0;
+    /// The project's data: every loaded module's Values, attributes and tables with the project's overrides. Valid
+    /// until the host is destroyed.
+    [[nodiscard]] virtual const values::DataRegistry& Data() const = 0;
     /// What the previous instance's StateSaver returned (empty on the first load).
     [[nodiscard]] virtual std::span<const std::byte> SavedState() const = 0;
     /// Called before this instance is unloaded for a reload.

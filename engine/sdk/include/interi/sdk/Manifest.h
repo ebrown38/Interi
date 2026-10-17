@@ -62,7 +62,8 @@ struct OverrideDeclaration
 ///
 /// "id" and "version" are required. Missing metadata (name, kind, author, license, copyright, description, engine)
 /// takes a default and adds a warning; the other fields default silently. Unknown top-level sections add a warning
-/// (later engine versions add sections). Anything malformed is an error.
+/// (later engine versions add sections). Anything malformed is an error. The data sections ("values", "attributes",
+/// "attributeSets", "archetypes", "dataTables") are known but parsed by interi::values (ModuleContent.h).
 struct ModuleManifest
 {
     std::string id; ///< Reverse-DNS, lowercase: "com.author.fps".

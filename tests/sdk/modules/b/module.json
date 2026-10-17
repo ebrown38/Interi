@@ -3,5 +3,19 @@
   "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Higher module",
   "engine": "*", "library": "interi_sdk_test_b",
   "dependencies": [{ "id": "com.test.ext", "version": "^1" }],
-  "overrides": [{ "target": "com.test.a:Fire", "version": "^1.2" }]
+  "overrides": [{ "target": "com.test.a:Fire", "version": "^1.2" },
+                { "target": "com.test.a:JumpHeight", "version": "^1.2" },
+                { "target": "com.test.a:Soldier", "version": "^1.2" }],
+  "values": [
+    { "id": "value.Gravity", "shared": true, "type": "float", "default": -5, "min": -50, "max": 0 },
+    { "overrides": "com.test.a:JumpHeight", "type": "float", "default": 2.5, "min": 0, "max": 20, "unit": "m",
+      "category": "Movement" }
+  ],
+  "attributes": [
+    { "id": "attr.Health", "shared": true, "type": "float", "default": 100, "min": 0, "max": 500 },
+    { "id": "Armor", "type": "int", "default": 10, "min": 0, "max": 100 }
+  ],
+  "attributeSets": [{ "id": "Protection", "attributes": ["com.test.b:Armor"] }],
+  "archetypes": [{ "overrides": "com.test.a:Soldier", "sets": ["com.test.a:Vitals", "com.test.b:Protection"],
+                   "defaults": { "attr.Health": 150, "com.test.b:Armor": 25 } }]
 }

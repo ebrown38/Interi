@@ -11,6 +11,7 @@
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Manifest.h>
 #include <interi/sdk/ModuleGraph.h>
+#include <interi/values/DataRegistry.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -40,21 +41,24 @@ struct ModuleHostDesc
 /// Per-load counters.
 struct ModuleLoadStats
 {
-    std::uint32_t migratedComponents = 0; ///< Component values converted to a new layout.
-    std::uint32_t systems = 0;            ///< Systems of the modules (re)loaded.
-    std::uint32_t reloadedModules = 0;    ///< Modules (re)loaded.
+    std::uint32_t migratedComponents = 0;      ///< Component values converted to a new layout.
+    std::uint32_t systems = 0;                 ///< Systems of the modules (re)loaded.
+    std::uint32_t reloadedModules = 0;         ///< Modules (re)loaded.
+    std::uint32_t migratedAttributeBlocks = 0; ///< AttributeBlocks rewritten for a changed archetype layout.
 };
 
 /// Loads a project's gameplay modules (see ModuleApi.h), runs their systems, and reloads them while the World keeps
 /// its entities.
 ///
 /// LoadProject resolves the module graph (interi/sdk/ModuleGraph.h), opens every library and registers the modules in
-/// load order (dependencies first, otherwise bottom-up) into the project's hooks. Reload(id) reloads a module and
-/// every loaded module that depends on it: their state is saved, the new instances are opened and registered next to
-/// the old ones (dependencies first), entities whose module-owned components changed layout are migrated, and only
-/// then are the old instances unloaded, dependents first. Any failure (unresolvable project, missing library or entry
-/// point, ABI or toolchain mismatch, registration refused, a layout change without a migrator, a migrator refusing)
-/// leaves what was loaded before, and the World, untouched.
+/// load order (dependencies first, otherwise bottom-up): first a module's module.json data sections into Data(), then
+/// its code into the project's hooks. Reload(id) reloads a module and every loaded module that depends on it (data
+/// re-read from module.json): their state is saved, the new instances are opened and registered next to the old ones
+/// (dependencies first), entities whose module-owned components changed layout are migrated, AttributeBlocks are
+/// migrated to their archetypes' new layouts, and only then are the old instances unloaded, dependents first. Any
+/// failure (unresolvable project, missing library or entry point, ABI or toolchain mismatch, invalid data,
+/// registration refused, a layout change without a migrator, a migrator refusing) leaves what was loaded before, and
+/// the World, untouched.
 ///
 /// Each module's systems run in a Scheduler of its own, in load order (RunSystems). Re-registered systems start with
 /// no change history, so Changed filters match everything on their first run after a reload. Not thread-safe; call
@@ -102,6 +106,10 @@ public:
     [[nodiscard]] const sdk::HookRegistry& Hooks() const noexcept { return *m_hooks; }
     /// The loaded project's providers and shared contract ids.
     [[nodiscard]] const sdk::ModuleSet& Modules() const noexcept { return *m_moduleSet; }
+    /// The loaded modules' data (module.json data sections) with the project's own data on top. Project data stays
+    /// across loads and reloads; after each, it is re-checked (items that no longer fit are logged and unused).
+    [[nodiscard]] values::DataRegistry& Data() noexcept { return *m_data; }
+    [[nodiscard]] const values::DataRegistry& Data() const noexcept { return *m_data; }
 
     /// Runs every module's systems once, in load order (each module's then plays back `commands`).
     void RunSystems(JobSystem& jobs, CommandBuffers& commands);
@@ -120,6 +128,7 @@ private:
     ModuleHostDesc m_desc;
     std::unique_ptr<sdk::ModuleSet> m_moduleSet;
     std::unique_ptr<sdk::HookRegistry> m_hooks;
+    std::unique_ptr<values::DataRegistry> m_data;
     sdk::ModuleGraph m_graph;
     std::vector<std::unique_ptr<Loaded>> m_modules; ///< In load order.
     std::uint32_t m_generation = 0;

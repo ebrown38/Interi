@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 // The libraries of the shared SDK test project (tests/sdk/modules), one source (INTERI_SDK_TEST_MODULE):
 //   1 com.test.ext:    declares the shared hook service.Greeter ("hello <name>").
-//   2 com.test.a:      declares com.test.a:Fire (damage + 1) and com.test.a:Loads (how often this module was
-//                      registered, carried across reloads in its saved state); a system adds 1 to every counter.
+//   2 com.test.a:      declares com.test.a:Fire (damage + 1), com.test.a:Loads (how often this module was
+//                      registered, carried across reloads in its saved state) and com.test.a:Jump (10x the value
+//                      com.test.a:JumpHeight, read from the project's data at call time); a system adds 1 to every
+//                      counter.
 //   3 com.test.b:      provides service.Greeter (appends "!"), overrides com.test.a:Fire (x2), declares
 //                      com.test.b:Reload (identity); a system adds 10 to every counter.
 //   4 com.test.plugin: overrides com.test.a:Fire (-100) and com.test.b:Reload (+1).
@@ -77,9 +79,15 @@ bool Register(ModuleRegistrar& registrar)
         });
     interi::hotreload::DeclareComponent<HrCounter>(registrar);
     registrar.AddSystem("AddOne", SystemAccess{}.Write<HrCounter>(), [](SystemContext& c) { AddToCounters(c, 1); });
+    const interi::values::ValueRegistry& values = registrar.Data().Values();
     return scope.DeclareHook<Fire>(scope.Local("Fire"), [](const HookNext<Fire>&, int damage) { return damage + 1; })
                .has_value() &&
            scope.DeclareHook<Fire>(scope.Local("Loads"), [](const HookNext<Fire>&, int) { return g_loads; })
+               .has_value() &&
+           scope
+               .DeclareHook<Fire>(
+                   scope.Local("Jump"), [&values](const HookNext<Fire>&, int)
+                   { return static_cast<int>(10.0f * values.Get<float>("com.test.a:JumpHeight").value_or(0.0f)); })
                .has_value();
 #elif INTERI_SDK_TEST_MODULE == 3
     interi::hotreload::DeclareComponent<HrCounter>(registrar);

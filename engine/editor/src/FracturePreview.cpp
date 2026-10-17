@@ -6,6 +6,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <system_error>
 
 namespace interi::editor
 {
@@ -49,7 +50,11 @@ Result<void> FracturePreview::Open(const std::string& key, const std::filesystem
     }
     if (config.materialsFile.empty())
     {
-        config.materialsFile = std::filesystem::relative(defaultMaterials, gltf.parent_path()).generic_string();
+        // Relative when it can be (portable sidecars); absolute across drives (Windows), where relative() is empty.
+        std::error_code error;
+        const std::filesystem::path relative = std::filesystem::relative(defaultMaterials, gltf.parent_path(), error);
+        config.materialsFile =
+            (error || relative.empty() ? std::filesystem::absolute(defaultMaterials) : relative).generic_string();
     }
     INTERI_TRY_ASSIGN(materialsText, ReadText(gltf.parent_path() / config.materialsFile));
     INTERI_TRY_ASSIGN(materials, destruction::ParseMaterials(materialsText));

@@ -16,6 +16,7 @@ interi_add_module(sdk SHARED
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/ContributionRegistryTests.cpp
+        ${_tests}/HooksTests.cpp
         ${_tests}/ManifestTests.cpp
         ${_tests}/ModuleGraphTests.cpp
         ${_tests}/SemVerTests.cpp)

@@ -6,4 +6,5 @@
 #include <interi/editor_ui/ImGuiInput.h>
 #include <interi/editor_ui/ImGuiRenderer.h>
 #include <interi/editor_ui/StructurePanel.h>
+#include <interi/editor_ui/ValueWidgets.h>
 #include <interi/editor_ui/ViewportOverlay.h>

@@ -21,7 +21,7 @@ interi_add_module(editor
         src/Replay.cpp
         src/StructureDebug.cpp
         src/UndoStack.cpp
-    DEPS interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    DEPS interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
         ${_tests}/EditorCameraTests.cpp

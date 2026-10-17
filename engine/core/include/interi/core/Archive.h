@@ -169,6 +169,8 @@ public:
     [[nodiscard]] std::uint32_t Version() const noexcept { return m_version; }
     [[nodiscard]] bool Ok() const noexcept { return m_ok; }
     [[nodiscard]] std::size_t Remaining() const noexcept { return m_data.size() - m_position; }
+    /// Marks the data invalid (a Serialize function found an impossible value); sticky like a read failure.
+    void Fail() noexcept { m_ok = false; }
 
     template <typename... Ts>
     ArchiveReader& operator()(Ts&... values)

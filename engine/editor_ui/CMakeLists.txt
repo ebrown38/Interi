@@ -13,6 +13,7 @@ interi_add_module(editor_ui
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
         src/StructurePanel.cpp
+        src/ValueWidgets.cpp
         src/ViewportOverlay.cpp
     DEPS interi::editor interi::render interi::rhi interi::platform imgui::imgui
     TEST_DEPS interi::testing

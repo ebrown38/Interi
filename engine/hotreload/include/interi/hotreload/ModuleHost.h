@@ -114,6 +114,7 @@ private:
     Result<void> Register(Loaded& module, std::span<const std::byte> savedState);
     [[nodiscard]] Result<std::filesystem::path> FindLibrary(const sdk::ModuleManifest& manifest) const;
     Result<ModuleLoadStats> Execute(Plan plan);
+    static void LogUnload(const Loaded& module);
 
     World* m_world;
     ModuleHostDesc m_desc;

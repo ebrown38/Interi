@@ -47,7 +47,6 @@ struct ModuleHost::Loaded
         saver = nullptr;
         if (attached)
         {
-            INTERI_LOG_INFO("HotReload", "unloading module '{}'", id);
             api->unload();
         }
         library.Close();
@@ -254,6 +253,14 @@ std::vector<std::filesystem::path> LibraryFileNames(std::string_view base)
 
 } // namespace
 
+void ModuleHost::LogUnload(const Loaded& module)
+{
+    if (module.attached)
+    {
+        INTERI_LOG_INFO("HotReload", "unloading module '{}'", module.id);
+    }
+}
+
 /// One transaction: modules leaving and the instances replacing them (both in load order). Nothing changes unless
 /// every incoming module registers and every component migrates.
 struct ModuleHost::Plan
@@ -280,7 +287,12 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
 
 ModuleHost::~ModuleHost()
 {
-    Unload();
+    // As Unload, without its log line (formatting may throw; a destructor must not).
+    while (!m_modules.empty())
+    {
+        m_hooks->Registry().RemoveProvider(m_modules.back()->id);
+        m_modules.pop_back();
+    }
 }
 
 bool ModuleHost::Supported() noexcept
@@ -469,6 +481,7 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     }
     for (auto& module : leaving) // dependents first: `outgoing` is in that order
     {
+        LogUnload(*module);
         module.reset();
     }
 
@@ -638,6 +651,7 @@ void ModuleHost::Unload()
     while (!m_modules.empty())
     {
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
+        LogUnload(*m_modules.back());
         m_modules.pop_back();
     }
     m_graph = {};

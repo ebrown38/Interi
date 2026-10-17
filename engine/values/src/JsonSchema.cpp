@@ -165,44 +165,6 @@ Result<ValueSchema> ParseSchema(const nlohmann::json& object, std::string_view w
     return schema;
 }
 
-void WriteSchema(const ValueSchema& schema, nlohmann::json& object)
-{
-    object["type"] = ToString(schema.type);
-    if (schema.type == ValueType::List)
-    {
-        object["element"] = ToString(schema.element);
-    }
-    if (!schema.options.empty())
-    {
-        object["options"] = schema.options;
-    }
-    object["default"] = ValueToJson(schema.defaultValue);
-    if (schema.meta.min)
-    {
-        object["min"] = *schema.meta.min;
-    }
-    if (schema.meta.max)
-    {
-        object["max"] = *schema.meta.max;
-    }
-    if (schema.meta.step > 0.0)
-    {
-        object["step"] = schema.meta.step;
-    }
-    for (const auto& [key, text] : {std::pair{"unit", &schema.meta.unit}, std::pair{"category", &schema.meta.category},
-                                    std::pair{"tooltip", &schema.meta.tooltip}})
-    {
-        if (!text->empty())
-        {
-            object[key] = *text;
-        }
-    }
-    if (schema.meta.readOnly)
-    {
-        object["readOnly"] = true;
-    }
-}
-
 void WarnUnknownKeys(const nlohmann::json& object, std::span<const std::string_view> known,
                      std::span<const std::string_view> alsoKnown, std::string_view where,
                      std::vector<std::string>& warnings)

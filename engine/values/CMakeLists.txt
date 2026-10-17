@@ -7,9 +7,11 @@ interi_add_module(values SHARED
     SOURCES
         src/Characters.cpp
         src/DataRegistry.cpp
+        src/DataTables.cpp
         src/HeaderCheck.cpp
         src/JsonSchema.cpp
         src/ModuleContent.cpp
+        src/ProjectData.cpp
         src/Reflection.cpp
         src/Value.cpp
         src/ValueRegistry.cpp
@@ -18,7 +20,9 @@ interi_add_module(values SHARED
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/CharacterTests.cpp
+        ${_tests}/DataTableTests.cpp
         ${_tests}/ModuleContentTests.cpp
+        ${_tests}/ProjectDataTests.cpp
         ${_tests}/ReflectionTests.cpp
         ${_tests}/ValueRegistryTests.cpp
         ${_tests}/ValueTests.cpp)

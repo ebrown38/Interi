@@ -166,6 +166,13 @@ public:
         return m_projectDefaults;
     }
 
+    /// Removes every project default.
+    void ClearProjectDefaults() noexcept { m_projectDefaults.clear(); }
+    /// Checks a default for one attribute of an archetype: NotFound for an unknown archetype or attribute,
+    /// InvalidArgument if it doesn't fit.
+    [[nodiscard]] Result<void> CheckProjectDefault(std::string_view archetype, std::string_view attribute,
+                                                   const Value& value) const;
+
     /// One warning per project default that doesn't fit (unknown archetype or attribute, wrong type, out of range).
     [[nodiscard]] std::vector<std::string> Revalidate() const;
 
@@ -176,8 +183,6 @@ public:
 private:
     [[nodiscard]] Result<Value> ArchetypeDefault(const ArchetypeDefinition& archetype, std::string_view attribute,
                                                  const ValueSchema& schema) const;
-    [[nodiscard]] Result<void> CheckProjectDefault(std::string_view archetype, std::string_view attribute,
-                                                   const Value& value) const;
 
     sdk::ContributionRegistry<AttributeDefinition> m_attributes;
     sdk::ContributionRegistry<AttributeSetDefinition> m_sets;

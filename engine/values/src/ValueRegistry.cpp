@@ -130,6 +130,16 @@ bool ValueRegistry::ClearProjectValue(std::string_view id)
     return true;
 }
 
+void ValueRegistry::ClearProjectValues()
+{
+    std::map<std::string, ProjectValue, std::less<>> cleared;
+    cleared.swap(m_project);
+    for (const auto& [id, project] : cleared)
+    {
+        m_listeners.Notify(id);
+    }
+}
+
 const ProjectValue* ValueRegistry::GetProjectValue(std::string_view id) const noexcept
 {
     const auto it = m_project.find(id);

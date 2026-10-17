@@ -13,5 +13,10 @@
     { "id": "Stamina", "type": "float", "default": 50, "min": 0, "max": 100 }
   ],
   "attributeSets": [{ "id": "Vitals", "attributes": ["attr.Health", "com.test.a:Stamina"] }],
-  "archetypes": [{ "id": "Soldier", "sets": ["com.test.a:Vitals"], "defaults": { "attr.Health": 120 } }]
+  "archetypes": [{ "id": "Soldier", "sets": ["com.test.a:Vitals"], "defaults": { "attr.Health": 120 } }],
+  "dataTables": [{ "id": "Guns", "version": 2, "columns": [
+    { "name": "range", "type": "float", "default": 50, "min": 0, "max": 100, "unit": "m", "renamedFrom": ["reach"] },
+    { "name": "power", "type": "int", "default": 5, "min": 1, "max": 10 },
+    { "name": "mode", "type": "enum", "options": ["Single", "Auto"] }
+  ] }]
 }

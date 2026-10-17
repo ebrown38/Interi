@@ -89,6 +89,8 @@ public:
     /// Removes the project's value of `id`. False if there was none.
     bool ClearProjectValue(std::string_view id);
     [[nodiscard]] const ProjectValue* GetProjectValue(std::string_view id) const noexcept;
+    /// Removes every project value.
+    void ClearProjectValues();
     [[nodiscard]] const std::map<std::string, ProjectValue, std::less<>>& ProjectValues() const noexcept
     {
         return m_project;

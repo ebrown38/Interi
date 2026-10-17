@@ -174,6 +174,77 @@ Result<void> ParseArchetypes(const nlohmann::json& root, ModuleContent& content)
     return {};
 }
 
+constexpr std::string_view kTableKeys[] = {"columns"};
+constexpr std::string_view kColumnKeys[] = {"name", "renamedFrom"};
+
+Result<void> ParseDataTables(const nlohmann::json& root, ModuleContent& content)
+{
+    INTERI_TRY_ASSIGN(section, GetSection(root, "dataTables"));
+    if (section == nullptr)
+    {
+        return {};
+    }
+    for (std::size_t i = 0; i < section->size(); ++i)
+    {
+        const nlohmann::json& entry = (*section)[i];
+        const std::string where = std::format("dataTables[{}]", i);
+        if (!entry.is_object())
+        {
+            return Invalid(std::format("{} is not an object", where));
+        }
+        DataTableDefinition table;
+        INTERI_TRY_ASSIGN(id, detail::ParseItemId(entry, content.module, where, table.isOverride));
+        INTERI_TRY_ASSIGN(version, detail::GetU32(entry, "version", 1, where));
+        table.id = std::move(id);
+        table.version = version;
+        const auto columns = entry.find("columns");
+        if (columns == entry.end() || !columns->is_array() || columns->empty())
+        {
+            return Invalid(std::format("{} ('{}'): \"columns\" must be a non-empty array", where, table.id));
+        }
+        for (std::size_t c = 0; c < columns->size(); ++c)
+        {
+            const nlohmann::json& column = (*columns)[c];
+            const std::string columnWhere = std::format("{} ('{}') columns[{}]", where, table.id, c);
+            if (!column.is_object())
+            {
+                return Invalid(std::format("{} is not an object", columnWhere));
+            }
+            ColumnDefinition definition;
+            INTERI_TRY_ASSIGN(name, detail::GetString(column, "name", columnWhere));
+            INTERI_TRY_ASSIGN(schema, detail::ParseSchema(column, columnWhere));
+            definition.name = std::move(name);
+            definition.schema = std::move(schema);
+            if (const auto renamed = column.find("renamedFrom"); renamed != column.end())
+            {
+                if (!renamed->is_array() ||
+                    !std::ranges::all_of(*renamed, [](const nlohmann::json& old) { return old.is_string(); }))
+                {
+                    return Invalid(std::format("{}: \"renamedFrom\" must be an array of names", columnWhere));
+                }
+                for (const nlohmann::json& old : *renamed)
+                {
+                    definition.renamedFrom.push_back(old.get<std::string>());
+                }
+            }
+            detail::WarnUnknownKeys(column, detail::kSchemaKeys, kColumnKeys, columnWhere, content.warnings);
+            table.columns.push_back(std::move(definition));
+        }
+        if (const Result<void> valid = ValidateTableSchema(table); !valid)
+        {
+            return Invalid(std::format("{}: {}", where, valid.error().message));
+        }
+        if (std::ranges::any_of(content.dataTables,
+                                [&](const DataTableDefinition& other) { return other.id == table.id; }))
+        {
+            return Invalid(std::format("{}: '{}' is declared twice", where, table.id));
+        }
+        detail::WarnUnknownKeys(entry, kTableKeys, detail::kItemIdKeys, where, content.warnings);
+        content.dataTables.push_back(std::move(table));
+    }
+    return {};
+}
+
 } // namespace
 
 Result<ModuleContent> ParseModuleContent(std::string_view moduleJson, std::string_view moduleId)
@@ -197,6 +268,10 @@ Result<ModuleContent> ParseModuleContent(std::string_view moduleJson, std::strin
     if (parsed)
     {
         parsed = ParseArchetypes(root, content);
+    }
+    if (parsed)
+    {
+        parsed = ParseDataTables(root, content);
     }
     if (!parsed)
     {

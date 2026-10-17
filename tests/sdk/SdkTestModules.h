@@ -4,7 +4,8 @@
 // The shared test project (tests/sdk/modules): Extension com.test.ext declares service.Greeter, input.Jump and
 // attr.Health; modules com.test.a (1.2.0) and com.test.b (2.0.0) depend on it; B declares an override of A's
 // com.test.a:Fire; Plugin com.test.plugin (0.3.0) declares overrides of com.test.a:Fire and com.test.b:Reload.
-// Project order (top first): plugin, b, a; ext is pulled in below a. Engine contract: event.Damage.
+// Project order (top first): plugin, b, a; ext is pulled in below a. Engine contract: event.Damage. The manifests also
+// carry data sections (Values, characters, the com.test.a:Guns table); tests/values describes them.
 
 #include <interi/sdk/ContributionRegistry.h>
 #include <interi/sdk/Manifest.h>

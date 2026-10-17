@@ -25,9 +25,6 @@ inline constexpr std::string_view kSchemaKeys[] = {"type", "element", "options",
 /// Reads a schema from an object's schema keys (`where` prefixes messages) and validates it.
 [[nodiscard]] Result<ValueSchema> ParseSchema(const nlohmann::json& object, std::string_view where);
 
-/// Writes a schema's keys into `object` (the inverse of ParseSchema; empty metadata is left out).
-void WriteSchema(const ValueSchema& schema, nlohmann::json& object);
-
 /// Adds a warning for every key of `object` that is in neither list.
 void WarnUnknownKeys(const nlohmann::json& object, std::span<const std::string_view> known,
                      std::span<const std::string_view> alsoKnown, std::string_view where,

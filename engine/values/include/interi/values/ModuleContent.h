@@ -28,9 +28,12 @@
 //     "archetypes":    [ { "id": "Soldier", "sets": ["com.author.fps:Vitals"], "defaults": { "attr.Health": 150 } } ]
 //
 // Sets and archetypes take "overrides" like Values (an override replaces the whole item) and a "version".
+//
+// Data tables ("dataTables") are described in DataTables.h.
 
 #include <interi/core/Result.h>
 #include <interi/sdk/Manifest.h>
+#include <interi/values/DataTables.h>
 #include <interi/values/Value.h>
 
 #include <cstdint>
@@ -82,6 +85,7 @@ struct ModuleContent
     std::vector<AttributeDefinition> attributes;
     std::vector<AttributeSetDefinition> attributeSets;
     std::vector<ArchetypeDefinition> archetypes;
+    std::vector<DataTableDefinition> dataTables;
     std::vector<std::string> warnings;
 };
 

@@ -8,6 +8,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/editor_ui)
 interi_add_module(editor_ui
     SOURCES
         src/EditorPanels.cpp
+        src/FracturePanel.cpp
         src/HeaderCheck.cpp
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
@@ -16,6 +17,7 @@ interi_add_module(editor_ui
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/EditorPanelsTests.cpp
+        ${_tests}/FracturePanelTests.cpp
         ${_tests}/ImGuiInputTests.cpp)
 interi_add_shaders(interi_editor_ui
     SOURCES

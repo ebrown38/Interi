@@ -11,20 +11,24 @@ interi_add_module(editor
         src/EditorDocument.cpp
         src/EditorMath.cpp
         src/EditorScene.cpp
+        src/FracturePreview.cpp
         src/Gizmo.cpp
         src/HeaderCheck.cpp
         src/Inspector.cpp
         src/Picking.cpp
         src/Reflection.cpp
         src/UndoStack.cpp
-    DEPS interi::gameplay interi::render interi::ecs interi::platform interi::core
+    DEPS interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/EditorCameraTests.cpp
         ${_tests}/EditorDocumentTests.cpp
         ${_tests}/EditorSceneTests.cpp
+        ${_tests}/FracturePreviewTests.cpp
         ${_tests}/GizmoTests.cpp
         ${_tests}/InspectorTests.cpp
         ${_tests}/PickingTests.cpp
         ${_tests}/ReflectionTests.cpp
         ${_tests}/UndoStackTests.cpp)
+target_compile_definitions(interi_editor_tests PRIVATE
+    INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json")

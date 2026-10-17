@@ -40,9 +40,12 @@ inline constexpr const char* kOutlinerWindow = "Outliner";
 inline constexpr const char* kInspectorWindow = "Inspector";
 inline constexpr const char* kAssetsWindow = "Assets";
 inline constexpr const char* kToolsWindow = "Tools";
+inline constexpr const char* kFractureWindow = "Fracture";   ///< FracturePanel.h
+inline constexpr const char* kStructureWindow = "Structure"; ///< Stress and replay tools.
 
 /// A dockspace over the whole window (below the menu bar). With `buildDefaultLayout` (first run, no saved layout)
-/// it is split into the outliner (left), inspector and tools (right), assets (bottom) and the viewport (centre).
+/// it is split into the outliner (left), inspector and tools / fracture / structure tabs (right), assets (bottom)
+/// and the viewport (centre).
 /// Returns the central node's rectangle. Call between ImGui::NewFrame and the panels.
 ScreenRect DrawDockSpace(bool buildDefaultLayout);
 

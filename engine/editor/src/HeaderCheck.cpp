@@ -7,6 +7,7 @@
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorMath.h>
 #include <interi/editor/EditorScene.h>
+#include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Inspector.h>
 #include <interi/editor/Picking.h>

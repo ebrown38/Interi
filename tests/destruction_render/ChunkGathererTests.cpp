@@ -102,6 +102,23 @@ TEST_F(ChunkGathererTest, Cache_UploadsEveryChunkOnce)
     EXPECT_EQ(found->Submeshes(0)[0].mesh.indexCount, 36u);
 }
 
+TEST_F(ChunkGathererTest, ClearedPoolAndCache_ReuploadFromStart)
+{
+    DestructionScene scene;
+    const auto wall = MakeFracturedWall(scene.jobs);
+    Cache(wall);
+    const render::MeshRange first = cache->Find(wall.get())->Submeshes(0)[0].mesh;
+    device->WaitForValue(device->LastSubmittedValue());
+    cache->Clear();
+    meshes->Clear();
+    EXPECT_EQ(cache->AssetCount(), 0u);
+    EXPECT_EQ(cache->Find(wall.get()), nullptr);
+    Cache(wall);
+    const render::MeshRange again = cache->Find(wall.get())->Submeshes(0)[0].mesh;
+    EXPECT_EQ(again.firstIndex, first.firstIndex);
+    EXPECT_EQ(again.vertexOffset, first.vertexOffset);
+}
+
 TEST_F(ChunkGathererTest, IntactWall_DrawsRootMeshOnly)
 {
     DestructionScene scene;

@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 
 struct ImDrawData;
 
@@ -75,7 +76,8 @@ public:
     EditorRenderer(EditorRenderer&&) = delete;
     EditorRenderer& operator=(EditorRenderer&&) = delete;
 
-    /// Uploads every chunk mesh of an asset (once per asset).
+    /// Uploads every chunk mesh of an asset (once per asset). When the mesh pool is full it is cleared and started
+    /// over, so call this every frame for each asset drawn (it returns at once for cached ones).
     [[nodiscard]] Result<void> AddAsset(const std::shared_ptr<const destruction::DestructibleAsset>& asset);
 
     /// The ImTextureID of a `width` x `height` viewport texture for this frame (recreated when the size changes),
@@ -86,10 +88,17 @@ public:
     /// (minimised, or an error, which is logged).
     bool Render(const EditorFrame& frame);
 
+    /// The next Render draws the UI into an offscreen image instead of the window and writes it to `path` as a
+    /// binary PPM (debugging: --screenshot). That frame is not presented.
+    void CaptureNextFrame(std::string path) { m_capturePath = std::move(path); }
+
 private:
     struct State;
     explicit EditorRenderer(std::unique_ptr<State> state);
+    [[nodiscard]] bool Capture(const EditorFrame& frame, render::FGTexture viewport);
+
     std::unique_ptr<State> m_state;
+    std::string m_capturePath;
 };
 
 } // namespace interi::editor

@@ -12,7 +12,8 @@
 namespace interi::destruction
 {
 struct DestructibleAsset;
-}
+struct FractureMesh;
+} // namespace interi::destruction
 
 namespace interi::editor
 {
@@ -43,6 +44,9 @@ struct PickHit
     EditorEntityId id = 0;
     float distance = 0.0f;
 };
+
+/// Distance along the ray to the nearest triangle of a mesh it hits (either side), or nothing.
+[[nodiscard]] std::optional<float> RayMesh(const Ray& ray, const destruction::FractureMesh& mesh) noexcept;
 
 /// The entity whose pick box the ray enters first.
 [[nodiscard]] std::optional<PickHit> PickEntity(const EditorScene& scene, const Ray& ray, const AssetBoundsFn& bounds);

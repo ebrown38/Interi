@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include <interi/core/Hash.h>
 #include <interi/core/Random.h>
 #include <interi/core/math/Vec.h>
 #include <interi/destruction/Voronoi.h>
@@ -169,6 +170,43 @@ private:
     double m_boxTolerance;
 };
 
+/// Painted strokes: a fixed number of candidates (density x volume of the stroke's box within the mesh bounds),
+/// each kept if it lies in the sphere and the mesh, so the expected density inside is `density`. Every stroke has
+/// its own random stream, so editing one leaves the others' points alone.
+void AddStrokeSeeds(const FractureMesh& mesh, const AABB& bounds, const SeedSettings& settings,
+                    std::vector<Vec3>& seeds)
+{
+    std::uint64_t added = 0;
+    for (std::size_t s = 0; s < settings.strokes.size(); ++s)
+    {
+        const SeedStroke& stroke = settings.strokes[s];
+        if (!(stroke.radius > 0.0f) || !(stroke.density > 0.0f))
+        {
+            continue;
+        }
+        const AABB box{.min = Max(bounds.min, stroke.centre - Vec3(stroke.radius)),
+                       .max = Min(bounds.max, stroke.centre + Vec3(stroke.radius))};
+        if (!box.IsValid())
+        {
+            continue;
+        }
+        const Vec3 size = box.max - box.min;
+        const double volume = static_cast<double>(size.x) * static_cast<double>(size.y) * static_cast<double>(size.z);
+        const auto candidates = static_cast<std::uint64_t>(std::min(
+            std::llround(volume * static_cast<double>(stroke.density)), static_cast<long long>(kMaxPaintedSeeds)));
+        Random random(HashCombine(settings.randomSeed, std::uint64_t{s} + 1));
+        for (std::uint64_t i = 0; i < candidates && added < kMaxPaintedSeeds; ++i)
+        {
+            const Vec3 point = RandomInBox(random, box);
+            if (LengthSquared(point - stroke.centre) <= stroke.radius * stroke.radius && ContainsPoint(mesh, point))
+            {
+                seeds.push_back(point);
+                ++added;
+            }
+        }
+    }
+}
+
 } // namespace
 
 std::vector<Vec3> GenerateSeeds(const FractureMesh& mesh, const SeedSettings& settings)
@@ -185,12 +223,13 @@ std::vector<Vec3> GenerateSeeds(const FractureMesh& mesh, const SeedSettings& se
     {
     case SeedPattern::Uniform:
     case SeedPattern::Clustered:
+    case SeedPattern::Painted:
     {
         std::uint64_t attempts = static_cast<std::uint64_t>(settings.count) * kAttemptsPerSeed;
         while (seeds.size() < settings.count && attempts-- > 0)
         {
             Vec3 point;
-            if (settings.pattern == SeedPattern::Uniform)
+            if (settings.pattern != SeedPattern::Clustered)
             {
                 point = RandomInBox(random, bounds);
             }
@@ -204,6 +243,10 @@ std::vector<Vec3> GenerateSeeds(const FractureMesh& mesh, const SeedSettings& se
             {
                 seeds.push_back(point);
             }
+        }
+        if (settings.pattern == SeedPattern::Painted)
+        {
+            AddStrokeSeeds(mesh, bounds, settings, seeds);
         }
         break;
     }

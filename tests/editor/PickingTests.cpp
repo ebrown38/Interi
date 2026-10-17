@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include <interi/destruction/FractureMesh.h>
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/EditorScene.h>
 #include <interi/editor/Picking.h>
@@ -85,4 +86,16 @@ TEST(AssetBrowser, ListsAssetsByKind)
     EXPECT_EQ(assets[2].path, "levels/a.json");
     EXPECT_EQ(assets[2].kind, AssetKind::Level);
     EXPECT_TRUE(ListAssets(dir.Path() / "missing").empty());
+}
+
+TEST(Picking, RayMesh_NearestTriangle)
+{
+    const auto box = destruction::MakeBoxMesh({-1, 0, -0.5f}, {1, 2, 0.5f});
+    const auto hit = RayMesh({.origin = {0, 1, 10}, .direction = {0, 0, -1}}, box);
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_NEAR(*hit, 9.5f, 1e-5f);
+    const auto inside = RayMesh({.origin = {0, 1, 0}, .direction = {1, 0, 0}}, box); // back faces count too
+    ASSERT_TRUE(inside.has_value());
+    EXPECT_NEAR(*inside, 1.0f, 1e-5f);
+    EXPECT_FALSE(RayMesh({.origin = {0, 5, 10}, .direction = {0, 0, -1}}, box).has_value());
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "EditorApp.h"
 
+#include <interi/core/Hash.h>
 #include <interi/core/Log.h>
 #include <interi/core/math/Mat4.h>
 #include <interi/core/math/Quat.h>
@@ -8,6 +9,7 @@
 #include <interi/destruction/ChunkHierarchy.h>
 #include <interi/destruction/DestructibleAsset.h>
 #include <interi/destruction/FractureMesh.h>
+#include <interi/destruction_cook/Cooker.h>
 #include <interi/editor/Inspector.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ViewportOverlay.h>
@@ -17,6 +19,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <variant>
 
 namespace interi::editor
@@ -74,9 +77,11 @@ constexpr Vec3 kSelectedColor{1.0f, 0.62f, 0.15f};
 EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, const EditorAppDesc& desc)
     : m_platform(platform)
     , m_window(window)
+    , m_jobs(jobs)
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout.ini").string())
+    // Versioned: a layout saved before a window existed would leave that window floating.
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v2.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -138,13 +143,6 @@ std::shared_ptr<const destruction::DestructibleAsset> EditorApp::Asset(const std
         return nullptr;
     }
     auto shared = std::make_shared<const destruction::DestructibleAsset>(std::move(*asset));
-    if (m_renderer != nullptr)
-    {
-        if (auto added = m_renderer->AddAsset(shared); !added)
-        {
-            INTERI_LOG_WARN("Editor", "asset {}: {}", path, added.error().message);
-        }
-    }
     m_assets.emplace(path, shared);
     return shared;
 }
@@ -174,14 +172,214 @@ Vec3 EditorApp::PlacementPoint(const Ray& ray) const
 
 void EditorApp::DropAsset(const std::string& path, const Ray& ray)
 {
+    std::string asset = path;
     if (!path.ends_with(".idest"))
     {
-        INTERI_LOG_WARN("Editor", "{}: only cooked .idest destructibles can be placed", path);
-        return;
+        auto cooked = CookSource(path); // a glTF: place its cooked destructible
+        if (!cooked)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", path, cooked.error().message);
+            return;
+        }
+        asset = std::move(*cooked);
     }
     Transform transform;
     transform.position = Snap(PlacementPoint(ray), m_tools.snap ? m_tools.moveSnap : 0.0f);
-    (void)m_document.Add([&](EditorScene& scene) { return scene.CreateDestructible(transform, path); });
+    (void)m_document.Add([&](EditorScene& scene) { return scene.CreateDestructible(transform, asset); });
+}
+
+Result<std::string> EditorApp::CookSource(const std::string& path)
+{
+    destruction::CookRequest request;
+    request.input = m_dataDir / path;
+    INTERI_TRY_ASSIGN(report, destruction::Cook(request, m_jobs));
+    const std::string asset = std::filesystem::relative(report.output, m_dataDir).generic_string();
+    if (!report.skipped)
+    {
+        INTERI_LOG_INFO("Editor", "cooked {}: {} chunks, {} bonds", asset, report.chunkCount, report.bondCount);
+        m_assets.erase(asset);
+        m_missingAssets.erase(asset);
+        m_assetList = ListAssets(m_dataDir);
+    }
+    return asset;
+}
+
+bool EditorApp::PreviewActive() const
+{
+    return m_fracture.showPreview && !m_fracture.active.empty();
+}
+
+void EditorApp::OpenSource(const std::string& path)
+{
+    if (auto opened = m_preview.Open(path, m_dataDir / path, m_dataDir / "destruction" / "materials.json"); !opened)
+    {
+        INTERI_LOG_ERROR("Editor", "{}: {}", path, opened.error().message);
+        return;
+    }
+    m_fracture.active = path;
+    m_fracture.object.clear();
+    m_fracture.showPreview = true;
+    (void)m_preview.Update(m_jobs);
+    if (const FracturePreview::Entry* entry = m_preview.Find(path); entry != nullptr && entry->asset != nullptr)
+    {
+        const AABB bounds = ChunkBounds(*entry->asset, 0);
+        m_camera.target = (bounds.min + bounds.max) * 0.5f;
+        m_camera.distance = std::max(Length(bounds.max - bounds.min) * 1.2f, 2.0f);
+    }
+}
+
+void EditorApp::SaveAndCook()
+{
+    auto report = m_preview.SaveAndCook(m_fracture.active, m_jobs);
+    if (!report)
+    {
+        INTERI_LOG_ERROR("Editor", "cook {}: {}", m_fracture.active, report.error().message);
+        return;
+    }
+    const std::string asset = std::filesystem::relative(report->output, m_dataDir).generic_string();
+    INTERI_LOG_INFO("Editor", "saved {} and cooked {} ({} chunks{})", SidecarPath(m_fracture.active).generic_string(),
+                    asset, report->chunkCount, report->skipped ? ", already up to date" : "");
+    m_assets.erase(asset); // levels using it pick up the new cook
+    m_missingAssets.erase(asset);
+    m_assetList = ListAssets(m_dataDir);
+}
+
+void EditorApp::PaintStroke(const Ray& ray)
+{
+    FracturePreview::Entry* entry = m_preview.Find(m_fracture.active);
+    if (entry == nullptr)
+    {
+        return;
+    }
+    std::optional<float> distance;
+    for (const destruction::SourceObject& object : entry->scene.objects)
+    {
+        if (!m_fracture.object.empty() && object.name != m_fracture.object)
+        {
+            continue;
+        }
+        if (const auto hit = RayMesh(ray, object.mesh); hit && (!distance || *hit < *distance))
+        {
+            distance = hit;
+        }
+    }
+    if (!distance)
+    {
+        return;
+    }
+    const Vec3 point = ray.origin + ray.direction * *distance;
+    if (m_lastStroke && Length(point - *m_lastStroke) < m_fracture.brushRadius * 0.5f)
+    {
+        return; // spread strokes along the drag
+    }
+    m_lastStroke = point;
+    destruction::ObjectCookSettings settings = EditedSettings(*entry, m_fracture.object);
+    if (settings.levels.empty())
+    {
+        settings.levels.emplace_back();
+    }
+    destruction::SeedSettings& level = settings.levels[std::min<std::size_t>(
+        static_cast<std::size_t>(m_fracture.levelEdited), settings.levels.size() - 1)];
+    level.pattern = destruction::SeedPattern::Painted; // keeps the level's count as the uniform base
+    level.strokes.push_back({.centre = point, .radius = m_fracture.brushRadius, .density = m_fracture.brushDensity});
+    StoreSettings(*entry, m_fracture.object, settings);
+}
+
+void EditorApp::BuildPreviewScene()
+{
+    const FracturePreview::Entry* entry = m_preview.Find(m_fracture.active);
+    if (entry == nullptr || entry->asset == nullptr)
+    {
+        return;
+    }
+    const destruction::DestructibleAsset& asset = *entry->asset;
+    if (m_renderer != nullptr)
+    {
+        (void)m_renderer->AddAsset(entry->asset);
+    }
+    const auto level = static_cast<std::uint32_t>(std::max(m_fracture.levelShown, 0));
+    const Vec3 centre = asset.chunks.empty() ? Vec3() : asset.chunks[0].centroid;
+    for (std::uint32_t c = 0; c < asset.chunks.size(); ++c)
+    {
+        const destruction::AssetChunk& chunk = asset.chunks[c];
+        if (chunk.level != level && !(chunk.childCount == 0 && chunk.level < level))
+        {
+            continue;
+        }
+        // A colour per chunk (cell preview); anchors darker.
+        const std::uint64_t hash = HashCombine(0x5EEDull, c);
+        Vec3 color(0.35f + 0.6f * static_cast<float>(hash & 0xFF) / 255.0f,
+                   0.35f + 0.6f * static_cast<float>((hash >> 8) & 0xFF) / 255.0f,
+                   0.35f + 0.6f * static_cast<float>((hash >> 16) & 0xFF) / 255.0f);
+        if (std::ranges::find(asset.anchors, c) != asset.anchors.end())
+        {
+            color = color * 0.35f;
+        }
+        const Vec3 offset = (chunk.centroid - centre) * m_fracture.explode;
+        m_chunks.push_back({.asset = &asset, .chunk = c, .transform = Mat4::Translation(offset), .color = color});
+    }
+}
+
+void EditorApp::DrawPreviewOverlay(const ScreenRect& viewport)
+{
+    const FracturePreview::Entry* entry = m_preview.Find(m_fracture.active);
+    if (entry == nullptr)
+    {
+        return;
+    }
+    ImDrawList& list = *ImGui::GetWindowDrawList();
+    list.PushClipRect(ImVec2(viewport.x, viewport.y), ImVec2(viewport.x + viewport.width, viewport.y + viewport.height),
+                      true);
+    const destruction::ObjectCookSettings settings = EditedSettings(*entry, m_fracture.object);
+    const auto circle = [&](const Vec3& centre, float radius, ImU32 color)
+    {
+        constexpr int kSegments = 32;
+        for (const auto& [u, v] : {std::pair{Vec3(1, 0, 0), Vec3(0, 1, 0)}, std::pair{Vec3(0, 1, 0), Vec3(0, 0, 1)},
+                                   std::pair{Vec3(1, 0, 0), Vec3(0, 0, 1)}})
+        {
+            for (int i = 0; i < kSegments; ++i)
+            {
+                const float a0 = 6.2831853f * static_cast<float>(i) / kSegments;
+                const float a1 = 6.2831853f * static_cast<float>(i + 1) / kSegments;
+                DrawWorldLine(list, m_camera, viewport, centre + (u * std::cos(a0) + v * std::sin(a0)) * radius,
+                              centre + (u * std::cos(a1) + v * std::sin(a1)) * radius, color, 1.5f);
+            }
+        }
+    };
+    for (const destruction::MaterialVolumeSettings& volume : settings.materialVolumes)
+    {
+        const ImU32 color = IM_COL32(80, 200, 255, 255);
+        if (volume.volume.shape == destruction::MaterialVolume::Shape::Sphere)
+        {
+            circle(volume.volume.centre, volume.volume.radius, color);
+            continue;
+        }
+        const Vec3 c = volume.volume.centre;
+        const Vec3 h = volume.volume.halfExtents;
+        for (int edge = 0; edge < 12; ++edge)
+        {
+            // The 12 edges of the box: 4 along each axis.
+            const int axis = edge / 4;
+            const float s0 = (edge & 1) != 0 ? 1.0f : -1.0f;
+            const float s1 = (edge & 2) != 0 ? 1.0f : -1.0f;
+            Vec3 from = c;
+            Vec3 to = c;
+            const Vec3 along = axis == 0 ? Vec3(h.x, 0, 0) : (axis == 1 ? Vec3(0, h.y, 0) : Vec3(0, 0, h.z));
+            const Vec3 side0 = axis == 0 ? Vec3(0, h.y * s0, 0) : Vec3(h.x * s0, 0, 0);
+            const Vec3 side1 = axis == 2 ? Vec3(0, h.y * s1, 0) : Vec3(0, 0, h.z * s1);
+            from = from - along + side0 + side1;
+            to = to + along + side0 + side1;
+            DrawWorldLine(list, m_camera, viewport, from, to, color, 1.5f);
+        }
+    }
+    for (const destruction::SeedSettings& level : settings.levels)
+    {
+        for (const destruction::SeedStroke& stroke : level.strokes)
+        {
+            circle(stroke.centre, stroke.radius, IM_COL32(255, 160, 40, 200));
+        }
+    }
+    list.PopClipRect();
 }
 
 void EditorApp::HandleViewportInput(const ScreenRect& viewport)
@@ -226,6 +424,21 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
         }
     }
 
+    if (PreviewActive())
+    {
+        // Fracture preview: the left mouse paints seed density (when enabled); level entities are not editable.
+        if (m_fracture.paint && ImGui::IsMouseDown(ImGuiMouseButton_Left) && (hovered || m_painting))
+        {
+            m_painting = true;
+            PaintStroke(ray);
+        }
+        else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            m_painting = false;
+            m_lastStroke.reset();
+        }
+        return;
+    }
     const EditorEntityId selection = m_document.Selection();
     const auto entity = m_document.Scene().Find(selection);
     std::optional<Gizmo> gizmo;
@@ -316,6 +529,14 @@ void EditorApp::BuildScene()
 {
     m_boxes.clear();
     m_chunks.clear();
+    if (PreviewActive())
+    {
+        BuildPreviewScene();
+        m_boxes.push_back({.transform = Mat4::FromTRS({0.0f, -0.05f, 0.0f}, Quat(), {60.0f, 0.1f, 60.0f}),
+                           .color = {0.3f, 0.32f, 0.3f},
+                           .occluder = true});
+        return;
+    }
     const World& world = m_document.Scene().GetWorld();
     const EditorEntityId selection = m_document.Selection();
     for (const EditorEntityId id : m_document.Scene().Ids())
@@ -339,6 +560,13 @@ void EditorApp::BuildScene()
                                                               transform.rotation, Vec3(1.0f)),
                                    .color = {0.9f, 0.1f, 0.8f}});
                 continue;
+            }
+            if (m_renderer != nullptr)
+            {
+                if (auto added = m_renderer->AddAsset(asset); !added)
+                {
+                    INTERI_LOG_WARN("Editor", "asset {}: {}", placement->asset, added.error().message);
+                }
             }
             m_chunks.push_back({.asset = asset.get(),
                                 .chunk = 0,
@@ -389,7 +617,11 @@ void EditorApp::DrawViewport()
             ImGui::EndDragDropTarget();
         }
         HandleViewportInput(viewport);
-        const EditorEntityId selection = m_document.Selection();
+        if (PreviewActive())
+        {
+            DrawPreviewOverlay(viewport);
+        }
+        const EditorEntityId selection = PreviewActive() ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
         {
             const Vec3 origin =
@@ -431,8 +663,24 @@ FrameResult EditorApp::Frame()
     DrawInspector(m_document);
     const ToolRequests tools = DrawToolsPanel(m_tools, m_document);
     const AssetRequests assets = DrawAssetsPanel(m_assetList);
+    const FractureRequests fracture = DrawFracturePanel(m_fracture, m_preview, m_assetList);
     DrawViewport();
+    const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
+
+    if (fracture.open)
+    {
+        OpenSource(*fracture.open);
+    }
+    if (fracture.saveAndCook)
+    {
+        SaveAndCook();
+    }
+    // Recook once a widget or brush stroke is released, not on every step of a drag.
+    if (!editing && !m_painting)
+    {
+        (void)m_preview.Update(m_jobs);
+    }
 
     if (tools.addStaticBox || tools.addSpawnPoint)
     {

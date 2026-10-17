@@ -20,6 +20,8 @@
 
 #include <algorithm>
 #include <array>
+#include <fstream>
+#include <utility>
 #include <vector>
 
 namespace interi::editor
@@ -155,8 +157,27 @@ Result<void> EditorRenderer::AddAsset(const std::shared_ptr<const destruction::D
     {
         return {};
     }
-    return UploadNow(*state.device, [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands)
-                     { return state.chunkMeshes->Add(uploads, commands, asset); });
+    const auto add = [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands)
+    { return state.chunkMeshes->Add(uploads, commands, asset); };
+    Result<void> added = UploadNow(*state.device, add);
+    if (!added && added.error().code == ErrorCode::OutOfMemory)
+    {
+        // The pool only appends and fracture previews recook often: start it over. Assets still drawn are added
+        // again by the next frames' AddAsset calls.
+        INTERI_LOG_INFO("Editor", "mesh pool full: clearing it ({} assets cached)", state.chunkMeshes->AssetCount());
+        state.device->WaitForValue(state.device->LastSubmittedValue());
+        state.chunkMeshes->Clear();
+        state.meshes->Clear();
+        INTERI_TRY(UploadNow(*state.device,
+                             [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
+                             {
+                                 INTERI_TRY_ASSIGN(cube, state.meshes->Add(uploads, commands, MakeCube(0.5f)));
+                                 state.cube = cube;
+                                 return {};
+                             }));
+        added = UploadNow(*state.device, add);
+    }
+    return added;
 }
 
 std::uint64_t EditorRenderer::ViewportTexture(std::uint32_t width, std::uint32_t height)
@@ -201,16 +222,24 @@ bool EditorRenderer::Render(const EditorFrame& frame)
 
     const WindowExtent size = state.window->Size();
     state.swapchain->Resize(size.width, size.height);
-    auto image = state.swapchain->AcquireNextImage();
-    if (!image.has_value() || frame.ui == nullptr)
+    const bool capture = !m_capturePath.empty();
+    rhi::TextureHandle image;
+    if (!capture)
+    {
+        auto acquired = state.swapchain->AcquireNextImage();
+        if (!acquired)
+        {
+            return false; // minimised: nothing to draw into
+        }
+        image = *acquired;
+    }
+    if (frame.ui == nullptr)
     {
         return false;
     }
 
     FrameGraph& graph = *state.graph;
     graph.Reset();
-    FGTexture target =
-        graph.ImportTexture("swapchain", *image, rhi::ResourceState::Undefined, rhi::ResourceState::Present);
     std::vector<FGTexture> sampled;
     if (state.viewport.IsValid())
     {
@@ -269,6 +298,12 @@ bool EditorRenderer::Render(const EditorFrame& frame)
         sampled.push_back(viewport);
         state.viewportWritten = true;
     }
+    if (capture)
+    {
+        return Capture(frame, sampled.empty() ? FGTexture{} : sampled[0]);
+    }
+    FGTexture target =
+        graph.ImportTexture("swapchain", image, rhi::ResourceState::Undefined, rhi::ResourceState::Present);
     const std::uint32_t width = state.swapchain->Width();
     const std::uint32_t height = state.swapchain->Height();
     if (auto added = state.ui->AddPass(
@@ -299,6 +334,80 @@ bool EditorRenderer::Render(const EditorFrame& frame)
         ok = false;
     }
     state.commandPools->EndFrame(value);
+    return ok;
+}
+
+bool EditorRenderer::Capture(const EditorFrame& frame, FGTexture viewport)
+{
+    State& state = *m_state;
+    const std::string path = std::exchange(m_capturePath, {});
+    const std::uint32_t width = state.swapchain->Width();
+    const std::uint32_t height = state.swapchain->Height();
+    const std::uint32_t rowPitch = (width * 4 + rhi::kTextureRowPitchAlignment - 1) / rhi::kTextureRowPitchAlignment *
+                                   rhi::kTextureRowPitchAlignment;
+    auto image = state.device->CreateTexture({.width = width,
+                                              .height = height,
+                                              .format = state.swapchain->ImageFormat(), // the UI pipeline's format
+                                              .usage = rhi::TextureUsage::ColorTarget | rhi::TextureUsage::CopySrc,
+                                              .debugName = "Editor capture"});
+    auto readback = state.device->CreateBuffer({.size = std::uint64_t{rowPitch} * height,
+                                                .usage = rhi::BufferUsage::CopyDst,
+                                                .memory = rhi::MemoryUsage::Readback,
+                                                .debugName = "Editor capture"});
+    if (!image || !readback)
+    {
+        INTERI_LOG_ERROR("Editor", "capture: no target");
+        return false;
+    }
+    FrameGraph& graph = *state.graph;
+    FGTexture target =
+        graph.ImportTexture("capture", *image, rhi::ResourceState::Undefined, rhi::ResourceState::CopySrc);
+    const FGBuffer out =
+        graph.ImportBuffer("capture readback", *readback, rhi::ResourceState::Undefined, rhi::ResourceState::HostRead);
+    std::vector<FGTexture> sampled;
+    if (viewport.IsValid())
+    {
+        sampled.push_back(viewport);
+    }
+    bool ok = static_cast<bool>(state.ui->AddPass(
+        graph, *frame.ui, target, width, height,
+        ImGuiRenderer::PassOptions{.sampled = sampled, .clear = true, .clearColor = {0.1f, 0.1f, 0.11f, 1.0f}}));
+    graph.AddPass(
+        "Capture",
+        [&](PassBuilder& builder)
+        {
+            builder.Read(target, rhi::ResourceState::CopySrc);
+            (void)builder.Write(out, rhi::ResourceState::CopyDst);
+        },
+        [target, out, rowPitch](PassContext& context)
+        { context.Commands().CopyTextureToBuffer(context.Texture(target), context.Buffer(out), 0, rowPitch); });
+    ok = ok && graph.Compile().has_value();
+    rhi::ICommandList& commands = state.commandPools->Acquire();
+    ok = ok && graph.Execute(commands).has_value();
+    rhi::ICommandList* const lists[] = {&commands};
+    const std::uint64_t value = state.device->Submit(lists);
+    state.commandPools->EndFrame(value);
+    state.device->WaitForValue(value);
+    if (ok)
+    {
+        std::ofstream file(path, std::ios::binary);
+        file << "P6\n" << width << " " << height << "\n255\n";
+        const std::byte* mapped = state.device->MappedMemory(*readback).data();
+        const rhi::Format format = state.swapchain->ImageFormat();
+        const bool bgra = format == rhi::Format::B8G8R8A8Srgb || format == rhi::Format::B8G8R8A8Unorm;
+        for (std::uint32_t y = 0; y < height; ++y)
+        {
+            for (std::uint32_t x = 0; x < width; ++x)
+            {
+                const std::byte* texel = mapped + std::size_t{y} * rowPitch + std::size_t{x} * 4;
+                const std::array rgb{texel[bgra ? 2 : 0], texel[1], texel[bgra ? 0 : 2]};
+                file.write(reinterpret_cast<const char*>(rgb.data()), 3);
+            }
+        }
+        INTERI_LOG_INFO("Editor", "wrote {}", path);
+    }
+    state.resources->DestroyTexture(*image);
+    state.resources->DestroyBuffer(*readback);
     return ok;
 }
 

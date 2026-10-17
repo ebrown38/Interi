@@ -21,23 +21,37 @@ enum class SeedPattern : std::uint8_t
     Uniform,   ///< `count` points uniformly inside the mesh.
     Clustered, ///< `count` points inside the mesh within `clusterRadius` of `impactPoint`, denser near it.
     Grid,      ///< One jittered point per `gridCellSize` cell inside the mesh; long cells give planks (wood).
+    /// `count` points as Uniform, plus each stroke's points: `density` per m^3 inside its sphere (and the mesh).
+    /// Seed density painted in the editor.
+    Painted,
+};
+
+/// A sphere of extra seed density (SeedPattern::Painted), in the mesh's space.
+struct SeedStroke
+{
+    Vec3 centre{};         // NOLINT(readability-redundant-member-init): lets designated inits omit it
+    float radius = 0.5f;   ///< Metres.
+    float density = 50.0f; ///< Seeds per m^3.
 };
 
 struct SeedSettings
 {
     SeedPattern pattern = SeedPattern::Uniform;
-    std::uint32_t count = 16;     ///< Uniform and Clustered.
-    std::uint64_t randomSeed = 1; ///< Same seed, same points (on every platform).
-    Vec3 impactPoint;             ///< Clustered.
-    float clusterRadius = 1.0f;   ///< Clustered, metres.
-    Vec3 gridCellSize{1, 1, 1};   ///< Grid, metres per axis.
-    float jitter = 0.25f;         ///< Grid: random offset as a fraction of the cell size, in [0, 1].
+    std::uint32_t count = 16;          ///< Uniform and Clustered.
+    std::uint64_t randomSeed = 1;      ///< Same seed, same points (on every platform).
+    Vec3 impactPoint;                  ///< Clustered.
+    float clusterRadius = 1.0f;        ///< Clustered, metres.
+    Vec3 gridCellSize{1, 1, 1};        ///< Grid, metres per axis.
+    float jitter = 0.25f;              ///< Grid: random offset as a fraction of the cell size, in [0, 1].
+    std::vector<SeedStroke> strokes{}; ///< Painted. NOLINT(readability-redundant-member-init)
 };
 
 /// Generates fracture seed points inside `mesh` (ContainsPoint) with integer-only randomness, so the result is
 /// identical on every platform. Uniform and Clustered may return fewer than `count` points when the mesh fills
-/// little of the sampled region (64 attempts per point).
+/// little of the sampled region (64 attempts per point). Painted strokes add at most kMaxPaintedSeeds points in all.
 [[nodiscard]] std::vector<Vec3> GenerateSeeds(const FractureMesh& mesh, const SeedSettings& settings);
+
+inline constexpr std::uint32_t kMaxPaintedSeeds = 1u << 16;
 
 struct VoronoiSettings
 {

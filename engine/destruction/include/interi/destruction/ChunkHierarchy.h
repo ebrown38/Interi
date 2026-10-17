@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <vector>
 
 namespace interi
@@ -58,5 +59,27 @@ struct ChunkHierarchy
 
 /// Material with the largest total triangle area (lowest index on ties).
 [[nodiscard]] std::uint32_t DominantMaterial(const FractureMesh& mesh) noexcept;
+
+/// A region of a source object made of another material (painted in the editor), in the object's space.
+struct MaterialVolume
+{
+    enum class Shape : std::uint8_t
+    {
+        Box,
+        Sphere,
+    };
+    Shape shape = Shape::Box;
+    Vec3 centre{};                      // NOLINT(readability-redundant-member-init): lets designated inits omit it
+    Vec3 halfExtents{0.5f, 0.5f, 0.5f}; ///< Box (axis-aligned).
+    float radius = 0.5f;                ///< Sphere.
+    std::uint32_t material = 0;         ///< DestructionMaterial index.
+
+    [[nodiscard]] bool Contains(const Vec3& point) const noexcept;
+};
+
+/// Gives every chunk whose centroid lies in a volume that volume's material (the last containing volume wins): the
+/// chunk's material and all its triangles', so its bonds and fracture faces use it. Inner chunks are assigned the
+/// same way as leaves.
+void ApplyMaterialVolumes(std::span<Chunk> chunks, std::span<const MaterialVolume> volumes) noexcept;
 
 } // namespace interi::destruction

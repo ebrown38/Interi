@@ -5,6 +5,7 @@
 #include "Vec3d.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 
 namespace interi::destruction
@@ -96,6 +97,40 @@ std::uint32_t DominantMaterial(const FractureMesh& mesh) noexcept
         }
     }
     return best;
+}
+
+bool MaterialVolume::Contains(const Vec3& point) const noexcept
+{
+    const Vec3 offset = point - centre;
+    if (shape == Shape::Sphere)
+    {
+        return LengthSquared(offset) <= radius * radius;
+    }
+    return std::abs(offset.x) <= halfExtents.x && std::abs(offset.y) <= halfExtents.y &&
+           std::abs(offset.z) <= halfExtents.z;
+}
+
+void ApplyMaterialVolumes(std::span<Chunk> chunks, std::span<const MaterialVolume> volumes) noexcept
+{
+    for (Chunk& chunk : chunks)
+    {
+        bool inside = false;
+        for (const MaterialVolume& volume : volumes)
+        {
+            if (volume.Contains(chunk.centroid))
+            {
+                chunk.material = volume.material;
+                inside = true;
+            }
+        }
+        if (inside)
+        {
+            for (FractureTriangle& triangle : chunk.mesh.triangles)
+            {
+                triangle.material = chunk.material;
+            }
+        }
+    }
 }
 
 } // namespace interi::destruction

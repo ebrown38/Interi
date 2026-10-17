@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/math/Quat.h>
 #include <interi/destruction/DestructibleAsset.h>
+#include <interi/destruction/FractureMesh.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
+
+#include <cmath>
 
 namespace interi::editor
 {
@@ -18,6 +21,43 @@ AABB ChunkBounds(const destruction::DestructibleAsset& asset, std::uint32_t chun
         }
     }
     return bounds;
+}
+
+std::optional<float> RayMesh(const Ray& ray, const destruction::FractureMesh& mesh) noexcept
+{
+    // Moller-Trumbore per triangle.
+    std::optional<float> best;
+    for (const destruction::FractureTriangle& triangle : mesh.triangles)
+    {
+        const Vec3& a = mesh.positions[triangle.indices[0]];
+        const Vec3 ab = mesh.positions[triangle.indices[1]] - a;
+        const Vec3 ac = mesh.positions[triangle.indices[2]] - a;
+        const Vec3 p = Cross(ray.direction, ac);
+        const float determinant = Dot(ab, p);
+        if (std::abs(determinant) < 1e-12f)
+        {
+            continue;
+        }
+        const float inverse = 1.0f / determinant;
+        const Vec3 s = ray.origin - a;
+        const float u = Dot(s, p) * inverse;
+        if (u < 0.0f || u > 1.0f)
+        {
+            continue;
+        }
+        const Vec3 q = Cross(s, ab);
+        const float v = Dot(ray.direction, q) * inverse;
+        if (v < 0.0f || u + v > 1.0f)
+        {
+            continue;
+        }
+        const float t = Dot(ac, q) * inverse;
+        if (t >= 0.0f && (!best || t < *best))
+        {
+            best = t;
+        }
+    }
+    return best;
 }
 
 std::optional<PickBox> PickBoxOf(const EditorScene& scene, EditorEntityId id, const AssetBoundsFn& bounds)

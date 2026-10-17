@@ -3,6 +3,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <format>
 #include <initializer_list>
 #include <limits>
@@ -80,7 +81,8 @@ Result<SeedSettings> ParseLevel(const Json& level, std::string_view context, std
     {
         return Invalid(std::format("{} is not an object", context));
     }
-    WarnUnknownKeys(level, {"pattern", "count", "seed", "impactPoint", "clusterRadius", "gridCellSize", "jitter"},
+    WarnUnknownKeys(level,
+                    {"pattern", "count", "seed", "impactPoint", "clusterRadius", "gridCellSize", "jitter", "strokes"},
                     context, warnings);
     SeedSettings settings;
     if (const auto it = level.find("pattern"); it != level.end())
@@ -98,9 +100,13 @@ Result<SeedSettings> ParseLevel(const Json& level, std::string_view context, std
         {
             settings.pattern = SeedPattern::Grid;
         }
+        else if (pattern == "painted")
+        {
+            settings.pattern = SeedPattern::Painted;
+        }
         else
         {
-            return Invalid(std::format(R"({}.pattern must be "uniform", "clustered" or "grid")", context));
+            return Invalid(std::format(R"({}.pattern must be "uniform", "clustered", "grid" or "painted")", context));
         }
     }
     if (const auto it = level.find("count"); it != level.end())
@@ -134,7 +140,146 @@ Result<SeedSettings> ParseLevel(const Json& level, std::string_view context, std
         INTERI_TRY_ASSIGN(jitter, Number(*it, std::format("{}.jitter", context), 0.0, 1.0));
         settings.jitter = static_cast<float>(jitter);
     }
+    if (const auto it = level.find("strokes"); it != level.end())
+    {
+        if (!it->is_array())
+        {
+            return Invalid(std::format("{}.strokes is not an array", context));
+        }
+        for (std::size_t i = 0; i < it->size(); ++i)
+        {
+            const Json& entry = (*it)[i];
+            const std::string what = std::format("{}.strokes[{}]", context, i);
+            if (!entry.is_object())
+            {
+                return Invalid(std::format("{} is not an object", what));
+            }
+            WarnUnknownKeys(entry, {"centre", "radius", "density"}, what, warnings);
+            SeedStroke stroke;
+            if (const auto centre = entry.find("centre"); centre != entry.end())
+            {
+                INTERI_TRY_ASSIGN(point, Vector(*centre, std::format("{}.centre", what), -1e9));
+                stroke.centre = point;
+            }
+            if (const auto radius = entry.find("radius"); radius != entry.end())
+            {
+                INTERI_TRY_ASSIGN(value, Number(*radius, std::format("{}.radius", what), 1e-6, 1e9));
+                stroke.radius = static_cast<float>(value);
+            }
+            if (const auto density = entry.find("density"); density != entry.end())
+            {
+                INTERI_TRY_ASSIGN(value, Number(*density, std::format("{}.density", what), 0.0, 1e9));
+                stroke.density = static_cast<float>(value);
+            }
+            settings.strokes.push_back(stroke);
+        }
+    }
     return settings;
+}
+
+Result<MaterialVolumeSettings> ParseMaterialVolume(const Json& entry, std::string_view what,
+                                                   std::vector<std::string>& warnings)
+{
+    if (!entry.is_object())
+    {
+        return Invalid(std::format("{} is not an object", what));
+    }
+    WarnUnknownKeys(entry, {"shape", "centre", "halfExtents", "radius", "material"}, what, warnings);
+    MaterialVolumeSettings volume;
+    const auto material = entry.find("material");
+    if (material == entry.end() || !material->is_string())
+    {
+        return Invalid(std::format("{}.material is missing or not a string", what));
+    }
+    volume.material = material->get<std::string>();
+    if (const auto shape = entry.find("shape"); shape != entry.end())
+    {
+        const std::string name = shape->is_string() ? shape->get<std::string>() : "";
+        if (name != "box" && name != "sphere")
+        {
+            return Invalid(std::format(R"({}.shape must be "box" or "sphere")", what));
+        }
+        volume.volume.shape = name == "box" ? MaterialVolume::Shape::Box : MaterialVolume::Shape::Sphere;
+    }
+    if (const auto centre = entry.find("centre"); centre != entry.end())
+    {
+        INTERI_TRY_ASSIGN(point, Vector(*centre, std::format("{}.centre", what), -1e9));
+        volume.volume.centre = point;
+    }
+    if (const auto half = entry.find("halfExtents"); half != entry.end())
+    {
+        INTERI_TRY_ASSIGN(size, Vector(*half, std::format("{}.halfExtents", what), 1e-6));
+        volume.volume.halfExtents = size;
+    }
+    if (const auto radius = entry.find("radius"); radius != entry.end())
+    {
+        INTERI_TRY_ASSIGN(value, Number(*radius, std::format("{}.radius", what), 1e-6, 1e9));
+        volume.volume.radius = static_cast<float>(value);
+    }
+    return volume;
+}
+
+[[nodiscard]] Json ToJson(const Vec3& v)
+{
+    return Json::array({v.x, v.y, v.z});
+}
+
+[[nodiscard]] Json LevelToJson(const SeedSettings& level)
+{
+    static constexpr std::array kPatterns{"uniform", "clustered", "grid", "painted"};
+    Json json = Json::object();
+    json["pattern"] = kPatterns[static_cast<std::size_t>(level.pattern)];
+    json["count"] = level.count;
+    json["seed"] = level.randomSeed;
+    json["impactPoint"] = ToJson(level.impactPoint);
+    json["clusterRadius"] = level.clusterRadius;
+    json["gridCellSize"] = ToJson(level.gridCellSize);
+    json["jitter"] = level.jitter;
+    if (!level.strokes.empty())
+    {
+        Json strokes = Json::array();
+        for (const SeedStroke& stroke : level.strokes)
+        {
+            strokes.push_back(
+                {{"centre", ToJson(stroke.centre)}, {"radius", stroke.radius}, {"density", stroke.density}});
+        }
+        json["strokes"] = std::move(strokes);
+    }
+    return json;
+}
+
+[[nodiscard]] Json ObjectToJson(const ObjectCookSettings& settings)
+{
+    Json json = Json::object();
+    json["material"] = settings.material;
+    Json levels = Json::array();
+    for (const SeedSettings& level : settings.levels)
+    {
+        levels.push_back(LevelToJson(level));
+    }
+    json["levels"] = std::move(levels);
+    if (settings.minPieceVolume)
+    {
+        json["minPieceVolume"] = *settings.minPieceVolume;
+    }
+    json["anchor"] = settings.anchor;
+    json["skip"] = settings.skip;
+    if (!settings.materialVolumes.empty())
+    {
+        Json volumes = Json::array();
+        for (const MaterialVolumeSettings& volume : settings.materialVolumes)
+        {
+            Json entry = Json::object();
+            entry["shape"] = volume.volume.shape == MaterialVolume::Shape::Box ? "box" : "sphere";
+            entry["centre"] = ToJson(volume.volume.centre);
+            entry["halfExtents"] = ToJson(volume.volume.halfExtents);
+            entry["radius"] = volume.volume.radius;
+            entry["material"] = volume.material;
+            volumes.push_back(std::move(entry));
+        }
+        json["materialVolumes"] = std::move(volumes);
+    }
+    return json;
 }
 
 /// Applies the fields present in `entry` on top of `settings`.
@@ -145,7 +290,8 @@ Result<> ApplyObject(const Json& entry, ObjectCookSettings& settings, std::strin
     {
         return Invalid(std::format("{} is not an object", context));
     }
-    WarnUnknownKeys(entry, {"material", "levels", "minPieceVolume", "anchor", "skip"}, context, warnings);
+    WarnUnknownKeys(entry, {"material", "levels", "minPieceVolume", "anchor", "skip", "materialVolumes"}, context,
+                    warnings);
     if (const auto it = entry.find("material"); it != entry.end())
     {
         if (!it->is_string())
@@ -182,6 +328,20 @@ Result<> ApplyObject(const Json& entry, ObjectCookSettings& settings, std::strin
                 return Invalid(std::format("{}.{} is not a boolean", context, key));
             }
             settings.*member = it->get<bool>();
+        }
+    }
+    if (const auto it = entry.find("materialVolumes"); it != entry.end())
+    {
+        if (!it->is_array())
+        {
+            return Invalid(std::format("{}.materialVolumes is not an array", context));
+        }
+        settings.materialVolumes.clear();
+        for (std::size_t i = 0; i < it->size(); ++i)
+        {
+            INTERI_TRY_ASSIGN(
+                volume, ParseMaterialVolume((*it)[i], std::format("{}.materialVolumes[{}]", context, i), warnings));
+            settings.materialVolumes.push_back(std::move(volume));
         }
     }
     return {};
@@ -223,6 +383,49 @@ Result<ObjectCookSettings> CookConfig::SettingsFor(std::string_view nodeName, st
         INTERI_TRY(ApplyObject(Json::parse(it->second, nullptr, false), settings, it->first, ignored));
     }
     return settings;
+}
+
+void CookConfig::SetObjectSettings(std::string_view nodeName, const ObjectCookSettings& settings)
+{
+    objectOverrides.insert_or_assign(std::string(nodeName), WriteObjectSettings(settings));
+}
+
+std::string WriteObjectSettings(const ObjectCookSettings& settings)
+{
+    return ObjectToJson(settings).dump();
+}
+
+std::string WriteCookConfig(const CookConfig& config)
+{
+    Json root = Json::object();
+    if (!config.materialsFile.empty())
+    {
+        root["materialsFile"] = config.materialsFile;
+    }
+    if (config.groundHeight)
+    {
+        root["groundHeight"] = *config.groundHeight;
+    }
+    root["defaults"] = ObjectToJson(config.defaults);
+    for (const auto& [key, overrides] :
+         {std::pair{"surfaceMaterials", &config.surfaceOverrides}, std::pair{"objects", &config.objectOverrides}})
+    {
+        if (overrides->empty())
+        {
+            continue;
+        }
+        Json entries = Json::object();
+        for (const auto& [name, raw] : *overrides)
+        {
+            entries[name] = Json::parse(raw, nullptr, false);
+        }
+        root[key] = std::move(entries);
+    }
+    root["hull"] = {{"maxConcavity", config.hull.maxConcavity}, {"maxDepth", config.hull.maxDepth}};
+    root["contact"] = {{"distanceTolerance", config.contact.distanceTolerance},
+                       {"normalTolerance", config.contact.normalTolerance},
+                       {"minArea", config.contact.minArea}};
+    return root.dump(2) + "\n";
 }
 
 CookConfig DefaultCookConfig()

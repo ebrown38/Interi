@@ -5,9 +5,11 @@
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
+#include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor_ui/EditorPanels.h>
+#include <interi/editor_ui/FracturePanel.h>
 #include <interi/editor_ui/ImGuiInput.h>
 #include <interi/platform/FileSystem.h>
 
@@ -54,6 +56,16 @@ public:
     /// Opens a level by its path under the data directory.
     [[nodiscard]] Result<void> OpenLevel(std::string_view path);
     [[nodiscard]] FrameResult Frame();
+    /// Opens a glTF under the data directory in the Fracture panel and previews it.
+    void OpenFractureSource(const std::string& path) { OpenSource(path); }
+    /// Writes the next frame to a PPM file instead of presenting it.
+    void CaptureNextFrame(std::string path)
+    {
+        if (m_renderer != nullptr)
+        {
+            m_renderer->CaptureNextFrame(std::move(path));
+        }
+    }
 
     [[nodiscard]] EditorDocument& Document() noexcept { return m_document; }
 
@@ -67,11 +79,23 @@ private:
     [[nodiscard]] Vec3 PlacementPoint(const Ray& ray) const;
     [[nodiscard]] AssetBoundsFn Bounds();
     void BuildScene();
+
+    // Fracture authoring.
+    [[nodiscard]] bool PreviewActive() const;
+    void OpenSource(const std::string& path);
+    void SaveAndCook();
+    void BuildPreviewScene();
+    /// Adds a seed stroke where the ray meets the edited object (or any object for the defaults).
+    void PaintStroke(const Ray& ray);
+    void DrawPreviewOverlay(const ScreenRect& viewport);
+    /// Cooks a glTF under the data directory to its `.idest` (if out of date) and returns that path.
+    [[nodiscard]] Result<std::string> CookSource(const std::string& path);
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
 
     SdlPlatform& m_platform;
     IWindow& m_window;
+    JobSystem& m_jobs;
     std::filesystem::path m_dataDir;
     NativeFileSystem m_dataFiles;
     MemoryFileSystem m_generatedFiles;
@@ -91,6 +115,10 @@ private:
     Vec3 m_dragStartHalfExtents;
     std::uint64_t m_dragKey = 0;
     GizmoAxis m_hoveredAxis = GizmoAxis::None;
+    FracturePreview m_preview;
+    FractureTool m_fracture;
+    bool m_painting = false;
+    std::optional<Vec3> m_lastStroke;
     std::map<std::string, std::shared_ptr<const destruction::DestructibleAsset>, std::less<>> m_assets;
     std::set<std::string, std::less<>> m_missingAssets;
     std::vector<EditorBox> m_boxes;

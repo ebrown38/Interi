@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+#include <interi/core/Assert.h>
+#include <interi/core/Log.h>
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleHost.h>
@@ -32,6 +34,7 @@ const char* const kModuleV3Migrate = INTERI_TEST_MODULE_V3;
 const char* const kModuleV3NoMigrator = INTERI_TEST_MODULE_V4;
 const char* const kModuleRefuses = INTERI_TEST_MODULE_V5;
 const char* const kModuleBadAbi = INTERI_TEST_MODULE_V6;
+const char* const kModuleOtherToolchain = INTERI_TEST_MODULE_V7;
 
 JobSystemDesc Workers(std::uint32_t count)
 {
@@ -43,7 +46,12 @@ JobSystemDesc Workers(std::uint32_t count)
 class ModuleHostTest : public ::testing::Test
 {
 protected:
-    interi::hotreload::ModuleHostDesc Desc() const { return {.shadowDirectory = m_temp.Path()}; }
+    interi::hotreload::ModuleHostDesc Desc() const
+    {
+        interi::hotreload::ModuleHostDesc desc;
+        desc.shadowDirectory = m_temp.Path();
+        return desc;
+    }
 
     std::vector<Entity> CreateCounters(std::size_t count)
     {
@@ -186,6 +194,11 @@ TEST_F(ModuleHostTest, LoadFailure_KeepsOldModule)
     ASSERT_FALSE(badAbi.has_value());
     EXPECT_EQ(badAbi.error().code, interi::ErrorCode::VersionMismatch);
 
+    const auto otherToolchain = host.Load(kModuleOtherToolchain);
+    ASSERT_FALSE(otherToolchain.has_value());
+    EXPECT_EQ(otherToolchain.error().code, interi::ErrorCode::VersionMismatch);
+    EXPECT_NE(otherToolchain.error().message.find("toolchain"), std::string::npos);
+
     EXPECT_TRUE(host.IsLoaded());
     EXPECT_EQ(host.Generation(), 1u);
     Run(host);
@@ -205,4 +218,39 @@ TEST_F(ModuleHostTest, Unload_ComponentsStayReadable)
     }
     EXPECT_EQ(world.Get<HrCounter>(entities[2])->value, 2);
     EXPECT_TRUE(world.DestroyEntity(entities[2]));
+}
+
+namespace
+{
+
+interi::AssertAction ContinueHandler(const interi::AssertInfo& /*info*/)
+{
+    return interi::AssertAction::Continue;
+}
+
+// Not trivially copyable: a module-mode registry would refuse it.
+struct HrNonTrivial
+{
+    std::string text;
+};
+
+} // namespace
+
+TEST_F(ModuleHostTest, Unload_KeepsHostLoggerAndAssertHandler)
+{
+    interi::Logger logger;
+    interi::Logger* const previousLogger = interi::SetGlobalLogger(&logger);
+    const interi::ScopedAssertHandler handler(&ContinueHandler);
+    {
+        ModuleHost host(world, Desc());
+        ASSERT_TRUE(host.Load(kModuleV1).has_value());
+        host.Unload();
+    }
+
+    EXPECT_EQ(interi::GetGlobalLogger(), &logger);
+    EXPECT_EQ(interi::GetAssertHandler(), &ContinueHandler);
+    // The host's registry is not left in module mode: a non-trivial type still registers.
+    const interi::ComponentTypeId id = interi::ComponentId<HrNonTrivial>();
+    EXPECT_NE(interi::ComponentInfoOf(id).destroy, nullptr);
+    (void)interi::SetGlobalLogger(previousLogger);
 }

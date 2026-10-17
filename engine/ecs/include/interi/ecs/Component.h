@@ -16,8 +16,10 @@
 namespace interi
 {
 
-/// Upper bound on distinct component types in a process (archetype masks are bitsets of this size).
-inline constexpr std::size_t kMaxComponentTypes = 256;
+/// Upper bound on distinct component types in a process (archetype masks are bitsets of this size). Ids are never
+/// recycled: many modules plus hot reloads that change layouts (each a new id) add up. Measured in M13
+/// (BM_QueryMatch_ManyArchetypes): matching cost per archetype grows with the mask size.
+inline constexpr std::size_t kMaxComponentTypes = 1024;
 
 /// Process-wide component type index, assigned on first use of ComponentId<T>(). The value depends on first-use
 /// order, so it must never influence storage layout, iteration order or hashed state.
@@ -25,7 +27,8 @@ inline constexpr std::size_t kMaxComponentTypes = 256;
 /// Identity is the component's name: `T::kComponentName` when the type declares one (stable across compilers and
 /// across hot-reloaded modules), otherwise the compiler's type name. Registering a name again with the same size,
 /// alignment and version returns the existing id; a changed layout gets a new id under the same name (hot reload
-/// migrates between them). Names in an anonymous namespace are never shared.
+/// migrates between them). Names in an anonymous namespace are never shared. The engine is one shared library, so
+/// the host and every gameplay module register into the same registry.
 using ComponentTypeId = std::uint32_t;
 using ComponentMask = std::bitset<kMaxComponentTypes>;
 
@@ -103,21 +106,6 @@ struct ErasedComponent
 
 /// True for compiler type names inside an anonymous namespace (Clang/GCC and MSVC spellings).
 [[nodiscard]] bool IsAnonymousComponentName(std::string_view name) noexcept;
-
-/// The component registry. Every binary that links interi_ecs has one; a hot-reloaded module attaches to the host's
-/// so that both see the same ids.
-class ComponentRegistry;
-
-/// The registry this binary registers into: its own, or the host's after AttachToHostComponentRegistry.
-[[nodiscard]] ComponentRegistry& ActiveComponentRegistry() noexcept;
-
-/// For a hot-reloaded module's copy of interi_ecs: registers into `host` from now on, in module mode. A module may
-/// share the host's existing types (their functions live in the host) and register new trivially copyable ones; a
-/// new non-trivial type asserts, because its functions would live in the module and dangle once it is unloaded.
-void AttachToHostComponentRegistry(ComponentRegistry& host) noexcept;
-
-/// Undoes AttachToHostComponentRegistry (back to this binary's own registry, not in module mode).
-void DetachFromHostComponentRegistry() noexcept;
 
 namespace detail
 {

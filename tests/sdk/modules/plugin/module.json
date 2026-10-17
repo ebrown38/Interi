@@ -1,0 +1,7 @@
+{
+  "id": "com.test.plugin", "name": "Test Plugin", "version": "0.3.0", "kind": "Plugin",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Overrides only",
+  "engine": "*", "library": "interi_sdk_test_plugin",
+  "overrides": [{ "target": "com.test.a:Fire", "version": "^1" },
+                { "target": "com.test.b:Reload", "version": "^2" }]
+}

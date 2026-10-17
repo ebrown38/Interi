@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 set(_tests ${PROJECT_SOURCE_DIR}/tests/ecs)
 
-interi_add_module(ecs
+interi_add_module(ecs SHARED
     SOURCES
         src/CommandBuffer.cpp
         src/Component.cpp

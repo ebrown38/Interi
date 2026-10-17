@@ -43,16 +43,6 @@ struct NonTrivial
     std::string text;
 };
 
-struct ModuleModeNew
-{
-    std::string text;
-};
-
-struct ModuleModeTrivial
-{
-    int x = 0;
-};
-
 interi::ComponentInfo InfoNamed(std::string name)
 {
     interi::ComponentInfo info;
@@ -152,27 +142,4 @@ TEST(ComponentRegistry, GetErased_PointsAtComponent)
     ASSERT_NE(erased, nullptr);
     EXPECT_EQ(erased, world.Get<Trivial>(entity));
     EXPECT_EQ(world.GetErased(entity, interi::ComponentId<NonTrivial>()), nullptr);
-}
-
-TEST(ComponentRegistry, ModuleMode_NewNonTrivialComponent_Asserts)
-{
-    if (!interi::kAssertsEnabled)
-    {
-        GTEST_SKIP() << "asserts disabled";
-    }
-    static int failures = 0;
-    failures = 0;
-    const interi::ScopedAssertHandler handler(
-        [](const interi::AssertInfo&)
-        {
-            ++failures;
-            return interi::AssertAction::Continue;
-        });
-    interi::AttachToHostComponentRegistry(interi::ActiveComponentRegistry());
-    (void)interi::ComponentId<ModuleModeTrivial>();
-    (void)interi::ComponentId<Trivial>();
-    EXPECT_EQ(failures, 0);
-    (void)interi::ComponentId<ModuleModeNew>();
-    EXPECT_EQ(failures, 1);
-    interi::DetachFromHostComponentRegistry();
 }

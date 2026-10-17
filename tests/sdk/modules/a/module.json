@@ -1,0 +1,6 @@
+{
+  "id": "com.test.a", "name": "Test Module A", "version": "1.2.0", "kind": "Module",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Lower module",
+  "engine": "*", "library": "interi_sdk_test_a",
+  "dependencies": [{ "id": "com.test.ext", "version": "^1" }]
+}

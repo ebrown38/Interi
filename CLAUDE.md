@@ -8,7 +8,7 @@ Interi is an MIT-licensed C++23 game engine built only for large-scale, multithr
 
 ## Starting a milestone
 
-The milestone plan is `~/.claude/plans/cheeky-kindling-moth.md`; its M5 section starts with work carried over from M1. When asked to start a milestone:
+The milestone plan is `~/.claude/plans/create-a-plan-for-starry-dove.md` (modular engine and Chain Reaction, M13–M24). It supersedes the old plan `~/.claude/plans/cheeky-kindling-moth.md`, which still governs M12 (the editor); the old M13/M14 move to the Destruction Module's backlog. When asked to start a milestone:
 
 1. **Plan first, with the `planning-with-files` skill.** Invoke it before writing any code, and give it that milestone's section of the plan as input. It produces a Manus-style plan in the repo root:
    - `task_plan.md`: phases (the milestone's sub-areas) with explicit verification steps.
@@ -49,6 +49,16 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 ## Build-system conventions
 
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
+- **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk and hotreload: everything the host and a gameplay module both link. The rest stay static.
+  - Windows exports every function (`WINDOWS_EXPORT_ALL_SYMBOLS`) but no data. **Keep globals out of public headers**: put them in a `.cpp` behind a function.
+  - Each library also gets `<interi/<name>/Export.h>` (`INTERI_<NAME>_API`) for a symbol that needs explicit export.
+  - MSVC C4251/C4275 don't arise, because there is no class-level `dllexport`. STL members in exported classes are fine because the toolchain fingerprint guarantees one compiler and standard library.
+  - On Windows, executables and DLLs go to `build/<preset>/bin`.
+- **Packaging:** `cmake --install` installs the shared libraries, headers, `interi_module_check` and the `Interi` CMake package (`cmake/InteriPackage.cmake`).
+  - `find_package(Interi)` provides `interi::<module>` targets, `interi_add_gameplay_module` and `interi_add_module_load_test` (`cmake/InteriGameplayModule.cmake`).
+  - `interi::build_settings` carries the ABI-relevant global flags (CPU baseline, `-ffp-contract=off`, `INTERI_SIMD_*`, sanitizers) to installed consumers only.
+  - `tools/new_module/new_module.py` scaffolds a Module, Extension or Plugin. `samples/modules/starter` is one.
+  - The `integration` tests `Package_*` install the engine and build the starter plus a scaffold of each kind out of tree.
 - Test sources live in `tests/<module>/`, not next to the module.
 - Tests get one CTest label per executable:
   - Long or concurrent tests go in a separate executable built with `interi_add_test_executable(... LABELS stress)`. `interi_core_stress_tests` is an example.
@@ -110,7 +120,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## ECS (`engine/ecs`)
 
-- **Components** are any nothrow-movable types, registered on first use of `ComponentId<T>()` (at most 256 types). Empty types are storage-free tags.
+- **Components** are any nothrow-movable types, registered on first use of `ComponentId<T>()` (at most `kMaxComponentTypes` = 1024 types). Empty types are storage-free tags.
   - Ids depend on first-use order, so they must never affect layout, iteration order or hashed state. Columns are ordered by name.
   - Identity is the name: `T::kComponentName` if declared (stable across compilers and hot-reloaded modules), else the compiler's type name.
     - Re-registering a name with the same size, alignment and `kComponentVersion` returns the existing id.
@@ -140,26 +150,53 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - `--hot-reload 1` rebuilds the module (`cmake --build` on the build dir) when its sources change. The module library is always watched.
   - Smoke run: `--video-driver offscreen --audio-driver null --frames N --auto-spawn 1 --validation 1` (auto-spawn fires rockets and charges at the walls and drives the truck into the middle one). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
 
-## Hot reload (`engine/hotreload`, namespace `interi::hotreload`)
+## Module SDK (`engine/sdk`, namespace `interi::sdk`)
 
-- **Module ABI** (`ModuleApi.h`): a gameplay module is a shared library that exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`.
-  - It statically links its own core/jobs/ecs. While it is loaded, its copy uses the host's component registry (`AttachToHostComponentRegistry`, "module mode"), logger and assert handler.
+- **Manifests** (`Manifest.h`): `module.json` holds metadata (id `com.author.name`, semver version, author, SPDX license, engine range), `kind` (Module, Extension, Plugin), `library`, `toolchain`, `dependencies`, `conflicts`, `contracts` (Extensions only) and `overrides`. `ParseManifest` follows `ParseMaterials`: missing metadata and unknown sections are warnings, anything malformed is an error.
+  - `SemVer`/`VersionRange` follow semver 2.0 and npm range syntax (`^`, `~`, comparators, `||`, `*`). A pre-release matches only a range that names one on the same major.minor.patch.
+  - `Toolchain.h` builds the fingerprint in the preprocessor: compiler, standard library, debug mode, C++ standard, `INTERI_MODULE_ABI_VERSION`, CPU baseline, shipping, profiling and shared/static engine. Bump the ABI version when `ModuleApi.h`, the registrar or the hook types change.
+- **`ResolveModuleGraph`** turns the project's ordered list (top = highest priority) into a `ModuleGraph`.
+  - Required dependencies are pulled in, and each implicit Extension goes directly below its lowest dependent. Optional dependencies are used only when the project includes them.
+  - Load order puts dependencies first, otherwise lowest priority first.
+  - All or nothing: unknown or duplicate modules, missing dependencies, a dependency on a non-Extension, version mismatches, declared conflicts, host incompatibility and cycles each fail the project.
+- **`ContributionRegistry<T>`** implements the identity rule. Each id holds a stack ordered by rank (engine 0, a module's priority + 1). `Resolve` returns the top; `Provenance` lists the winner and every shadowed provider.
+  - Local ids (`<module id>:<name>`) are provided only by their owner. A higher module or Plugin replaces one only with `Override`, declared in its manifest's `overrides` with a range of the owner's version.
+  - Shared ids (no `:`) must be declared by the engine (`ModuleHostDesc::engineContracts`) or an Extension's `contracts`. The highest provider wins outright.
+  - Plugins only override: an existing shared id, or a declared override.
+  - `Subscribe` reports ids whose winner changed. `ExtractProvider`/`Restore` let the host roll back a reload.
+- **Hooks** (`Hooks.h`): `HookRegistry` keeps type-erased implementations in a `ContributionRegistry`. `HookPoint<R(Args...)>` calls the winner, and each implementation receives `HookNext`, the one it replaced.
+  - `ClassFactory<T>` is a hook returning `std::unique_ptr<T>`.
+  - Modules use their `ModuleScope` (`DeclareHook`, `DeclareFactory`, `INTERI_OVERRIDE(scope, targetId, impl)`).
+  - Signatures are compared by their compiler spelling.
+- **Tests** share `tests/sdk/modules`: Extension `com.test.ext`, modules `com.test.a` and `com.test.b`, and Plugin `com.test.plugin`, with conflicting shared ids and overrides. The hotreload tests build their libraries from `tests/hotreload/modules/SdkTestModule.cpp`.
+
+## Hot reload and module host (`engine/hotreload`, namespace `interi::hotreload`)
+
+- **Module ABI v2** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
+  - The loader rejects a library whose `ModuleApi::toolchain` differs from `sdk::EngineToolchainFingerprint()`. Modules are built from source against the engine, which is what makes C++ types safe across the boundary.
   - Rules that keep this safe:
-    - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. A new non-trivial type asserts in module mode.
-    - Never hand the host memory or objects that outlive the module.
-    - Modules never call Jolt: their copy isn't initialised.
-  - Global or thread-local state that module code reaches must go through a host-created object (see JobSystem/Logger).
-- **`ModuleHost::Load(path)`** loads and reloads modules:
-  1. It copies the library to a uniquely named shadow file, then opens and registers it next to the old module.
-  2. It migrates entities whose module-owned component changed layout, using the new module's `ComponentMigrator`. All values are converted before any are applied.
-  3. Only then does it destroy the old module's `Scheduler` and close the old library.
-  - Any failure keeps the old module and leaves the world untouched: a missing file or entry point, an ABI mismatch, a refused registration, a layout change without a migrator, or a migrator refusing.
-  - Module systems run in the module's own Scheduler (`RunSystems`). After a reload, `Changed` matches everything once.
+    - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. Nothing else enforces it (there is no registry "module mode" any more).
+    - Never leave the host anything from module code that outlives the module. Systems, hooks and the state saver are destroyed before the library closes.
+    - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking its library: a shadow-copied DLL can't satisfy a link-time import.
+    - Modules never call Jolt.
+  - `registrar.Scope()` registers hooks. `SetStateSaver`/`SavedState` carry module-global bytes across a reload.
+- **`ModuleHost`**:
+  - `LoadProject(order, manifests)` resolves the graph, finds each `library` in the manifest's folder and then `librarySearchPaths`, and registers in load order.
+  - `Reload(id)` reopens the module and every loaded module that depends on it.
+  - `Load(path)` is a single manifest-less module (`local.module`), which the sandbox uses.
+  - Each transaction:
+    1. Copies every library to a unique shadow file and opens it.
+    2. Extracts the outgoing modules' hook entries.
+    3. Registers the new instances next to the old ones.
+    4. Migrates components with `ComponentMigrator`s.
+    5. Only then destroys the old entries and instances, dependents first.
+  - Any failure restores what was loaded and leaves the world untouched: unresolvable project, missing library or entry point, ABI or toolchain mismatch, refused registration, a layout change without a migrator, or a migrator refusing.
+  - The `HookRegistry` lives as long as the host, so `HookPoint`s survive loads. Each module's systems run in its own Scheduler, in load order. After a reload, `Changed` matches everything once.
+  - `ModuleHost::Supported()` is false for a static engine (`INTERI_BUILD_SHARED=OFF`). Loads then fail with Unsupported and the module tests aren't built.
 - **`FileWatcher`** polls size and mtime of files or directory trees.
-- Tests load six variants of `tests/hotreload/modules/TestModule.cpp`. `ModuleHostTest.Load_RunsSystemsOnHostWorld` under TSan catches the module-copy thread-state race.
-- Libraries a module links get `POSITION_INDEPENDENT_CODE` (set in `engine/hotreload/CMakeLists.txt`).
+- Tests load seven variants of `tests/hotreload/modules/TestModule.cpp` (7: wrong toolchain) plus the SDK test project. `ModuleHostTest` and `ModuleProjectTest` must stay clean under TSan.
 - **Tracy:** a process must have one Tracy instance. On Windows the overlay triplet `cmake/triplets/x64-windows-static-md.cmake` builds only the tracy port as a DLL. A static TracyClient in each module DLL deadlocks under the loader lock: the profile preset hung in `ModuleHostTest`.
-  - On Linux a module carries its own static Tracy. That works, but the module's zones go to a separate instance.
+- **`kMaxComponentTypes` is 1024**: ids are never recycled. `Query::MatchesArchetype` tests the queried ids rather than whole masks (`BM_QueryMatch_ManyArchetypes`).
 
 ## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
 

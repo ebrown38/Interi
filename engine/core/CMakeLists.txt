@@ -3,7 +3,7 @@ configure_file(src/Version.cpp.in ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.
 
 set(_tests ${PROJECT_SOURCE_DIR}/tests/core)
 
-interi_add_module(core
+interi_add_module(core SHARED
     SOURCES
         ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.cpp
         src/Archive.cpp
@@ -46,6 +46,11 @@ interi_add_module(core
         ${_tests}/ProfilingTests.cpp
         ${_tests}/ProfilingDisabledTests.cpp
         ${_tests}/ProfilingShippingTests.cpp)
+
+# Gameplay modules can link the engine only when it is shared (see interi/sdk/Toolchain.h).
+if(INTERI_BUILD_SHARED)
+    target_compile_definitions(interi_core PUBLIC INTERI_SHARED_ENGINE=1)
+endif()
 
 # CPU profiling (INTERI_ZONE macros, see Profiling.h): Tracy is linked only when INTERI_PROFILING is ON.
 if(INTERI_PROFILING)

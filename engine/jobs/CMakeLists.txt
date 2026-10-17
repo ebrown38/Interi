@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 set(_tests ${PROJECT_SOURCE_DIR}/tests/jobs)
 
-interi_add_module(jobs
+interi_add_module(jobs SHARED
     SOURCES
         src/HeaderCheck.cpp
         src/JobSystem.cpp

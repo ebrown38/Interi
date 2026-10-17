@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 set(_tests ${PROJECT_SOURCE_DIR}/tests/runtime)
 
-interi_add_module(runtime
+interi_add_module(runtime SHARED
     SOURCES
         src/FixedStepClock.cpp
         src/HeaderCheck.cpp

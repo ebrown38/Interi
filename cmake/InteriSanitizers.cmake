@@ -1,22 +1,30 @@
 # SPDX-License-Identifier: MIT
 # Sanitizer and coverage instrumentation. Applied globally so every Interi target links consistently.
 
+set(_compile "")
+set(_link "")
 if(INTERI_SANITIZER STREQUAL "asan")
     if(MSVC)
-        add_compile_options(/fsanitize=address)
+        set(_compile /fsanitize=address)
     else()
-        add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=address,undefined)
+        set(_compile -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+        set(_link -fsanitize=address,undefined)
     endif()
 elseif(INTERI_SANITIZER STREQUAL "tsan")
     if(MSVC)
         message(FATAL_ERROR "ThreadSanitizer is not supported by MSVC")
     endif()
-    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=thread)
+    set(_compile -fsanitize=thread -fno-omit-frame-pointer)
+    set(_link -fsanitize=thread)
 elseif(NOT INTERI_SANITIZER STREQUAL "")
     message(FATAL_ERROR "Unknown INTERI_SANITIZER '${INTERI_SANITIZER}' (expected '', 'asan' or 'tsan')")
 endif()
+
+# Out-of-tree modules are instrumented the same way (InteriBuildSettings.cmake).
+add_compile_options(${_compile})
+add_link_options(${_link})
+list(APPEND INTERI_ABI_COMPILE_OPTIONS ${_compile})
+list(APPEND INTERI_ABI_LINK_OPTIONS ${_link})
 
 if(INTERI_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")

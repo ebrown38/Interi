@@ -6,6 +6,7 @@
 //   4: Health v2 without a migrator (a reload over v1 health is rejected).
 //   5: refuses to load.
 //   6: built for another module ABI.
+//   7: reports another toolchain fingerprint.
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/Query.h>
 #include <interi/ecs/Scheduler.h>
@@ -134,11 +135,12 @@ bool Register(ModuleRegistrar& registrar)
 
 } // namespace
 
-#if INTERI_TEST_MODULE_VARIANT == 6
+#if INTERI_TEST_MODULE_VARIANT == 6 || INTERI_TEST_MODULE_VARIANT == 7
 INTERI_MODULE_EXPORT const interi::hotreload::ModuleApi* InteriGetModuleApi()
 {
     static const interi::hotreload::ModuleApi api{
-        .abiVersion = interi::hotreload::kModuleAbiVersion + 1000,
+        .abiVersion = interi::hotreload::kModuleAbiVersion + (kVariant == 6 ? 1000 : 0),
+        .toolchain = kVariant == 7 ? "abi2;another-compiler" : INTERI_TOOLCHAIN_FINGERPRINT,
         .load = &interi::hotreload::detail::LoadModule<&Register>,
         .unload = &interi::hotreload::detail::UnloadModule,
     };

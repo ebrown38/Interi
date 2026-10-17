@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace
@@ -127,6 +128,40 @@ void BM_AddRemoveChurn(benchmark::State& state)
     state.SetItemsProcessed(state.iterations() * kChurn * 2);
 }
 BENCHMARK(BM_AddRemoveChurn)->Unit(benchmark::kMicrosecond);
+
+template <int N>
+struct Flag
+{
+};
+
+template <int... N>
+void CreateFlagged(interi::World& world, int bits, std::integer_sequence<int, N...>)
+{
+    const interi::Entity entity = world.CreateEntity(Position{});
+    ((bits & (1 << N) ? (void)world.Add(entity, Flag<N>{}) : (void)0), ...);
+}
+
+/// Query matching cost, which is dominated by ComponentMask operations (kMaxComponentTypes bits per mask): 256
+/// archetypes of one entity each (every combination of 8 tags), matched against With/Without.
+void BM_QueryMatch_ManyArchetypes(benchmark::State& state)
+{
+    constexpr int kArchetypes = 256;
+    interi::World world;
+    for (int bits = 0; bits < kArchetypes; ++bits)
+    {
+        CreateFlagged(world, bits, std::make_integer_sequence<int, 8>{});
+    }
+    interi::Query query;
+    query.With<Position, Flag<0>>().Without<Flag<7>>();
+    for (auto _ : state)
+    {
+        std::uint32_t matched = 0;
+        query.ForEachChunk(world, [&matched](interi::ChunkView& view) { matched += view.Count(); });
+        benchmark::DoNotOptimize(matched);
+    }
+    state.SetItemsProcessed(state.iterations() * kArchetypes);
+}
+BENCHMARK(BM_QueryMatch_ManyArchetypes)->Unit(benchmark::kMicrosecond);
 
 /// Recording 100k destroy + create commands across threads, then playing them back.
 void BM_CommandBufferPlayback(benchmark::State& state)

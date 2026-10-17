@@ -2,6 +2,7 @@
 // The sandbox's hot-reloadable gameplay rules (see interi/hotreload/ModuleApi.h). Edit, rebuild the
 // interi_sandbox_module target (or run the sandbox with --hot-reload 1, which rebuilds it when this directory
 // changes), and the running sandbox swaps the new code in without losing its world.
+#include <interi/core/Log.h>
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/Query.h>
 #include <interi/ecs/Scheduler.h>

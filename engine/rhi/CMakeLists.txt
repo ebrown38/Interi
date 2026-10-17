@@ -3,7 +3,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/rhi)
 
 # Backend-neutral render hardware interface plus the CPU-side managers built on it. Backends (rhi_vulkan, later
 # D3D12 and consoles) implement IDevice; everything here is tested against tests/rhi/MockDevice.h.
-interi_add_module(rhi
+interi_add_module(rhi SHARED
     SOURCES
         src/CommandListPool.cpp
         src/HeaderCheck.cpp

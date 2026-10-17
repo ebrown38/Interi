@@ -120,13 +120,13 @@ public:
     template <Component... Ts>
     Query& With()
     {
-        (m_with.set(ComponentId<Ts>()), ...);
+        (m_with.push_back(ComponentId<Ts>()), ...);
         return *this;
     }
     template <Component... Ts>
     Query& Without()
     {
-        (m_without.set(ComponentId<Ts>()), ...);
+        (m_without.push_back(ComponentId<Ts>()), ...);
         return *this;
     }
     template <Component... Ts>
@@ -186,7 +186,26 @@ public:
 private:
     [[nodiscard]] bool MatchesArchetype(const detail::Archetype& archetype) const noexcept
     {
-        return (archetype.mask & m_with) == m_with && (archetype.mask & m_without).none() && !archetype.chunks.empty();
+        // A query names a few ids, so testing them is cheaper than whole-mask operations (kMaxComponentTypes bits).
+        if (archetype.chunks.empty())
+        {
+            return false;
+        }
+        for (const ComponentTypeId id : m_with)
+        {
+            if (!archetype.mask.test(id))
+            {
+                return false;
+            }
+        }
+        for (const ComponentTypeId id : m_without)
+        {
+            if (archetype.mask.test(id))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     [[nodiscard]] bool MatchesChunk(const detail::Archetype& archetype, const detail::Chunk& chunk,
@@ -225,8 +244,8 @@ private:
         }
     }
 
-    ComponentMask m_with;
-    ComponentMask m_without;
+    std::vector<ComponentTypeId> m_with;
+    std::vector<ComponentTypeId> m_without;
     ComponentMask m_changed;
     std::uint64_t m_lastRun = 0;
 };

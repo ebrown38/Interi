@@ -120,7 +120,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## ECS (`engine/ecs`)
 
-- **Components** are any nothrow-movable types, registered on first use of `ComponentId<T>()` (at most 256 types). Empty types are storage-free tags.
+- **Components** are any nothrow-movable types, registered on first use of `ComponentId<T>()` (at most `kMaxComponentTypes` = 1024 types). Empty types are storage-free tags.
   - Ids depend on first-use order, so they must never affect layout, iteration order or hashed state. Columns are ordered by name.
   - Identity is the name: `T::kComponentName` if declared (stable across compilers and hot-reloaded modules), else the compiler's type name.
     - Re-registering a name with the same size, alignment and `kComponentVersion` returns the existing id.

@@ -47,6 +47,7 @@ struct ModuleHost::Loaded
         saver = nullptr;
         if (attached)
         {
+            INTERI_LOG_INFO("HotReload", "unloading module '{}'", id);
             api->unload();
         }
         library.Close();
@@ -458,16 +459,17 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     std::vector<std::unique_ptr<Loaded>> leaving;
     for (const std::string& id : plan.outgoing)
     {
-        const auto it = std::ranges::find_if(m_modules, [&](const auto& module) { return module->id == id; });
+        const auto it =
+            std::ranges::find_if(m_modules, [&](const auto& module) { return module != nullptr && module->id == id; });
         if (it != m_modules.end())
         {
             leaving.push_back(std::move(*it));
             *it = nullptr;
         }
     }
-    while (!leaving.empty())
+    for (auto& module : leaving) // dependents first: `outgoing` is in that order
     {
-        leaving.pop_back();
+        module.reset();
     }
 
     if (plan.graph)

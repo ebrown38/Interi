@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // ModuleHost::LoadProject / Reload over the shared SDK test project (tests/sdk/modules; libraries built from
 // modules/SdkTestModule.cpp).
+#include <interi/core/Log.h>
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleHost.h>
@@ -14,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -31,6 +33,29 @@ using Fire = int(int);
 using Greet = std::string(const std::string&);
 
 const std::vector<std::string> kProject = {"com.test.plugin", "com.test.b", "com.test.a"};
+
+/// Collects "unloading module '<id>'" log lines, in order.
+class UnloadSink final : public interi::ILogSink
+{
+public:
+    explicit UnloadSink(std::shared_ptr<std::vector<std::string>> unloaded)
+        : m_unloaded(std::move(unloaded))
+    {
+    }
+
+    void Write(const interi::LogRecord& record) override
+    {
+        constexpr std::string_view kPrefix = "unloading module '";
+        if (record.message.starts_with(kPrefix))
+        {
+            const std::string_view rest = record.message.substr(kPrefix.size());
+            m_unloaded->emplace_back(rest.substr(0, rest.find('\'')));
+        }
+    }
+
+private:
+    std::shared_ptr<std::vector<std::string>> m_unloaded;
+};
 
 interi::JobSystemDesc Workers(std::uint32_t count)
 {
@@ -194,4 +219,27 @@ TEST_F(ModuleProjectTest, Unload_RemovesEverything)
     EXPECT_FALSE(host.IsLoaded());
     EXPECT_TRUE(host.Hooks().Registry().Ids().empty());
     EXPECT_FALSE(host.Hooks().Find<Fire>("com.test.a:Fire").IsValid());
+}
+
+TEST_F(ModuleProjectTest, Reload_UnloadsOldInstancesDependentsFirst)
+{
+    ModuleHost host(world, Desc());
+    ASSERT_TRUE(host.LoadProject(kProject, manifests).has_value());
+
+    interi::LoggerConfig config;
+    config.startFlushThread = false;
+    interi::Logger logger(config);
+    auto unloaded = std::make_shared<std::vector<std::string>>();
+    logger.AddSink(std::make_unique<UnloadSink>(unloaded));
+    interi::Logger* const previous = interi::SetGlobalLogger(&logger);
+
+    ASSERT_TRUE(host.Reload("com.test.ext").has_value());
+    logger.Flush();
+    EXPECT_EQ(*unloaded, (std::vector<std::string>{"com.test.b", "com.test.a", "com.test.ext"}));
+
+    unloaded->clear();
+    host.Unload();
+    logger.Flush();
+    EXPECT_EQ(*unloaded, (std::vector<std::string>{"com.test.plugin", "com.test.b", "com.test.a", "com.test.ext"}));
+    (void)interi::SetGlobalLogger(previous);
 }

@@ -18,6 +18,9 @@
 #include <interi/jobs/JobSystem.h>
 #include <interi/physics/Queries.h>
 #include <interi/platform_sdl/SdlPlatform.h>
+#include <interi/sdk/Manifest.h>
+#include <interi/sdk/ModuleGraph.h>
+#include <interi/values/ProjectData.h>
 
 #include <imgui.h>
 
@@ -87,7 +90,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v2.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v3.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -116,6 +119,81 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     m_platform.SetTextInput(window, true);
     m_assetList = ListAssets(m_dataDir);
     m_structure.replayPath = (std::filesystem::temp_directory_path() / "interi_editor_session.irpl").string();
+    OpenProject(desc);
+}
+
+void EditorApp::OpenProject(const EditorAppDesc& desc)
+{
+    if (desc.modulesDir.empty())
+    {
+        return;
+    }
+    std::vector<sdk::ModuleManifest> manifests;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(desc.modulesDir, error))
+    {
+        if (!std::filesystem::exists(entry.path() / "module.json"))
+        {
+            continue;
+        }
+        auto manifest = sdk::LoadManifest(entry.path());
+        if (!manifest)
+        {
+            INTERI_LOG_ERROR("Editor", "{}", manifest.error().message);
+            return;
+        }
+        manifests.push_back(std::move(*manifest));
+    }
+    std::vector<std::string> order = desc.project;
+    if (order.empty())
+    {
+        for (const sdk::ModuleManifest& manifest : manifests)
+        {
+            order.push_back(manifest.id);
+        }
+        std::ranges::sort(order);
+    }
+    auto graph = sdk::ResolveModuleGraph(order, manifests, sdk::CurrentHost());
+    if (!graph)
+    {
+        INTERI_LOG_ERROR("Editor", "project: {}", graph.error().message);
+        return;
+    }
+    auto project = ProjectData::Create(*graph);
+    if (!project)
+    {
+        INTERI_LOG_ERROR("Editor", "project: {}", project.error().message);
+        return;
+    }
+    m_project = std::move(*project);
+    m_projectDataPath = desc.projectDataPath;
+    if (!m_projectDataPath.empty() && std::filesystem::exists(m_projectDataPath))
+    {
+        std::ifstream file(m_projectDataPath, std::ios::binary);
+        const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        auto loaded = values::LoadProjectData(text, m_project->Data());
+        if (!loaded)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", m_projectDataPath.string(), loaded.error().message);
+        }
+        for (const std::string& warning : loaded.value_or(std::vector<std::string>{}))
+        {
+            INTERI_LOG_WARN("Editor", "{}: {}", m_projectDataPath.string(), warning);
+        }
+    }
+    INTERI_LOG_INFO("Editor", "project of {} modules ({} values, {} archetypes, {} tables)", graph->modules.size(),
+                    m_project->Data().Values().Ids().size(), m_project->Data().Characters().ArchetypeIds().size(),
+                    m_project->Data().Tables().TableIds().size());
+}
+
+void EditorApp::SaveProjectData()
+{
+    if (m_project == nullptr || m_projectDataPath.empty())
+    {
+        return;
+    }
+    std::ofstream(m_projectDataPath, std::ios::binary | std::ios::trunc) << values::WriteProjectData(m_project->Data());
+    INTERI_LOG_INFO("Editor", "saved {}", m_projectDataPath.string());
 }
 
 EditorApp::~EditorApp()
@@ -898,6 +976,12 @@ FrameResult EditorApp::Frame()
     const AssetRequests assets = DrawAssetsPanel(m_assetList);
     const FractureRequests fracture = DrawFracturePanel(m_fracture, m_preview, m_assetList);
     const StructureRequests structure = DrawStructurePanel(m_structure, Status());
+    if (m_project != nullptr)
+    {
+        DrawValuesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
+        DrawCharactersPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
+        DrawDataTablesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
+    }
     DrawViewport();
     const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
@@ -966,6 +1050,7 @@ FrameResult EditorApp::Frame()
         {
             INTERI_LOG_INFO("Editor", "saved {}", m_document.Path());
         }
+        SaveProjectData();
     }
     result.quit = result.quit || requests.quit;
 

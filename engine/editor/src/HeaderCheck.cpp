@@ -3,6 +3,7 @@
 // engine's warnings and checked by clang-tidy.
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/Commands.h>
+#include <interi/editor/DataEditing.h>
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorMath.h>

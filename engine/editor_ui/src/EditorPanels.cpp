@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/Inspector.h>
+#include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ValueWidgets.h>
 
@@ -53,6 +54,9 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout)
         ImGui::DockBuilderDockWindow(kToolsWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kFractureWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kStructureWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kValuesWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kCharactersWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kDataTablesWindow, bottom);
         ImGui::DockBuilderDockWindow(kAssetsWindow, bottom);
         ImGui::DockBuilderDockWindow(kViewportWindow, centre);
         ImGui::DockBuilderFinish(dockspace);

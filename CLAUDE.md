@@ -172,31 +172,46 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Hot reload and module host (`engine/hotreload`, namespace `interi::hotreload`)
 
-- **Module ABI v2** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
+- **Module ABI v3** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
   - The loader rejects a library whose `ModuleApi::toolchain` differs from `sdk::EngineToolchainFingerprint()`. Modules are built from source against the engine, which is what makes C++ types safe across the boundary.
   - Rules that keep this safe:
     - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. Nothing else enforces it (there is no registry "module mode" any more).
     - Never leave the host anything from module code that outlives the module. Systems, hooks and the state saver are destroyed before the library closes.
     - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking its library: a shadow-copied DLL can't satisfy a link-time import.
     - Modules never call Jolt.
-  - `registrar.Scope()` registers hooks. `SetStateSaver`/`SavedState` carry module-global bytes across a reload.
+  - `registrar.Scope()` registers hooks. `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `SetStateSaver`/`SavedState` carry module-global bytes across a reload.
 - **`ModuleHost`**:
   - `LoadProject(order, manifests)` resolves the graph, finds each `library` in the manifest's folder and then `librarySearchPaths`, and registers in load order.
   - `Reload(id)` reopens the module and every loaded module that depends on it.
   - `Load(path)` is a single manifest-less module (`local.module`), which the sandbox uses.
   - Each transaction:
     1. Copies every library to a unique shadow file and opens it.
-    2. Extracts the outgoing modules' hook entries.
-    3. Registers the new instances next to the old ones.
+    2. Extracts the outgoing modules' hook entries and data.
+    3. Registers the new instances next to the old ones: each module's module.json data (re-read on reload) first, then its code.
     4. Migrates components with `ComponentMigrator`s.
-    5. Only then destroys the old entries and instances, dependents first.
-  - Any failure restores what was loaded and leaves the world untouched: unresolvable project, missing library or entry point, ABI or toolchain mismatch, refused registration, a layout change without a migrator, or a migrator refusing.
+    5. Only then destroys the old entries and instances, dependents first, migrates `AttributeBlock`s to their archetypes' new layouts and logs project data that no longer fits (`Revalidate`).
+  - Any failure restores what was loaded and leaves the world untouched: unresolvable project, missing library or entry point, ABI or toolchain mismatch, invalid module data, refused registration, a layout change without a migrator, or a migrator refusing.
   - The `HookRegistry` lives as long as the host, so `HookPoint`s survive loads. Each module's systems run in its own Scheduler, in load order. After a reload, `Changed` matches everything once.
   - `ModuleHost::Supported()` is false for a static engine (`INTERI_BUILD_SHARED=OFF`). Loads then fail with Unsupported and the module tests aren't built.
 - **`FileWatcher`** polls size and mtime of files or directory trees.
 - Tests load seven variants of `tests/hotreload/modules/TestModule.cpp` (7: wrong toolchain) plus the SDK test project. `ModuleHostTest` and `ModuleProjectTest` must stay clean under TSan.
 - **Tracy:** a process must have one Tracy instance. On Windows the overlay triplet `cmake/triplets/x64-windows-static-md.cmake` builds only the tracy port as a DLL. A static TracyClient in each module DLL deadlocks under the loader lock: the profile preset hung in `ModuleHostTest`.
 - **`kMaxComponentTypes` is 1024**: ids are never recycled. `Query::MatchesArchetype` tests the queried ids rather than whole masks (`BM_QueryMatch_ManyArchetypes`).
+
+## Values (`engine/values`, namespace `interi::values`)
+
+- **One value system** for reflected component fields, module Values, character attributes and table cells.
+  - `ValueType` (index = `Value`'s variant index; append only): Bool, U32, Float, Vec3, Quat, String, Int (int32), Color (linear RGBA), Enum (option name), AssetRef (normalised virtual path), EntityRef (stable u64 id, never an ECS handle), List (scalars only).
+  - `ValueSchema` = type, list element, enum options, `ValueMeta` (min/max, step, unit, category, tooltip, readOnly, shared), default. `ValidateSchema`/`ValidateValue`; floats must be finite.
+  - JSON is schema-directed (`ParseValueJson`, `ValueToJsonText`; floats round-trip bit-exactly); `Serialize(Archive&, Value&)` is bit-exact and rejects unknown types, nested lists and impossible counts (`ArchiveReader::Fail`).
+  - Reflection (`Reflection.h`): `registry.Register<T>({Field("x", &T::x, meta)})`, offsets measured on a value-initialised T.
+- **Module data** lives in module.json sections (`ModuleContent.h`, `Characters.h`, `DataTables.h` document the formats): `values`, `attributes`, `attributeSets`, `archetypes`, `dataTables`. An `"id"` is a local name (`<module>:<name>`) unless `"shared": true` (a declared contract id); `"overrides"` names a lower module's local item (declared in the manifest) and must keep its type.
+- **`DataRegistry`** = `ValueRegistry` + `CharacterRegistry` + `DataTableRegistry`, each a `ContributionRegistry` per item kind plus a **project layer** on top (project > higher module > lower module). The project layer is not a provider: entries are kept even when they stop fitting (inactive: reads fall back to the default; `Revalidate` reports them). `Provenance` lists `project` first.
+- **Characters.** An archetype's `AttributeLayout` = its sets' attributes (first wins), defaults: attribute < archetype < project. `AttributeBlock` (engine component, trivially copyable, at most `kMaxAttributes` = 32 slots of key + 32-bit bits + type) is self-describing, so `MigrateAttributeBlock` remaps by attribute key (convert bool/int/float, clamp, new = default, removed = dropped).
+- **Tables.** Modules declare columns (`renamedFrom` for renames); the project supplies rows by id. Invalid cells read as the default; `Validate` locates issues by table, row and column (`TableIssue::Text`).
+- **Project data** (`ProjectData.h`): JSON with sorted keys and a `schemas` map of the version each item was written against. Same version + invalid data fails the load (all or nothing); another version migrates with warnings. Unknown ids are kept and written back. Items that don't fit are written with their old version so they migrate next time.
+- **Cooked data** (`IVAL`: payload hash + versioned Archive): `CookData` resolves values, archetype layouts and table rows for a shipped game; `ReadCookedData` rejects corrupt files.
+- **Tests** use the shared SDK test project's data (`tests/sdk/modules`; `tests/values/*` headers describe it). `Values_RoundTrip_BitExact` pins JSON and binary round trips.
 
 ## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
 
@@ -434,9 +449,9 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   undo, camera and gizmo math, picking, fracture preview, play sessions and replays. `interi::editor_ui` is the Dear
   ImGui layer (imgui 1.92 docking, no SDL/Vulkan bindings: input comes from `InputEvent`s, drawing goes through the
   RHI). `tools/editor` builds `level_editor` (the `interi_editor` target name is the core library).
-- **Reflection** (`Reflection.h`) is keyed by component registry name: `registry.Register<T>({Field("x", &T::x)})`
-  with field types Bool, U32, Float, Vec3, Quat, String. `RegisterEngineReflection` covers Transform, the document
-  components and VehicleComponent / WreckComponent. Offsets are measured on a value-initialised T.
+- **Reflection** is `interi::values`' (`editor/Reflection.h` aliases it: `FieldType` = `values::ValueType`,
+  `FieldValue` = `values::Value`). `RegisterEngineReflection` covers Transform, the document components and
+  VehicleComponent / WreckComponent. Field widgets for every value type are `ValueWidget` (`editor_ui/ValueWidgets.h`).
 - **Document.** `EditorScene` holds the level JSON as ECS entities: `EditorIdComponent` (stable id across
   delete/undo, not reflected), Transform, and one kind component (`StaticBoxComponent`,
   `DestructiblePlacementComponent`, `SpawnPointComponent`; a spawn point's yaw is its rotation about +Y).
@@ -444,7 +459,13 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   reflected components only.
 - **Undo.** `UndoStack` executes `ICommand`s; commands with the same non-zero merge key merge until `Seal()` (the UI
   seals on widget release), a capacity drops the oldest, `MarkClean`/`IsDirty` track the save point. Edits go through
-  `EditField` / `EditTransform` / `EditorDocument::Add` / `DeleteSelection`.
+  `EditField` / `EditTransform` / `EditorDocument::Add` / `DeleteSelection`, and project data edits through
+  `DataEditing.h` (`EditValue`, `EditAttributeDefault`, `EditCell`, `AddTableRow`, `RemoveTableRow`; checked before
+  they are recorded).
+- **Project data.** `ProjectData::Create(graph)` builds a `DataRegistry` from manifests (no libraries). The Values,
+  Characters and Data Tables panels (`editor_ui/DataPanels.h`) show provenance badges (`ProvenanceBadge`/`Tooltip`).
+  `level_editor --modules <dir> [--project a,b] [--project-data file.json]` edits them; the file is saved with the
+  level.
 - **ImGui renderer.** Implements `ImGuiBackendFlags_RendererHasTextures` (atlas re-uploaded synchronously when it
   changes). `ImTextureID` = bindless index + 1 (0 is invalid). Vertex colours are linearised for sRGB targets.
   Headless tests use `tests/editor_ui/ImGuiTestContext.h` (acknowledges texture requests; set
@@ -466,7 +487,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Smoke run:** `level_editor --video-driver offscreen --frames 120 --demo 1 --screenshot out.ppm` (plays the level,
   detonates, saves and verifies a replay, writes the last frame). `--fracture destruction/samples/building.gltf`
   opens a source in the Fracture panel. The dock layout is saved in the temp directory
-  (`interi_editor_layout_v2.ini`; bump the version when windows are added).
+  (`interi_editor_layout_v3.ini`; bump the version when windows are added).
 
 ## Dependencies and licensing
 

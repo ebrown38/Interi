@@ -181,6 +181,23 @@ TEST_F(Registry, ChangeNotifications_FireWhenWinnerChanges)
     EXPECT_EQ(changed.size(), 4u);
 }
 
+TEST_F(Registry, ExtractAndRestore_RoundTrips)
+{
+    ASSERT_TRUE(registry.Provide("com.test.b", "service.Greeter", "b").has_value());
+    ASSERT_TRUE(registry.Provide("com.test.a", "service.Greeter", "a").has_value());
+    ASSERT_TRUE(registry.Provide("com.test.a", "com.test.a:Fire", "a").has_value());
+    ASSERT_TRUE(registry.Override("com.test.b", "com.test.a:Fire", "b").has_value());
+
+    auto extracted = registry.ExtractProvider("com.test.b");
+    EXPECT_EQ(extracted.size(), 2u);
+    EXPECT_EQ(*registry.Resolve("service.Greeter"), "a");
+    EXPECT_EQ(*registry.Resolve("com.test.a:Fire"), "a");
+
+    registry.Restore(std::move(extracted));
+    EXPECT_EQ(*registry.Resolve("service.Greeter"), "b");
+    EXPECT_EQ(Providers(registry, "com.test.a:Fire"), (std::vector<std::string>{"com.test.b", "com.test.a"}));
+}
+
 TEST_F(Registry, UnknownProvider_Error)
 {
     EXPECT_EQ(registry.Provide("com.test.nobody", "com.test.nobody:X", "x").error().code, ErrorCode::NotFound);

@@ -9,7 +9,7 @@
 //
 // It is assembled by the preprocessor in this header, so each binary reports the toolchain that compiled it: compiler
 // and major.minor version, standard library and its debug mode, C++ standard, module ABI version, CPU baseline, and
-// the Interi build switches that change public layouts or behaviour (shipping, profiling).
+// the Interi build switches that change public layouts or behaviour (shipping, profiling, shared engine).
 
 #define INTERI_DETAIL_STRINGIFY_INNER(x) #x
 #define INTERI_DETAIL_STRINGIFY(x) INTERI_DETAIL_STRINGIFY_INNER(x)
@@ -72,6 +72,13 @@
 #define INTERI_DETAIL_FP_SHIPPING "dev"
 #endif
 
+// A module can only share the engine when the engine is a set of shared libraries.
+#if defined(INTERI_SHARED_ENGINE)
+#define INTERI_DETAIL_FP_LINKAGE "shared"
+#else
+#define INTERI_DETAIL_FP_LINKAGE "static"
+#endif
+
 #if defined(INTERI_ENABLE_PROFILING)
 #define INTERI_DETAIL_FP_PROFILING "profiling"
 #else
@@ -83,7 +90,8 @@
     "abi" INTERI_DETAIL_STRINGIFY(INTERI_MODULE_ABI_VERSION) ";" INTERI_DETAIL_FP_COMPILER ";" INTERI_DETAIL_FP_STDLIB \
                                                              ";" INTERI_DETAIL_FP_DEBUG ";" INTERI_DETAIL_FP_STD       \
                                                              ";" INTERI_DETAIL_FP_ARCH ";" INTERI_DETAIL_FP_SHIPPING   \
-                                                             ";" INTERI_DETAIL_FP_PROFILING
+                                                             ";" INTERI_DETAIL_FP_PROFILING                            \
+                                                             ";" INTERI_DETAIL_FP_LINKAGE
 
 namespace interi::sdk
 {

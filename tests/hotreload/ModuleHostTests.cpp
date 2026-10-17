@@ -34,6 +34,7 @@ const char* const kModuleV3Migrate = INTERI_TEST_MODULE_V3;
 const char* const kModuleV3NoMigrator = INTERI_TEST_MODULE_V4;
 const char* const kModuleRefuses = INTERI_TEST_MODULE_V5;
 const char* const kModuleBadAbi = INTERI_TEST_MODULE_V6;
+const char* const kModuleOtherToolchain = INTERI_TEST_MODULE_V7;
 
 JobSystemDesc Workers(std::uint32_t count)
 {
@@ -45,7 +46,12 @@ JobSystemDesc Workers(std::uint32_t count)
 class ModuleHostTest : public ::testing::Test
 {
 protected:
-    interi::hotreload::ModuleHostDesc Desc() const { return {.shadowDirectory = m_temp.Path()}; }
+    interi::hotreload::ModuleHostDesc Desc() const
+    {
+        interi::hotreload::ModuleHostDesc desc;
+        desc.shadowDirectory = m_temp.Path();
+        return desc;
+    }
 
     std::vector<Entity> CreateCounters(std::size_t count)
     {
@@ -187,6 +193,11 @@ TEST_F(ModuleHostTest, LoadFailure_KeepsOldModule)
     const auto badAbi = host.Load(kModuleBadAbi);
     ASSERT_FALSE(badAbi.has_value());
     EXPECT_EQ(badAbi.error().code, interi::ErrorCode::VersionMismatch);
+
+    const auto otherToolchain = host.Load(kModuleOtherToolchain);
+    ASSERT_FALSE(otherToolchain.has_value());
+    EXPECT_EQ(otherToolchain.error().code, interi::ErrorCode::VersionMismatch);
+    EXPECT_NE(otherToolchain.error().message.find("toolchain"), std::string::npos);
 
     EXPECT_TRUE(host.IsLoaded());
     EXPECT_EQ(host.Generation(), 1u);

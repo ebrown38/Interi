@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-// The boundary between the engine (host) and a hot-reloadable gameplay module (a .so / .dll built from game code).
+// The boundary between the engine (host) and a gameplay module: a Module, Extension or Plugin built as a shared
+// library (.so / .dll) from game code, described by a module.json manifest (see interi/sdk/Manifest.h).
 //
-// A module statically links its own copy of interi_core, interi_jobs and interi_ecs. Everything that copy reaches
-// globally is redirected to the host while the module is loaded: the component registry (so both see the same
-// component ids), the global logger and the assert handler. The JobSystem and World are host objects (JobSystem
-// keeps its thread state in host code). The rules that keep this safe:
-//   - Components a module adds are trivially copyable and have an explicit kComponentName (DeclareComponent checks
-//     both), so nothing in the registry points into module code, and the module's types find the host's ids again
-//     after a reload. Bump kComponentVersion when the layout changes and pass a migrator.
-//   - Module code must not give the host anything that outlives the module: allocations from the module's own
-//     default allocator, function pointers or objects with module vtables. Systems are destroyed before the module
-//     is unloaded.
-//   - Modules never touch Jolt (their copy of it is not initialised): they read and write ECS components, and
-//     engine systems do the physics.
+// ABI v2: the engine is a set of shared libraries (INTERI_BUILD_SHARED) and every module links them, so the host and
+// all modules share one component registry, logger, assert handler and job thread state. Modules are distributed as
+// source and built against the engine; the loader rejects a module whose toolchain fingerprint (compiler, standard
+// library, debug level, ABI version, build switches; see interi/sdk/Toolchain.h) differs from the engine's, which is
+// what makes C++ types (std containers, std::function, vtables) safe across the boundary. The rules that remain:
+//   - Components a module owns are trivially copyable and have an explicit kComponentName (DeclareComponent checks
+//     both): the World keeps them across a reload with no pointers into module code, and the reloaded module finds
+//     the same ids. Bump kComponentVersion when the layout changes and pass a migrator.
+//   - Module code must not leave the host anything that outlives the module: objects with module vtables, function
+//     pointers, std::functions. Systems, hooks and the state saver are destroyed before the module is unloaded.
+//   - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking against
+//     its library (a shadow-copied DLL wouldn't satisfy a link-time import on Windows).
 //
 // Write a module like this:
 //
@@ -22,30 +23,37 @@
 //   {
 //       interi::hotreload::DeclareComponent<Health>(registrar);
 //       registrar.AddSystem("Regenerate", interi::SystemAccess{}.Write<Health>(), [](interi::SystemContext& c) {...});
-//       return true;
+//       const auto& scope = registrar.Scope(); // hooks: DeclareHook, DeclareFactory, INTERI_OVERRIDE
+//       return scope.DeclareHook<int(int)>(scope.Local("Damage"), ...).has_value();
 //   }
 //   INTERI_GAMEPLAY_MODULE(Register)
 
-#include <interi/core/Assert.h>
-#include <interi/core/Log.h>
 #include <interi/ecs/Component.h>
 #include <interi/ecs/Query.h>
 #include <interi/ecs/Scheduler.h>
+#include <interi/sdk/Hooks.h>
+#include <interi/sdk/Toolchain.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <span>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace interi::hotreload
 {
 
-/// Bumped whenever ModuleContext, ModuleApi or ModuleRegistrar change.
-inline constexpr std::uint32_t kModuleAbiVersion = 1;
+/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar or the hook types change (part of the fingerprint).
+inline constexpr std::uint32_t kModuleAbiVersion = INTERI_MODULE_ABI_VERSION;
 
 /// Converts one component from an older layout version to the declared one: reads `fromSize` bytes at `from`
 /// (written by a module with `fromVersion`) and writes a complete new value to `to`. False if it can't.
 using ComponentMigrator = bool (*)(std::uint32_t fromVersion, const void* from, std::size_t fromSize, void* to);
+
+/// Saves module-global state before the module is reloaded; the bytes reach the next instance (SavedState).
+using StateSaver = std::function<std::vector<std::byte>()>;
 
 /// What a module registers into, implemented by the host.
 class ModuleRegistrar
@@ -65,6 +73,13 @@ public:
     /// `system` runs after `dependency` (both by name).
     virtual void RunAfter(std::string_view system, std::string_view dependency) = 0;
 
+    /// The module's provider id and the project's hooks (declare hooks and factories, override other modules').
+    [[nodiscard]] virtual const sdk::ModuleScope& Scope() const = 0;
+    /// What the previous instance's StateSaver returned (empty on the first load).
+    [[nodiscard]] virtual std::span<const std::byte> SavedState() const = 0;
+    /// Called before this instance is unloaded for a reload.
+    virtual void SetStateSaver(StateSaver saver) = 0;
+
 protected:
     ~ModuleRegistrar() = default;
 };
@@ -82,9 +97,6 @@ void DeclareComponent(ModuleRegistrar& registrar, ComponentMigrator migrator = n
 struct ModuleContext
 {
     std::uint32_t abiVersion = kModuleAbiVersion;
-    ComponentRegistry* registry = nullptr;
-    Logger* logger = nullptr;
-    AssertHandler assertHandler = nullptr;
     ModuleRegistrar* registrar = nullptr;
 };
 
@@ -92,10 +104,11 @@ struct ModuleContext
 struct ModuleApi
 {
     std::uint32_t abiVersion = kModuleAbiVersion;
-    /// Attaches the module to the host (registry, logger, assert handler) and registers its components and
-    /// systems. False rejects the module.
+    /// INTERI_TOOLCHAIN_FINGERPRINT of the module binary; must equal the engine's.
+    const char* toolchain = nullptr;
+    /// Registers the module's components, systems and hooks. False rejects the module.
     bool (*load)(const ModuleContext& context) = nullptr;
-    /// Called before the module is closed (after its systems were destroyed).
+    /// Called before the module is closed (after its systems and hooks were destroyed).
     void (*unload)() = nullptr;
 };
 
@@ -105,43 +118,18 @@ inline constexpr const char* kModuleApiSymbol = "InteriGetModuleApi";
 namespace detail
 {
 
-/// True while this module's own (static) copy of the engine is redirected to the host. A module linked against the
-/// shared engine uses the host's globals directly and must not touch them.
-inline bool& AttachedToHost() noexcept
-{
-    static bool attached = false;
-    return attached;
-}
-
-/// The module side of ModuleApi::load: redirect this copy's globals to the host (static engine only), then register.
+/// The module side of ModuleApi::load.
 template <bool (*Register)(ModuleRegistrar&)>
 bool LoadModule(const ModuleContext& context)
 {
-    if (context.abiVersion != kModuleAbiVersion || context.registry == nullptr || context.registrar == nullptr)
+    if (context.abiVersion != kModuleAbiVersion || context.registrar == nullptr)
     {
         return false;
-    }
-    AttachedToHost() = &ActiveComponentRegistry() != context.registry;
-    if (AttachedToHost())
-    {
-        AttachToHostComponentRegistry(*context.registry);
-        (void)SetGlobalLogger(context.logger);
-        (void)SetAssertHandler(context.assertHandler);
     }
     return Register(*context.registrar);
 }
 
-inline void UnloadModule()
-{
-    if (!AttachedToHost())
-    {
-        return;
-    }
-    AttachedToHost() = false;
-    (void)SetGlobalLogger(nullptr);
-    (void)SetAssertHandler(nullptr);
-    DetachFromHostComponentRegistry();
-}
+inline void UnloadModule() {}
 
 } // namespace detail
 
@@ -161,6 +149,7 @@ inline void UnloadModule()
     {                                                                                                                  \
         static const ::interi::hotreload::ModuleApi api{                                                               \
             .abiVersion = ::interi::hotreload::kModuleAbiVersion,                                                      \
+            .toolchain = INTERI_TOOLCHAIN_FINGERPRINT,                                                                 \
             .load = &::interi::hotreload::detail::LoadModule<&registerFunction>,                                       \
             .unload = &::interi::hotreload::detail::UnloadModule,                                                      \
         };                                                                                                             \

@@ -235,18 +235,51 @@ public:
     }
 
     /// Removes everything `provider` contributed (its module is unloading). Notifies ids whose winner changed.
-    void RemoveProvider(std::string_view provider)
+    void RemoveProvider(std::string_view provider) { (void)ExtractProvider(provider); }
+
+    /// Removes and returns everything `provider` contributed, as (id, entry) pairs, so a failed reload can Restore
+    /// them. Notifies ids whose winner changed.
+    [[nodiscard]] std::vector<std::pair<std::string, Entry>> ExtractProvider(std::string_view provider)
     {
+        std::vector<std::pair<std::string, Entry>> extracted;
+        std::vector<std::string> changed;
         for (auto& [id, stack] : m_items)
         {
-            const bool wasWinner = !stack.empty() && stack.front().provider == provider;
-            std::erase_if(stack, [&](const Entry& entry) { return entry.provider == provider; });
-            if (wasWinner)
+            const auto it = std::ranges::find_if(stack, [&](const Entry& entry) { return entry.provider == provider; });
+            if (it == stack.end())
+            {
+                continue;
+            }
+            if (it == stack.begin())
+            {
+                changed.push_back(id);
+            }
+            extracted.emplace_back(id, std::move(*it));
+            stack.erase(it);
+        }
+        std::erase_if(m_items, [](const auto& item) { return item.second.empty(); });
+        for (const std::string& id : changed)
+        {
+            m_listeners.Notify(id);
+        }
+        return extracted;
+    }
+
+    /// Puts back entries returned by ExtractProvider (no rule checks: they were valid when added).
+    void Restore(std::vector<std::pair<std::string, Entry>> entries)
+    {
+        for (auto& [id, entry] : entries)
+        {
+            std::vector<Entry>& stack = m_items[id];
+            const auto position =
+                std::ranges::find_if(stack, [rank = entry.rank](const Entry& other) { return other.rank < rank; });
+            const bool newWinner = position == stack.begin();
+            stack.insert(position, std::move(entry));
+            if (newWinner)
             {
                 m_listeners.Notify(id);
             }
         }
-        std::erase_if(m_items, [](const auto& item) { return item.second.empty(); });
     }
 
     /// Calls `callback(id)` whenever the winner of an id changes (a new top provider, or the top one removed).

@@ -104,7 +104,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Virtual paths** are normalised: `/` separators, and `..` or `:` are rejected. `VirtualFileSystem` tries mounts newest first and falls through when a mount lacks the file. Writes go to the newest mount whose prefix matches.
 - **`AsyncFileReader`** reads on Low-priority jobs. Never wait for IO from inside a job, because `WaitFor` skips Low jobs while workers exist. Poll with `IsDone`/`TryTake`, or call `WaitAll` from a non-job thread.
 - **`DynamicLibrary`** tests load a real `MODULE` library (`interi_test_dynlib`) whose path is baked in via `$<TARGET_FILE:...>`.
-- **`interi::platform_sdl`** (SDL3) provides `SdlPlatform`, which is the `IEventSource` and opens `IWindow`s; only one may exist at a time. Event translation (`TranslateSdlEvent`, `KeyFromSdlScancode`) is pure and unit-tested.
+- **`interi::platform_sdl`** (SDL3) provides `SdlPlatform`, which is the `IEventSource` and opens `IWindow`s; only one may exist at a time. Event translation (`TranslateSdlEvent`, `KeyFromSdlScancode`, `TranslateText`) is pure and unit-tested. Typed text arrives as `TextInputEvent`s (UTF-8, cut at a character boundary) once `SetTextInput(window, true)` is on.
   - Real SDL tests use the `dummy` video driver, so they run headless in CI.
   - SDL3 is pulled in with `default-features: false` plus linux-qualified `x11`/`wayland`. The Linux build needs the X11/Wayland `-devel` packages listed in `ci.yml`'s `FEDORA_PACKAGES`.
 
@@ -209,7 +209,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`DestructionAudioConfig`** (`data/audio/destruction_audio.json`) holds impact banks by material pair (`*` wildcard; exact beats one wildcard beats none; ties go to file order) plus creak, rumble and explosion cues. Clip names resolve through a game-provided `ClipLibrary`. Volumes rise with log impulse and log mass.
 - **Material identity** is a `StringId`: a destructible chunk's or debris/rubble source's DestructionMaterial name, else an `AudioMaterialComponent` (vehicles, ground), else none (matches only `*`).
 - **`ImpactBatcher`** gives one voice per (bank, region cell) per step at the impulse-weighted centroid. Cells are centred on multiples of the size, so a floor at y = 0 sits mid-cell. Results are independent of insertion order.
-- **`StressAudio`** computes bond utilization (`BondUtilization`: load over the health-scaled limit, as DestructionWorld checks), scanned round-robin within a bond budget, and only for converged solves. A region creaks once per crossing, then re-arms after relaxing below `rearmThreshold` and a cooldown.
+- **`StressAudio`** computes bond utilization (`BondUtilization` in `StressSolver.h`: load over the health-scaled limit, as DestructionWorld checks), scanned round-robin within a bond budget, and only for converged solves. A region creaks once per crossing, then re-arms after relaxing below `rearmThreshold` and a cooldown.
 - **`CollapseAudio`** sums the mass of newly created unanchored pieces per region. A new instance's initial pieces don't count.
 - **`DestructionAudio::Update`** runs after `DestructionWorld::Update`. `PlayExplosion` is for blasts (the sandbox feeds `WeaponSystem::Blasts()`).
 
@@ -390,6 +390,46 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Interior materials** (`InteriorMaterials.h`): tileable procedural albedos (concrete aggregate, rusted steel, wood, glass, sheet metal) by `interiorMaterialId`, generated with integer arithmetic only (a test pins the concrete hash), mapped triplanar.
 - **Effects:** `DestructionWorld::BreakEvents()` lists the bonds broken in the last Update (recording them does not change the simulation). `BreakEffects` spawns per-material particles from them (dust and chips, sparks, splinters, shards) with seeded integer randomness. `GatherCrackDecals` puts a crack decal on every damaged bond whose chunks still move together, with `CrackOverlayIntensity` (none until 10% of the bond's health is lost, full at 90%).
 - **Tests and goldens:** `interi_destruction_render_gpu_tests` (integration) and `interi_destruction_render_golden_tests` (`tests/destruction_render/golden`) run on lavapipe with Jolt. The fractured-wall and decal goldens depend on the simulation, so a Jolt bump or a destruction change can move them. An executable linking both `physics_testing` and `vulkan_testing` gets one merged TSan suppression list.
+
+## Editor (`engine/editor`, `engine/editor_ui`, `tools/editor`, namespace `interi::editor`)
+
+- **Module split.** `interi::editor` is the editor without UI (tested headless): reflection, the level document,
+  undo, camera and gizmo math, picking, fracture preview, play sessions and replays. `interi::editor_ui` is the Dear
+  ImGui layer (imgui 1.92 docking, no SDL/Vulkan bindings: input comes from `InputEvent`s, drawing goes through the
+  RHI). `tools/editor` builds `level_editor` (the `interi_editor` target name is the core library).
+- **Reflection** (`Reflection.h`) is keyed by component registry name: `registry.Register<T>({Field("x", &T::x)})`
+  with field types Bool, U32, Float, Vec3, Quat, String. `RegisterEngineReflection` covers Transform, the document
+  components and VehicleComponent / WreckComponent. Offsets are measured on a value-initialised T.
+- **Document.** `EditorScene` holds the level JSON as ECS entities: `EditorIdComponent` (stable id across
+  delete/undo, not reflected), Transform, and one kind component (`StaticBoxComponent`,
+  `DestructiblePlacementComponent`, `SpawnPointComponent`; a spawn point's yaw is its rotation about +Y).
+  `Load(LevelDef)` / `ToLevel()`; `gameplay::WriteLevel` writes what `ParseLevel` reads. Snapshots and `Restore` cover
+  reflected components only.
+- **Undo.** `UndoStack` executes `ICommand`s; commands with the same non-zero merge key merge until `Seal()` (the UI
+  seals on widget release), a capacity drops the oldest, `MarkClean`/`IsDirty` track the save point. Edits go through
+  `EditField` / `EditTransform` / `EditorDocument::Add` / `DeleteSelection`.
+- **ImGui renderer.** Implements `ImGuiBackendFlags_RendererHasTextures` (atlas re-uploaded synchronously when it
+  changes). `ImTextureID` = bindless index + 1 (0 is invalid). Vertex colours are linearised for sRGB targets.
+  Headless tests use `tests/editor_ui/ImGuiTestContext.h` (acknowledges texture requests; set
+  `io.ConfigInputTrickleEventQueue = false` to apply queued input in one frame).
+- **Viewport.** The forward renderer draws into an offscreen texture shown with `ImGui::Image`; overlays (gizmos,
+  stress lines, brush strokes) are draw-list lines projected with the same `OrbitCamera`. The `MeshPool` only
+  appends, so when it fills the editor waits for the GPU, `Clear`s it and the `ChunkMeshCache`, and re-adds assets
+  as they are drawn (call `EditorRenderer::AddAsset` every frame for drawn assets).
+- **Fracture authoring.** `FracturePreview` cooks each opened glTF in memory with `destruction::CookScene` (what
+  `Cook` writes) and recooks only entries whose settings key (hash of `WriteCookConfig`) changed; the app recooks
+  when no widget is active. Painted seed density is `SeedPattern::Painted` (uniform base + strokes, one random
+  stream per stroke); material volumes assign chunks by centroid after the hierarchy is built. Both live in the
+  `.fracture.json` sidecar, so `fracture_cooker` reproduces the editor's result.
+- **Play and replays.** `PlaySession` spawns `ToLevel()` into fresh physics/ECS/destruction worlds (needs a
+  `JoltRuntime`) and steps at 60 Hz; `Detonate` queues an explosion for the next step and records it. `Replay` files
+  (IRPL: payload hash, versioned archive) hold the level JSON, the step-indexed explosions, the step count and the
+  final `StateHash` (Jolt SaveState + bond health). `RunReplay` reproduces it from a fresh spawn; tests compare 1/4/32
+  workers (`interi_editor_stress_tests`).
+- **Smoke run:** `level_editor --video-driver offscreen --frames 120 --demo 1 --screenshot out.ppm` (plays the level,
+  detonates, saves and verifies a replay, writes the last frame). `--fracture destruction/samples/building.gltf`
+  opens a source in the Fracture panel. The dock layout is saved in the temp directory
+  (`interi_editor_layout_v2.ini`; bump the version when windows are added).
 
 ## Dependencies and licensing
 

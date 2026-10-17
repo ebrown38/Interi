@@ -216,3 +216,60 @@ TEST(RenderMeshOptimize, KeepsTrianglesAndDropsUnusedVertices)
     }
     EXPECT_EQ(afterTriangles, beforeTriangles);
 }
+
+TEST_F(CookerTest, MaterialVolumeAndPaint_CookMatchesCookScene)
+{
+    // The wall gets a steel core and painted density near one end; Cook and CookScene agree on the result.
+    std::ofstream(m_dir.Path() / "house.fracture.json") << std::format(
+        R"({{ "materialsFile": "{}",
+             "defaults": {{ "levels": [ {{ "count": 4 }} ] }},
+             "objects": {{
+               "Terrain": {{ "anchor": true }},
+               "Wall": {{ "levels": [ {{ "pattern": "painted", "count": 4, "seed": 5,
+                                        "strokes": [ {{ "centre": [0.5, 1.3, 0.15], "radius": 0.6, "density": 60 }} ] }} ],
+                         "materialVolumes": [ {{ "shape": "box", "centre": [2, 1.3, 0.15], "halfExtents": [2, 1, 1],
+                                                "material": "steel" }} ] }} }} }})",
+        std::filesystem::path(INTERI_TEST_MATERIALS_FILE).generic_string());
+    const auto report = Cook(Request(), m_jobs);
+    ASSERT_TRUE(report.has_value()) << report.error().message;
+    const auto cooked = LoadDestructibleAsset(Output());
+    ASSERT_TRUE(cooked.has_value());
+
+    std::ifstream configFile(m_dir.Path() / "house.fracture.json");
+    const auto config =
+        ParseCookConfig(std::string(std::istreambuf_iterator<char>(configFile), std::istreambuf_iterator<char>()));
+    ASSERT_TRUE(config.has_value()) << config.error().message;
+    std::ifstream materialsFile(INTERI_TEST_MATERIALS_FILE);
+    const auto materials =
+        ParseMaterials(std::string(std::istreambuf_iterator<char>(materialsFile), std::istreambuf_iterator<char>()));
+    ASSERT_TRUE(materials.has_value());
+    auto scene = ImportGltf(Input());
+    ASSERT_TRUE(scene.has_value());
+    const auto preview = CookScene(std::move(*scene), *config, materials->materials, m_jobs);
+    ASSERT_TRUE(preview.has_value()) << preview.error().message;
+    EXPECT_EQ(*preview, *cooked);
+
+    const std::uint32_t steel = *FindMaterial(cooked->materials, "steel");
+    std::size_t steelLeaves = 0;
+    std::size_t wallLeaves = 0;
+    for (const AssetChunk& chunk : cooked->chunks)
+    {
+        if (chunk.childCount == 0 && chunk.centroid.y > 0.3f)
+        {
+            ++wallLeaves;
+            steelLeaves += chunk.material == steel ? 1 : 0;
+        }
+    }
+    EXPECT_GT(wallLeaves, 8u); // 4 base seeds plus the painted ones
+    EXPECT_EQ(steelLeaves, wallLeaves);
+}
+
+TEST_F(CookerTest, UnknownVolumeMaterial_Fails)
+{
+    std::ofstream(m_dir.Path() / "house.fracture.json") << std::format(
+        R"({{ "materialsFile": "{}", "objects": {{ "Wall": {{ "materialVolumes": [ {{ "material": "cheese" }} ] }} }} }})",
+        std::filesystem::path(INTERI_TEST_MATERIALS_FILE).generic_string());
+    const auto report = Cook(Request(), m_jobs);
+    ASSERT_FALSE(report.has_value());
+    EXPECT_EQ(report.error().code, ErrorCode::InvalidArgument);
+}

@@ -192,6 +192,68 @@ Result<LevelDef> LoadLevel(const IFileSystem& files, std::string_view path)
     return ParseLevel(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
 }
 
+std::string WriteLevel(const LevelDef& level)
+{
+    const auto vec3 = [](const Vec3& v) { return Json::array({v.x, v.y, v.z}); };
+    const auto placement = [&](Json& entry, const Transform& transform)
+    {
+        entry["position"] = vec3(transform.position);
+        const Quat& q = transform.rotation;
+        if (q.x != 0.0f || q.y != 0.0f || q.z != 0.0f || q.w != 1.0f)
+        {
+            entry["rotation"] = Json::array({q.x, q.y, q.z, q.w});
+        }
+    };
+    std::vector<std::pair<std::string_view, std::vector<Json>>> lists(3);
+    lists[0].first = "staticBoxes";
+    for (const StaticBoxDef& box : level.staticBoxes)
+    {
+        Json entry = Json::object();
+        placement(entry, box.transform);
+        entry["halfExtents"] = vec3(box.halfExtents);
+        lists[0].second.push_back(std::move(entry));
+    }
+    lists[1].first = "destructibles";
+    for (const DestructibleDef& destructible : level.destructibles)
+    {
+        Json entry = Json::object();
+        entry["asset"] = destructible.asset;
+        placement(entry, destructible.transform);
+        lists[1].second.push_back(std::move(entry));
+    }
+    lists[2].first = "spawnPoints";
+    for (const SpawnPoint& spawn : level.spawnPoints)
+    {
+        Json entry = Json::object();
+        entry["name"] = spawn.name;
+        entry["position"] = vec3(spawn.position);
+        if (spawn.yaw != 0.0f)
+        {
+            entry["yawDegrees"] = spawn.yaw * 180.0f / std::numbers::pi_v<float>;
+        }
+        lists[2].second.push_back(std::move(entry));
+    }
+
+    std::string out = "{";
+    bool firstList = true;
+    for (const auto& [key, entries] : lists)
+    {
+        if (entries.empty())
+        {
+            continue;
+        }
+        out += std::format("{}\n  \"{}\": [", firstList ? "" : ",", key);
+        firstList = false;
+        for (std::size_t i = 0; i < entries.size(); ++i)
+        {
+            out += std::format("{}\n    {}", i == 0 ? "" : ",", entries[i].dump());
+        }
+        out += "\n  ]";
+    }
+    out += "\n}\n";
+    return out;
+}
+
 const SpawnPoint* LoadedLevel::FindSpawnPoint(std::string_view name) const noexcept
 {
     const auto found = std::ranges::find(spawnPoints, name, &SpawnPoint::name);

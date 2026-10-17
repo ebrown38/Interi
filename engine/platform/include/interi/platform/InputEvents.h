@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <variant>
@@ -130,13 +131,20 @@ struct WindowResizedEvent
     std::uint32_t height;
 };
 
+/// Text typed while text input is on (SdlPlatform::StartTextInput): UTF-8, null-terminated, cut at a character
+/// boundary if longer than fits.
+struct TextInputEvent
+{
+    std::array<char, 32> text;
+};
+
 /// The user asked to close the window or quit the application.
 struct QuitEvent
 {
 };
 
 using InputEvent = std::variant<KeyEvent, MouseButtonEvent, MouseMotionEvent, MouseWheelEvent, GamepadConnectionEvent,
-                                GamepadButtonEvent, GamepadAxisEvent, WindowResizedEvent, QuitEvent>;
+                                GamepadButtonEvent, GamepadAxisEvent, WindowResizedEvent, TextInputEvent, QuitEvent>;
 
 /// Source of platform events (an OS event queue, or a fake in tests).
 class IEventSource

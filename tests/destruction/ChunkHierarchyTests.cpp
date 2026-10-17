@@ -5,6 +5,10 @@
 #include "DestructionTestUtil.h"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <vector>
+
 namespace
 {
 
@@ -104,4 +108,43 @@ TEST(Hierarchy, DominantMaterial_LargestArea)
     FractureMesh mesh = MakeBoxMesh({0, 0, 0}, {1, 1, 1}, 2);
     AppendMesh(mesh, MakeBoxMesh({2, 0, 0}, {2.5f, 0.5f, 0.5f}, 5));
     EXPECT_EQ(DominantMaterial(mesh), 2u);
+}
+
+TEST(MaterialVolume, ChunksInside_TakeVolumeMaterial)
+{
+    JobSystem jobs(Workers(2));
+    HierarchySettings settings;
+    SeedSettings grid;
+    grid.pattern = SeedPattern::Grid;
+    grid.gridCellSize = {1, 1, 1};
+    grid.jitter = 0.0f;
+    settings.levels.push_back(grid);
+    settings.maxDepth = 1;
+    ChunkHierarchy hierarchy = BuildHierarchy(MakeBoxMesh({0, 0, 0}, {4, 1, 1}), settings, jobs);
+    ASSERT_EQ(hierarchy.chunks.size(), 5u); // the bar and four 1 m cubes
+
+    const std::array volumes{
+        MaterialVolume{.shape = MaterialVolume::Shape::Box, .centre = {0.5f, 0.5f, 0.5f}, .material = 2},
+        MaterialVolume{
+            .shape = MaterialVolume::Shape::Sphere, .centre = {3.5f, 0.5f, 0.5f}, .radius = 0.2f, .material = 3},
+        MaterialVolume{.shape = MaterialVolume::Shape::Sphere,
+                       .centre = {3.5f, 0.5f, 0.5f},
+                       .radius = 0.3f,
+                       .material = 4}, // later volumes win
+    };
+    ApplyMaterialVolumes(hierarchy.chunks, volumes);
+    std::vector<std::uint32_t> materials;
+    for (std::size_t c = 1; c < hierarchy.chunks.size(); ++c)
+    {
+        materials.push_back(hierarchy.chunks[c].material);
+        for (const FractureTriangle& t : hierarchy.chunks[c].mesh.triangles)
+        {
+            EXPECT_EQ(t.material, hierarchy.chunks[c].material);
+        }
+    }
+    std::ranges::sort(materials);
+    EXPECT_EQ(materials, (std::vector<std::uint32_t>{0, 0, 2, 4}));
+    EXPECT_EQ(hierarchy.chunks[0].material, 0u); // the bar's centroid is in no volume
+    EXPECT_FALSE(volumes[1].Contains({3.5f, 0.75f, 0.5f}));
+    EXPECT_TRUE(volumes[0].Contains({1.0f, 1.0f, 1.0f}));
 }

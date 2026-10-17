@@ -89,6 +89,58 @@ TEST(Seeds, Grid_OnePerCellForPlanks)
     EXPECT_EQ(seeds.size(), 8u);
 }
 
+TEST(SeedPaint, Density_IncreasesLocalSeeds)
+{
+    const FractureMesh wall = MakeBoxMesh({-2, 0, -0.15f}, {2, 3, 0.15f});
+    const Vec3 corner{-1.4f, 0.6f, 0.0f};
+    const auto near = [&](const std::vector<Vec3>& seeds)
+    { return std::ranges::count_if(seeds, [&](const Vec3& s) { return interi::Length(s - corner) <= 0.5f; }); };
+
+    SeedSettings uniform;
+    uniform.count = 20;
+    uniform.randomSeed = 7;
+    SeedSettings painted = uniform;
+    painted.pattern = SeedPattern::Painted;
+    painted.strokes.push_back({.centre = corner, .radius = 0.5f, .density = 400.0f});
+    const auto base = GenerateSeeds(wall, uniform);
+    const auto seeds = GenerateSeeds(wall, painted);
+
+    // The base points are the uniform ones; the stroke adds about density x (disc of r = 0.5 through 0.3 m) = 94.
+    ASSERT_GE(seeds.size(), base.size());
+    EXPECT_TRUE(std::equal(base.begin(), base.end(), seeds.begin()));
+    const auto added = near(seeds) - near(base);
+    EXPECT_GT(added, 60);
+    EXPECT_LT(added, 130);
+    for (std::size_t i = base.size(); i < seeds.size(); ++i)
+    {
+        EXPECT_LE(interi::Length(seeds[i] - corner), 0.5f + 1e-5f);
+        EXPECT_TRUE(ContainsPoint(wall, seeds[i]));
+    }
+    EXPECT_EQ(seeds, GenerateSeeds(wall, painted)); // deterministic
+
+    // Editing one stroke leaves another's points alone.
+    painted.strokes.push_back({.centre = {1.0f, 2.0f, 0.0f}, .radius = 0.3f, .density = 300.0f});
+    const auto two = GenerateSeeds(wall, painted);
+    painted.strokes[1].radius = 0.4f;
+    const auto edited = GenerateSeeds(wall, painted);
+    const std::size_t first = seeds.size();
+    ASSERT_GE(two.size(), first);
+    EXPECT_TRUE(std::equal(seeds.begin(), seeds.end(), two.begin()));
+    EXPECT_TRUE(std::equal(seeds.begin(), seeds.end(), edited.begin()));
+    EXPECT_NE(two, edited);
+}
+
+TEST(SeedPaint, StrokeOutsideMesh_AddsNothing)
+{
+    const FractureMesh cube = UnitCube();
+    SeedSettings painted;
+    painted.pattern = SeedPattern::Painted;
+    painted.count = 5;
+    painted.strokes.push_back({.centre = {5, 5, 5}, .radius = 1.0f, .density = 1000.0f});
+    painted.strokes.push_back({.centre = {0.5f, 0.5f, 0.5f}, .radius = 0.0f, .density = 1000.0f});
+    EXPECT_EQ(GenerateSeeds(cube, painted).size(), 5u);
+}
+
 TEST(Voronoi, CubeOneSeed_ReturnsCube)
 {
     JobSystem jobs(Workers(0));

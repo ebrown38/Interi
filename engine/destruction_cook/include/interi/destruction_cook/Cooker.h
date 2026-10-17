@@ -3,6 +3,8 @@
 
 #include <interi/core/Result.h>
 #include <interi/destruction/DestructibleAsset.h>
+#include <interi/destruction_cook/CookConfig.h>
+#include <interi/destruction_cook/GltfImport.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -49,6 +51,13 @@ struct CookReport
 ///
 /// Fails with IoError, Corrupt (bad glTF), InvalidArgument (bad config, unknown material) or Degenerate.
 [[nodiscard]] Result<CookReport> Cook(const CookRequest& request, JobSystem& jobs);
+
+/// Step 3 of Cook without any file access: fractures every object of an imported scene with its settings from
+/// `config` (material volumes included), builds bonds and anchors, hulls and optimized render meshes. The editor's
+/// fracture preview calls this, so a preview is exactly what Cook writes for the same inputs.
+/// Fails with InvalidArgument (unknown material, nothing to cook) or Degenerate.
+[[nodiscard]] Result<DestructibleAsset> CookScene(ImportedScene scene, const CookConfig& config,
+                                                  std::vector<DestructionMaterial> materials, JobSystem& jobs);
 
 /// Reads and validates a cooked `.idest` file.
 [[nodiscard]] Result<DestructibleAsset> LoadDestructibleAsset(const std::filesystem::path& path);

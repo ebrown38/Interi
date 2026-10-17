@@ -61,6 +61,9 @@ public:
     /// VkSurfaceKHR handle value owned by the caller. Opaque so neither SDL nor Vulkan headers leak through.
     [[nodiscard]] Result<std::uint64_t> CreateVulkanSurface(const IWindow& window, void* instance) const;
 
+    /// Turns delivery of TextInputEvents for `window` on or off (off by default; it may show an on-screen keyboard).
+    void SetTextInput(const IWindow& window, bool enabled);
+
 private:
     SdlPlatform() = default;
 
@@ -71,6 +74,9 @@ private:
 
 /// Physical key for an SDL scancode (an SDL_Scancode value); Key::Unknown if it has no mapping.
 [[nodiscard]] Key KeyFromSdlScancode(int scancode) noexcept;
+
+/// A text input event holding `text` (UTF-8), cut at a character boundary to fit.
+[[nodiscard]] TextInputEvent TranslateText(const char* text) noexcept;
 
 /// The engine event for an SDL event, or nothing if it is not one the engine uses.
 [[nodiscard]] std::optional<InputEvent> TranslateSdlEvent(const SDL_Event& event) noexcept;

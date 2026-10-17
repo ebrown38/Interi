@@ -62,6 +62,9 @@ public:
 
     [[nodiscard]] std::size_t AssetCount() const noexcept { return m_assets.size(); }
 
+    /// Forgets every asset (for clearing the MeshPool, whose ranges it holds; re-add what is still drawn).
+    void Clear() noexcept { m_assets.clear(); }
+
 private:
     render::MeshPool& m_meshes;
     std::vector<std::unique_ptr<AssetMeshes>> m_assets;

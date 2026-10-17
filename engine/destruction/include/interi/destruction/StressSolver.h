@@ -186,4 +186,9 @@ private:
     bool m_converged = false;
 };
 
+/// How close a bond is to breaking: its largest load over limit (compression, tension, shear, as DestructionWorld
+/// checks them), with the limits scaled by the bond's remaining health fraction. 1 = breaks at the next check. 0 for
+/// a broken bond.
+[[nodiscard]] float BondUtilization(const StressSolver& solver, std::uint32_t bond, float healthFraction);
+
 } // namespace interi::destruction

@@ -622,4 +622,17 @@ Vec3 StressSolver::Rotation(std::uint32_t node) const
     return Load3(m_solution, std::size_t{node} * kDofs + 3).ToFloat();
 }
 
+float BondUtilization(const StressSolver& solver, std::uint32_t bond, float healthFraction)
+{
+    if (solver.IsBroken(bond) || !(healthFraction > 0.0f))
+    {
+        return solver.IsBroken(bond) ? 0.0f : 1.0f;
+    }
+    const StressBond& b = solver.Graph().bonds[bond];
+    const BondLoad load = ToBondLoad(solver.Forces(bond), b.area);
+    const auto ratio = [&](float value, float limit) { return limit > 0.0f ? value / (limit * healthFraction) : 0.0f; };
+    return std::max({ratio(load.compression, b.compressiveLimit), ratio(load.tension, b.tensileLimit),
+                     ratio(load.shear, b.shearLimit)});
+}
+
 } // namespace interi::destruction

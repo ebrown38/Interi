@@ -157,3 +157,37 @@ TEST(Level, AssetCache_ReusedAcrossLoads)
     ASSERT_TRUE(second.has_value()) << second.error().message;
     EXPECT_EQ(second->assets, (std::vector{cache.at("assets/wall.idest"), cache.at("assets/tower.idest")}));
 }
+
+TEST(Level, WriteParse_RoundTrips)
+{
+    const auto level = ParseLevel(kLevel);
+    ASSERT_TRUE(level.has_value());
+    const std::string written = interi::gameplay::WriteLevel(*level);
+    const auto reread = ParseLevel(written);
+    ASSERT_TRUE(reread.has_value()) << reread.error().message << "\n" << written;
+    EXPECT_TRUE(reread->warnings.empty());
+    ASSERT_EQ(reread->staticBoxes.size(), level->staticBoxes.size());
+    INTERI_EXPECT_VEC_NEAR(reread->staticBoxes[0].halfExtents, level->staticBoxes[0].halfExtents, 0.0f);
+    INTERI_EXPECT_VEC_NEAR(reread->staticBoxes[0].transform.position, level->staticBoxes[0].transform.position, 0.0f);
+    ASSERT_EQ(reread->destructibles.size(), level->destructibles.size());
+    for (std::size_t i = 0; i < level->destructibles.size(); ++i)
+    {
+        EXPECT_EQ(reread->destructibles[i].asset, level->destructibles[i].asset);
+        INTERI_EXPECT_VEC_NEAR(reread->destructibles[i].transform.position, level->destructibles[i].transform.position,
+                               0.0f);
+        INTERI_EXPECT_QUAT_NEAR(reread->destructibles[i].transform.rotation, level->destructibles[i].transform.rotation,
+                                1e-6f);
+    }
+    ASSERT_EQ(reread->spawnPoints.size(), level->spawnPoints.size());
+    EXPECT_EQ(reread->spawnPoints[0].name, "player");
+    EXPECT_NEAR(reread->spawnPoints[0].yaw, level->spawnPoints[0].yaw, 1e-6f);
+    EXPECT_EQ(reread->spawnPoints[1].yaw, 0.0f);
+    EXPECT_EQ(interi::gameplay::WriteLevel(*reread), written); // stable
+}
+
+TEST(Level, WriteEmpty_ParsesToEmpty)
+{
+    const auto reread = ParseLevel(interi::gameplay::WriteLevel({}));
+    ASSERT_TRUE(reread.has_value());
+    EXPECT_TRUE(reread->staticBoxes.empty() && reread->destructibles.empty() && reread->spawnPoints.empty());
+}

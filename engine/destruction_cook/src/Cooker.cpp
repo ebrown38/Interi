@@ -139,6 +139,17 @@ Result<CookReport> Cook(const CookRequest& request, JobSystem& jobs)
         return report;
     }
 
+    INTERI_TRY_ASSIGN(asset, CookScene(std::move(scene), config, std::move(materialSet.materials), jobs));
+    INTERI_TRY(WriteFileAtomically(report.output, WriteDestructibleAsset(asset, report.cookKey)));
+    report.chunkCount = asset.chunks.size();
+    report.bondCount = asset.bonds.size();
+    report.anchorCount = asset.anchors.size();
+    return report;
+}
+
+Result<DestructibleAsset> CookScene(ImportedScene scene, const CookConfig& config,
+                                    std::vector<DestructionMaterial> materials, JobSystem& jobs)
+{
     std::vector<Chunk> chunks;
     std::vector<FractureMesh> anchorMeshes;
     for (SourceObject& object : scene.objects)
@@ -148,7 +159,7 @@ Result<CookReport> Cook(const CookRequest& request, JobSystem& jobs)
         {
             continue;
         }
-        const std::optional<std::uint32_t> material = FindMaterial(materialSet.materials, settings.material);
+        const std::optional<std::uint32_t> material = FindMaterial(materials, settings.material);
         if (!material)
         {
             return MakeError(ErrorCode::InvalidArgument,
@@ -163,13 +174,27 @@ Result<CookReport> Cook(const CookRequest& request, JobSystem& jobs)
             anchorMeshes.push_back(std::move(object.mesh));
             continue;
         }
-        const float minSize = materialSet.materials[*material].debrisMinSize;
+        std::vector<MaterialVolume> volumes;
+        for (const MaterialVolumeSettings& volume : settings.materialVolumes)
+        {
+            const std::optional<std::uint32_t> volumeMaterial = FindMaterial(materials, volume.material);
+            if (!volumeMaterial)
+            {
+                return MakeError(ErrorCode::InvalidArgument, std::format("object '{}': unknown volume material '{}'",
+                                                                         object.name, volume.material));
+            }
+            volumes.push_back(volume.volume);
+            volumes.back().material = *volumeMaterial;
+        }
+        const float minSize = materials[*material].debrisMinSize;
         HierarchySettings hierarchy;
         hierarchy.levels = settings.levels;
         hierarchy.maxDepth = static_cast<std::uint32_t>(settings.levels.size());
         hierarchy.voronoi.minPieceVolume =
             settings.minPieceVolume.value_or(std::pow(static_cast<double>(minSize), 3.0));
-        AppendHierarchy(chunks, BuildHierarchy(object.mesh, hierarchy, jobs));
+        ChunkHierarchy objectChunks = BuildHierarchy(object.mesh, hierarchy, jobs);
+        ApplyMaterialVolumes(objectChunks.chunks, volumes);
+        AppendHierarchy(chunks, std::move(objectChunks));
     }
     if (chunks.empty())
     {
@@ -179,16 +204,10 @@ Result<CookReport> Cook(const CookRequest& request, JobSystem& jobs)
     BondSettings bondSettings;
     bondSettings.contact = config.contact;
     bondSettings.groundHeight = config.groundHeight;
-    BondGraph bonds = BuildBondGraph(chunks, materialSet.materials, bondSettings, anchorMeshes);
-    INTERI_TRY_ASSIGN(asset,
-                      AssembleAsset(chunks, std::move(bonds), std::move(materialSet.materials), config.hull, jobs));
+    BondGraph bonds = BuildBondGraph(chunks, materials, bondSettings, anchorMeshes);
+    INTERI_TRY_ASSIGN(asset, AssembleAsset(chunks, std::move(bonds), std::move(materials), config.hull, jobs));
     ParallelFor(jobs, 0, asset.chunks.size(), 4, [&](std::size_t c) { OptimizeRenderMesh(asset.chunks[c].render); });
-
-    INTERI_TRY(WriteFileAtomically(report.output, WriteDestructibleAsset(asset, report.cookKey)));
-    report.chunkCount = asset.chunks.size();
-    report.bondCount = asset.bonds.size();
-    report.anchorCount = asset.anchors.size();
-    return report;
+    return asset;
 }
 
 Result<DestructibleAsset> LoadDestructibleAsset(const std::filesystem::path& path)

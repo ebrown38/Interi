@@ -48,6 +48,14 @@ public:
     /// the pool is full.
     [[nodiscard]] Result<MeshRange> Add(rhi::UploadQueue& uploads, rhi::ICommandList& commands, const MeshData& mesh);
 
+    /// Forgets every mesh: the next Add starts at the beginning again. Every MeshRange handed out is invalid, and the
+    /// GPU must be done with them (e.g. IDevice::WaitForValue(LastSubmittedValue())).
+    void Clear() noexcept
+    {
+        m_vertexCount = 0;
+        m_indexCount = 0;
+    }
+
     [[nodiscard]] rhi::BufferHandle Vertices() const noexcept { return m_vertices; }
     [[nodiscard]] rhi::BufferHandle Indices() const noexcept { return m_indices; }
 

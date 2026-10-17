@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <utility>
 
 namespace interi
@@ -229,6 +230,26 @@ Key KeyFromSdlScancode(int scancode) noexcept
     }
 }
 
+TextInputEvent TranslateText(const char* text) noexcept
+{
+    TextInputEvent event{};
+    if (text == nullptr)
+    {
+        return event;
+    }
+    std::size_t length = std::strlen(text);
+    if (length >= event.text.size())
+    {
+        length = event.text.size() - 1;
+        while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xC0u) == 0x80u)
+        {
+            --length; // don't split a UTF-8 sequence: text[length] would start the cut-off part
+        }
+    }
+    std::memcpy(event.text.data(), text, length);
+    return event;
+}
+
 std::optional<InputEvent> TranslateSdlEvent(const SDL_Event& event) noexcept
 {
     switch (event.type)
@@ -261,6 +282,8 @@ std::optional<InputEvent> TranslateSdlEvent(const SDL_Event& event) noexcept
             .x = event.motion.x, .y = event.motion.y, .deltaX = event.motion.xrel, .deltaY = event.motion.yrel};
     case SDL_EVENT_MOUSE_WHEEL:
         return MouseWheelEvent{.deltaX = event.wheel.x, .deltaY = event.wheel.y};
+    case SDL_EVENT_TEXT_INPUT:
+        return TranslateText(event.text.text);
     case SDL_EVENT_GAMEPAD_ADDED:
     case SDL_EVENT_GAMEPAD_REMOVED:
         return GamepadConnectionEvent{.gamepad = event.gdevice.which,
@@ -379,6 +402,19 @@ Result<std::vector<const char*>> SdlPlatform::VulkanInstanceExtensions() const
         return MakeError(ErrorCode::IoError, SdlError("SDL_Vulkan_GetInstanceExtensions failed"));
     }
     return std::vector<const char*>(names, names + count);
+}
+
+void SdlPlatform::SetTextInput(const IWindow& window, bool enabled)
+{
+    auto* native = static_cast<SDL_Window*>(window.NativeHandle());
+    if (enabled)
+    {
+        (void)SDL_StartTextInput(native);
+    }
+    else
+    {
+        (void)SDL_StopTextInput(native);
+    }
 }
 
 Result<std::uint64_t> SdlPlatform::CreateVulkanSurface(const IWindow& window, void* instance) const

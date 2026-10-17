@@ -12,13 +12,15 @@ interi_add_module(editor_ui
         src/HeaderCheck.cpp
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
+        src/StructurePanel.cpp
         src/ViewportOverlay.cpp
     DEPS interi::editor interi::render interi::rhi interi::platform imgui::imgui
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/EditorPanelsTests.cpp
         ${_tests}/FracturePanelTests.cpp
-        ${_tests}/ImGuiInputTests.cpp)
+        ${_tests}/ImGuiInputTests.cpp
+        ${_tests}/StructurePanelTests.cpp)
 interi_add_shaders(interi_editor_ui
     SOURCES
         shaders/ImGui.ps.hlsl

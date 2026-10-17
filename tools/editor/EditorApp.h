@@ -8,9 +8,11 @@
 #include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
+#include <interi/editor/PlaySession.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/FracturePanel.h>
 #include <interi/editor_ui/ImGuiInput.h>
+#include <interi/editor_ui/StructurePanel.h>
 #include <interi/platform/FileSystem.h>
 
 #include "EditorRenderer.h"
@@ -58,6 +60,12 @@ public:
     [[nodiscard]] FrameResult Frame();
     /// Opens a glTF under the data directory in the Fracture panel and previews it.
     void OpenFractureSource(const std::string& path) { OpenSource(path); }
+    /// A scripted session for smoke runs (--demo): at `frame` of `frames`, plays the level, sets off an explosion at
+    /// the middle wall, saves the session as a replay and verifies it.
+    void DemoStep(std::uint64_t frame, std::uint64_t frames);
+    /// The last replay message (e.g. the verify result).
+    [[nodiscard]] const std::string& ReplayMessage() const noexcept { return m_replayMessage; }
+
     /// Writes the next frame to a PPM file instead of presenting it.
     void CaptureNextFrame(std::string path)
     {
@@ -90,6 +98,15 @@ private:
     void DrawPreviewOverlay(const ScreenRect& viewport);
     /// Cooks a glTF under the data directory to its `.idest` (if out of date) and returns that path.
     [[nodiscard]] Result<std::string> CookSource(const std::string& path);
+
+    // Play-in-editor and structural debugging.
+    void StartPlay();
+    /// Advances the session by the frame's time in fixed steps (at most a few per frame), applying a watched
+    /// replay's events at their steps.
+    void StepPlay(float seconds);
+    void HandleStructureRequests(const StructureRequests& requests);
+    void DrawStructureOverlay(const ScreenRect& viewport);
+    [[nodiscard]] PlayStatus Status() const;
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
 
@@ -119,6 +136,12 @@ private:
     FractureTool m_fracture;
     bool m_painting = false;
     std::optional<Vec3> m_lastStroke;
+    std::unique_ptr<PlaySession> m_play;
+    std::optional<Replay> m_watching; ///< The replay being played back, if any.
+    std::size_t m_nextReplayEvent = 0;
+    StructureTool m_structure;
+    std::string m_replayMessage;
+    float m_playTime = 0.0f; ///< Seconds not yet stepped.
     std::map<std::string, std::shared_ptr<const destruction::DestructibleAsset>, std::less<>> m_assets;
     std::set<std::string, std::less<>> m_missingAssets;
     std::vector<EditorBox> m_boxes;

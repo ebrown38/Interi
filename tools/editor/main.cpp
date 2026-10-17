@@ -6,12 +6,14 @@
 // cooked in memory, and Save & cook to the .idest the levels place. --fracture opens a source at startup.
 //
 //   level_editor [--level <path under data/>] [--fracture <glTF under data/>] [--video-driver <name>]
-//                [--frames <count>] [--screenshot <file.ppm>] [--validation 1]
+//                [--frames <count>] [--screenshot <file.ppm>] [--demo 1] [--validation 1]
 //
 // --frames exits after that many frames (smoke runs; --video-driver offscreen renders without a display, dummy has
-// no Vulkan so the UI runs without drawing).
+// no Vulkan so the UI runs without drawing). --demo plays the level, blows up the middle wall, then saves and verifies
+// a replay of it (the Structure panel's tools).
 #include <interi/core/Log.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/physics/JoltRuntime.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 
 #include "EditorApp.h"
@@ -30,6 +32,7 @@ struct Options
     std::string level = "levels/sandbox.json";
     std::string fracture;
     std::string screenshot; ///< PPM of the last frame (with --frames).
+    bool demo = false;
     std::string videoDriver;
     std::uint64_t maxFrames = 0; ///< 0 = run until quit.
     bool validation = false;
@@ -48,6 +51,10 @@ Options ParseOptions(int argc, char** argv)
         else if (flag == "--fracture")
         {
             options.fracture = argv[i + 1];
+        }
+        else if (flag == "--demo")
+        {
+            options.demo = std::string_view(argv[i + 1]) == "1";
         }
         else if (flag == "--screenshot")
         {
@@ -97,6 +104,7 @@ int main(int argc, char** argv)
 
     int status = EXIT_SUCCESS;
     {
+        interi::physics::JoltRuntime jolt; // play-in-editor and replays simulate with Jolt
         interi::JobSystem jobs;
         interi::editor::EditorApp app(**platform, **window, jobs,
                                       {.dataDir = INTERI_EDITOR_DATA_DIR, .validation = options.validation});
@@ -112,6 +120,10 @@ int main(int argc, char** argv)
         std::uint64_t frame = 0;
         for (; options.maxFrames == 0 || frame < options.maxFrames; ++frame)
         {
+            if (options.demo)
+            {
+                app.DemoStep(frame, options.maxFrames);
+            }
             if (!options.screenshot.empty() && frame + 1 == options.maxFrames)
             {
                 app.CaptureNextFrame(options.screenshot);
@@ -130,6 +142,10 @@ int main(int argc, char** argv)
             std::printf("Presented %llu of %llu frames (%zu entities in %s)\n",
                         static_cast<unsigned long long>(presented), static_cast<unsigned long long>(frame),
                         app.Document().Scene().Size(), app.Document().Path().c_str());
+            if (!app.ReplayMessage().empty())
+            {
+                std::printf("Replay: %s\n", app.ReplayMessage().c_str());
+            }
         }
     }
     interi::SetGlobalLogger(nullptr);

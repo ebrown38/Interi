@@ -11,15 +11,21 @@
 #include <interi/destruction/FractureMesh.h>
 #include <interi/destruction_cook/Cooker.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor/Replay.h>
+#include <interi/editor/StructureDebug.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ViewportOverlay.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/physics/Queries.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <fstream>
+#include <iterator>
 #include <variant>
 
 namespace interi::editor
@@ -109,6 +115,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     }
     m_platform.SetTextInput(window, true);
     m_assetList = ListAssets(m_dataDir);
+    m_structure.replayPath = (std::filesystem::temp_directory_path() / "interi_editor_session.irpl").string();
 }
 
 EditorApp::~EditorApp()
@@ -206,7 +213,211 @@ Result<std::string> EditorApp::CookSource(const std::string& path)
 
 bool EditorApp::PreviewActive() const
 {
-    return m_fracture.showPreview && !m_fracture.active.empty();
+    return m_play == nullptr && m_fracture.showPreview && !m_fracture.active.empty();
+}
+
+void EditorApp::StartPlay()
+{
+    auto session = PlaySession::Start(m_document.Scene().ToLevel(), m_files, m_jobs);
+    if (!session)
+    {
+        INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
+        return;
+    }
+    m_play = std::move(*session);
+    m_watching.reset();
+    m_playTime = 0.0f;
+}
+
+void EditorApp::StepPlay(float seconds)
+{
+    if (m_play == nullptr)
+    {
+        return;
+    }
+    const auto step = [&]
+    {
+        if (m_watching)
+        {
+            if (m_play->StepIndex() >= m_watching->steps)
+            {
+                return false; // the replay is over: stay on its last state
+            }
+            while (m_nextReplayEvent < m_watching->events.size() &&
+                   m_watching->events[m_nextReplayEvent].step == m_play->StepIndex())
+            {
+                m_play->Detonate(m_watching->events[m_nextReplayEvent++].damage);
+            }
+        }
+        m_play->Step();
+        if (m_watching && m_play->StepIndex() == m_watching->steps)
+        {
+            m_replayMessage = m_play->StateHash() == m_watching->finalHash
+                                  ? "replay finished: the state hash matches the recording"
+                                  : "replay finished: the state hash DIFFERS from the recording";
+        }
+        return true;
+    };
+    m_playTime = std::min(m_playTime + seconds, 4.0f * PlaySession::kStep);
+    while (m_playTime >= PlaySession::kStep)
+    {
+        m_playTime -= PlaySession::kStep;
+        if (!step())
+        {
+            break;
+        }
+    }
+}
+
+PlayStatus EditorApp::Status() const
+{
+    PlayStatus status;
+    status.message = m_replayMessage;
+    if (m_play == nullptr)
+    {
+        return status;
+    }
+    status.playing = true;
+    status.watching = m_watching.has_value();
+    status.step = m_play->StepIndex();
+    status.replaySteps = m_watching ? m_watching->steps : 0;
+    destruction::DestructionWorld& destruction = m_play->Destruction();
+    for (const destruction::DestructibleId id : destruction.Instances())
+    {
+        status.pieces += destruction.PieceCount(id);
+        for (std::uint32_t bond = 0; bond < destruction.Asset(id).bonds.size(); ++bond)
+        {
+            status.intactBonds += destruction.IsBondBroken(id, bond) ? 0 : 1;
+        }
+    }
+    return status;
+}
+
+void EditorApp::HandleStructureRequests(const StructureRequests& requests)
+{
+    if (requests.play)
+    {
+        StartPlay();
+    }
+    if (requests.stop)
+    {
+        m_play.reset();
+        m_watching.reset();
+    }
+    if (requests.step && m_play != nullptr)
+    {
+        m_playTime = PlaySession::kStep;
+        const bool paused = m_structure.paused;
+        m_structure.paused = false;
+        StepPlay(0.0f);
+        m_structure.paused = paused;
+    }
+    if (requests.saveReplay && m_play != nullptr)
+    {
+        const std::vector<std::byte> bytes = WriteReplay(m_play->Recording(m_document.Path()));
+        std::ofstream file(m_structure.replayPath, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        m_replayMessage = file ? std::format("saved {} steps, {} explosions to {}", m_play->StepIndex(),
+                                             m_play->Recording({}).events.size(), m_structure.replayPath)
+                               : std::format("cannot write {}", m_structure.replayPath);
+    }
+    if (requests.verifyReplay || requests.watchReplay)
+    {
+        std::ifstream file(m_structure.replayPath, std::ios::binary);
+        const std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        auto replay = ReadReplay(std::as_bytes(std::span(bytes)));
+        if (!replay)
+        {
+            m_replayMessage = std::format("{}: {}", m_structure.replayPath, replay.error().message);
+            return;
+        }
+        if (requests.verifyReplay)
+        {
+            const auto hash = RunReplay(*replay, m_files, m_jobs);
+            m_replayMessage = !hash ? std::format("replay failed: {}", hash.error().message)
+                              : *hash == replay->finalHash
+                                  ? std::format("verified: {} steps reproduce hash {:016x}", replay->steps, *hash)
+                                  : std::format("MISMATCH: {:016x}, recorded {:016x}", *hash, replay->finalHash);
+            return;
+        }
+        auto level = gameplay::ParseLevel(replay->levelJson);
+        auto session = level ? PlaySession::Start(*level, m_files, m_jobs) : std::unexpected(level.error());
+        if (!session)
+        {
+            m_replayMessage = std::format("replay failed: {}", session.error().message);
+            return;
+        }
+        m_play = std::move(*session);
+        m_watching = std::move(*replay);
+        m_nextReplayEvent = 0;
+        m_playTime = 0.0f;
+        m_replayMessage.clear();
+    }
+}
+
+void EditorApp::DemoStep(std::uint64_t frame, std::uint64_t frames)
+{
+    if (frame == 2)
+    {
+        m_camera.target = {0.0f, 1.5f, 0.0f};
+        m_camera.distance = 16.0f;
+        StartPlay();
+    }
+    if (frame == 10 && m_play != nullptr)
+    {
+        destruction::RadialDamage damage;
+        damage.center = {0.0f, 1.2f, 0.2f};
+        damage.energy = m_structure.energy;
+        damage.innerRadius = m_structure.innerRadius;
+        damage.radius = m_structure.radius;
+        m_play->Detonate(damage);
+    }
+    if (frames > 12 && frame == frames - 3)
+    {
+        HandleStructureRequests({.saveReplay = true});
+    }
+    if (frames > 12 && frame == frames - 2)
+    {
+        HandleStructureRequests({.verifyReplay = true});
+    }
+}
+
+void EditorApp::DrawStructureOverlay(const ScreenRect& viewport)
+{
+    if (m_play == nullptr)
+    {
+        return;
+    }
+    ImDrawList& list = *ImGui::GetWindowDrawList();
+    list.PushClipRect(ImVec2(viewport.x, viewport.y), ImVec2(viewport.x + viewport.width, viewport.y + viewport.height),
+                      true);
+    const World& world = m_play->GetWorld();
+    const destruction::DestructionWorld& destruction = m_play->Destruction();
+    for (const destruction::DestructibleId id : destruction.Instances())
+    {
+        if (m_structure.stressOverlay)
+        {
+            for (const BondLine& line : StressOverlayLines(world, destruction, id))
+            {
+                const Vec3 color = StressOverlayColor(line.utilization);
+                DrawWorldLine(list, m_camera, viewport, line.from, line.to,
+                              ImGui::ColorConvertFloat4ToU32(ImVec4(color.x, color.y, color.z, 1.0f)), 2.5f);
+            }
+        }
+        if (m_structure.anchors)
+        {
+            for (const Vec3& anchor : AnchorPoints(world, destruction, id))
+            {
+                if (const auto at = m_camera.Project(anchor, viewport.width, viewport.height))
+                {
+                    const ImVec2 centre(viewport.x + at->x, viewport.y + at->y);
+                    list.AddTriangleFilled(ImVec2(centre.x, centre.y - 6.0f), ImVec2(centre.x - 6.0f, centre.y + 5.0f),
+                                           ImVec2(centre.x + 6.0f, centre.y + 5.0f), IM_COL32(60, 160, 255, 255));
+                }
+            }
+        }
+    }
+    list.PopClipRect();
 }
 
 void EditorApp::OpenSource(const std::string& path)
@@ -424,6 +635,23 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
         }
     }
 
+    if (m_play != nullptr)
+    {
+        // Play: the left mouse sets off an explosion where it points (when enabled); the level is not editable.
+        if (m_structure.detonate && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        {
+            if (const auto hit = physics::Raycast(m_play->Physics(), ray.origin, ray.direction * 500.0f))
+            {
+                destruction::RadialDamage damage;
+                damage.center = hit->point;
+                damage.energy = m_structure.energy;
+                damage.innerRadius = m_structure.innerRadius;
+                damage.radius = std::max(m_structure.radius, m_structure.innerRadius);
+                m_play->Detonate(damage);
+            }
+        }
+        return;
+    }
     if (PreviewActive())
     {
         // Fracture preview: the left mouse paints seed density (when enabled); level entities are not editable.
@@ -544,6 +772,10 @@ void EditorApp::BuildScene()
         const Entity entity = *m_document.Scene().Find(id);
         const Transform& transform = *world.Get<Transform>(entity);
         const bool selected = id == selection;
+        if (m_play != nullptr && !world.Has<StaticBoxComponent>(entity))
+        {
+            continue; // playing: the simulation draws the destructibles; spawn points are not played
+        }
         if (const auto* box = world.Get<StaticBoxComponent>(entity))
         {
             m_boxes.push_back(
@@ -621,7 +853,8 @@ void EditorApp::DrawViewport()
         {
             DrawPreviewOverlay(viewport);
         }
-        const EditorEntityId selection = PreviewActive() ? 0 : m_document.Selection();
+        DrawStructureOverlay(viewport);
+        const EditorEntityId selection = (PreviewActive() || m_play != nullptr) ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
         {
             const Vec3 origin =
@@ -664,10 +897,16 @@ FrameResult EditorApp::Frame()
     const ToolRequests tools = DrawToolsPanel(m_tools, m_document);
     const AssetRequests assets = DrawAssetsPanel(m_assetList);
     const FractureRequests fracture = DrawFracturePanel(m_fracture, m_preview, m_assetList);
+    const StructureRequests structure = DrawStructurePanel(m_structure, Status());
     DrawViewport();
     const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
 
+    HandleStructureRequests(structure);
+    if (m_play != nullptr && !m_structure.paused)
+    {
+        StepPlay(io.DeltaTime);
+    }
     if (fracture.open)
     {
         OpenSource(*fracture.open);
@@ -743,10 +982,17 @@ FrameResult EditorApp::Frame()
     view.nearPlane = m_camera.nearPlane;
     view.sun = {.direction = {-0.5f, -1.0f, -0.3f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
     view.ambient = {0.12f, 0.12f, 0.13f};
+    if (m_play != nullptr)
+    {
+        for (const auto& asset : m_play->Level().assets)
+        {
+            (void)m_renderer->AddAsset(asset);
+        }
+    }
     result.presented = m_renderer->Render({.boxes = m_boxes,
                                            .chunks = m_chunks,
-                                           .world = nullptr,
-                                           .destruction = nullptr,
+                                           .world = m_play != nullptr ? &m_play->GetWorld() : nullptr,
+                                           .destruction = m_play != nullptr ? &m_play->Destruction() : nullptr,
                                            .view = view,
                                            .ui = ImGui::GetDrawData()});
     return result;

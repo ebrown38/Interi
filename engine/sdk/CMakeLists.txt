@@ -7,6 +7,7 @@ interi_add_module(sdk SHARED
     SOURCES
         src/HeaderCheck.cpp
         src/Manifest.cpp
+        src/ModuleGraph.cpp
         src/SemVer.cpp
         src/Toolchain.cpp
     DEPS interi::core
@@ -14,4 +15,5 @@ interi_add_module(sdk SHARED
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/ManifestTests.cpp
+        ${_tests}/ModuleGraphTests.cpp
         ${_tests}/SemVerTests.cpp)

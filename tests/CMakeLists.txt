@@ -21,3 +21,6 @@ add_test(NAME InteriModule_MissingTestSources_FailsConfigure
 set_tests_properties(InteriModule_MissingTestSources_FailsConfigure PROPERTIES
     LABELS unit
     PASS_REGULAR_EXPRESSION "TEST_SOURCES is required")
+
+# --- Engine package: install, then build gameplay modules out of tree ----------------------
+add_subdirectory(package)

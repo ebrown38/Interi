@@ -14,18 +14,23 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
     set(INTERI_X86_64 ON)
 endif()
 
+# INTERI_ABI_COMPILE_OPTIONS / _DEFINITIONS / _LINK_OPTIONS collect the global flags an out-of-tree module must share
+# (see InteriBuildSettings.cmake).
 if(INTERI_SIMD AND INTERI_X86_64)
     if(MSVC)
-        add_compile_options(/arch:AVX2)
+        list(APPEND INTERI_ABI_COMPILE_OPTIONS /arch:AVX2)
     else()
-        add_compile_options(-march=x86-64-v3)
+        list(APPEND INTERI_ABI_COMPILE_OPTIONS -march=x86-64-v3)
     endif()
-    add_compile_definitions(INTERI_SIMD_SSE4=1 INTERI_SIMD_AVX2=1)
+    list(APPEND INTERI_ABI_DEFINITIONS INTERI_SIMD_SSE4=1 INTERI_SIMD_AVX2=1)
 endif()
 
 # Never let the compiler fuse a*b+c into an FMA on its own: Clang contracts by default when FMA is available and
 # MSVC does not, so results (and determinism hashes) would differ between platforms. Explicit FMA intrinsics are
 # still allowed where the code asks for them.
 if(NOT MSVC)
-    add_compile_options(-ffp-contract=off)
+    list(APPEND INTERI_ABI_COMPILE_OPTIONS -ffp-contract=off)
 endif()
+
+add_compile_options(${INTERI_ABI_COMPILE_OPTIONS})
+add_compile_definitions(${INTERI_ABI_DEFINITIONS})

@@ -37,6 +37,7 @@ include(CTest)
 include(InteriArch)
 include(InteriWarnings)
 include(InteriSanitizers)
+include(InteriBuildSettings)
 include(InteriModule)
 include(InteriShaders)
 
@@ -55,4 +56,5 @@ add_subdirectory(benchmarks)
 add_subdirectory(tools)
 add_subdirectory(game)
 
+include(InteriPackage) # after the libraries and tools/module_check
 include(InteriCoverage) # after all test executables are declared

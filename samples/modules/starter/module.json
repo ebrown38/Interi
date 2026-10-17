@@ -1,0 +1,13 @@
+{
+  "id": "com.interi.starter",
+  "name": "Starter",
+  "version": "0.1.0",
+  "kind": "Module",
+  "author": "Interi contributors",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2026 Interi contributors",
+  "description": "Starter module: the smallest Module that builds against an installed engine.",
+  "engine": "^0.1",
+  "library": "com_interi_starter",
+  "dependencies": []
+}

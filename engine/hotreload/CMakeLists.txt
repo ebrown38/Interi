@@ -20,6 +20,9 @@ interi_add_module(hotreload SHARED
         ${_module_tests})
 
 if(NOT INTERI_BUILD_SHARED)
+    # The sandbox still builds its module (it fails to load with Unsupported), so a static engine must be PIC.
+    set_target_properties(interi_core interi_jobs interi_ecs interi_platform interi_sdk interi_hotreload
+        PROPERTIES POSITION_INDEPENDENT_CODE ON)
     return()
 endif()
 

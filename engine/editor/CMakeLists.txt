@@ -23,9 +23,10 @@ interi_add_module(editor
         src/PlaySession.cpp
         src/Reflection.cpp
         src/Replay.cpp
+        src/ScenePlay.cpp
         src/StructureDebug.cpp
         src/UndoStack.cpp
-    DEPS interi::modeling interi::scene interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    DEPS interi::modeling interi::scene interi::runtime interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
         ${_tests}/DataEditingTests.cpp
@@ -41,6 +42,7 @@ interi_add_module(editor
         ${_tests}/PlaySessionTests.cpp
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
         ${_tests}/ReflectionTests.cpp
+        ${_tests}/ScenePlayTests.cpp
         ${_tests}/UndoStackTests.cpp)
 target_compile_definitions(interi_editor_tests PRIVATE
     INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json"

@@ -378,6 +378,41 @@ AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets)
     return requests;
 }
 
+ScenePlayRequests DrawPlayControls(const ScenePlayStatus& status)
+{
+    ScenePlayRequests requests;
+    if (!status.playing)
+    {
+        requests.play = ImGui::Button("Play (F5)");
+    }
+    else
+    {
+        requests.stop = ImGui::Button("Stop (F5)");
+        ImGui::SameLine();
+        requests.pause = ImGui::Button(status.paused ? "Resume (F6)" : "Pause (F6)");
+        ImGui::SameLine();
+        requests.step = ImGui::Button("Step (F10)");
+        ImGui::SameLine();
+        ImGui::Text("step %llu", static_cast<unsigned long long>(status.step));
+    }
+    if (!ImGui::GetIO().WantTextInput)
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_F5, false))
+        {
+            (status.playing ? requests.stop : requests.play) = true;
+        }
+        if (status.playing && ImGui::IsKeyPressed(ImGuiKey_F6, false))
+        {
+            requests.pause = true;
+        }
+        if (status.playing && ImGui::IsKeyPressed(ImGuiKey_F10, false))
+        {
+            requests.step = true;
+        }
+    }
+    return requests;
+}
+
 void DrawInspector(EditorDocument& document)
 {
     if (ImGui::Begin(kInspectorWindow))

@@ -6,3 +6,4 @@
 #include <interi/scene/Primitives.h>
 #include <interi/scene/SceneComponents.h>
 #include <interi/scene/SceneFile.h>
+#include <interi/scene/SceneRuntime.h>

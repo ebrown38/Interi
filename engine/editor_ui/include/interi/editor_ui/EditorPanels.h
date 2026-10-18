@@ -7,6 +7,7 @@
 #include <interi/editor/Modeling.h>
 #include <interi/scene/Primitives.h>
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -110,6 +111,25 @@ struct AssetRequests
 /// The data directory's assets. Destructibles, meshes and glTF sources drag into the viewport (payload
 /// kAssetPayload); double-clicking a scene or a level opens it.
 [[nodiscard]] AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets);
+
+struct ScenePlayStatus
+{
+    bool playing = false;
+    bool paused = false;
+    std::uint64_t step = 0;
+};
+
+struct ScenePlayRequests
+{
+    bool play = false;
+    bool pause = false; ///< Toggles.
+    bool step = false;
+    bool stop = false;
+};
+
+/// Play / Pause / Step / Stop buttons and the step counter, in the current window (the viewport's top). F5 plays or
+/// stops, F6 pauses, F10 steps, while no text field has the keyboard.
+[[nodiscard]] ScenePlayRequests DrawPlayControls(const ScenePlayStatus& status);
 
 /// The selected object's reflected components, editable, plus Add / Remove component. Every edit is an undo step;
 /// drags and text edits are one step each (sealed when the widget is released).

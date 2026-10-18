@@ -12,11 +12,13 @@ interi_add_module(scene SHARED
         src/Primitives.cpp
         src/SceneComponents.cpp
         src/SceneFile.cpp
-    DEPS interi::chain interi::values interi::ecs interi::platform interi::core
+        src/SceneRuntime.cpp
+    DEPS interi::chain interi::values interi::ecs interi::jobs interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/HierarchyTests.cpp
         ${_tests}/PrefabTests.cpp
         ${_tests}/PrimitivesTests.cpp
-        ${_tests}/SceneFileTests.cpp)
+        ${_tests}/SceneFileTests.cpp
+        ${_tests}/SceneRuntimeTests.cpp)

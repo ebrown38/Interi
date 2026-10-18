@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <interi/chain/Event.h>
 #include <interi/core/Result.h>
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/DataEditing.h>
@@ -10,6 +11,7 @@
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
+#include <interi/editor/ScenePlay.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/FracturePanel.h>
@@ -123,10 +125,11 @@ private:
     [[nodiscard]] PlayStatus Status() const;
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
+    void HandlePlay(const ScenePlayRequests& requests, float seconds);
     /// Carries out the Tools panel's modeling requests on the selection.
     void HandleModeling(const ToolRequests& tools, bool groupShortcut);
     /// The mesh an object draws (its primitive's, cached by parameters, or its mesh asset's); nullptr if none.
-    [[nodiscard]] std::shared_ptr<const scene::TriangleMesh> ObjectMesh(Entity entity);
+    [[nodiscard]] std::shared_ptr<const scene::TriangleMesh> ObjectMesh(const World& world, Entity entity);
 
     SdlPlatform& m_platform;
     IWindow& m_window;
@@ -157,6 +160,12 @@ private:
     bool m_painting = false;
     std::optional<Vec3> m_lastStroke;
     std::unique_ptr<PlaySession> m_play;
+    /// Play-in-editor of the scene (chains, physics-free); the Structure panel's m_play is the destruction one.
+    std::unique_ptr<ScenePlaySession> m_scenePlay;
+    bool m_keepPlayValues = true;
+    ScenePlayRequests m_playRequests; ///< From this frame's viewport.
+    sdk::ModuleSet m_chainModules;
+    std::unique_ptr<chain::ChainRegistry> m_chains;
     std::optional<Replay> m_watching; ///< The replay being played back, if any.
     std::size_t m_nextReplayEvent = 0;
     StructureTool m_structure;

@@ -18,5 +18,6 @@
 #include <interi/editor/Prefabs.h>
 #include <interi/editor/Reflection.h>
 #include <interi/editor/Replay.h>
+#include <interi/editor/ScenePlay.h>
 #include <interi/editor/StructureDebug.h>
 #include <interi/editor/UndoStack.h>

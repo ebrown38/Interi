@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "EditorApp.h"
 
+#include <interi/chain/CoreLibrary.h>
 #include <interi/core/Hash.h>
 #include <interi/core/Log.h>
 #include <interi/core/math/Mat4.h>
@@ -96,11 +97,20 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v3.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v4.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
     (void)m_files.Mount("generated", m_generatedFiles);
+    for (std::string& id : chain::CoreContracts())
+    {
+        m_chainModules.DeclareContract(std::move(id));
+    }
+    m_chains = std::make_unique<chain::ChainRegistry>(m_chainModules);
+    if (auto registered = chain::RegisterCoreLibrary(*m_chains); !registered)
+    {
+        INTERI_LOG_ERROR("Editor", "chain library: {}", registered.error().message);
+    }
     if (auto wall = BuildSandboxWall(jobs))
     {
         (void)m_generatedFiles.WriteFile("wall.idest", *wall);
@@ -802,6 +812,10 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
         }
         return;
     }
+    if (m_scenePlay != nullptr)
+    {
+        return; // the viewport shows the running scene: the camera moves, nothing is edited
+    }
     const EditorEntityId selection = m_document.Selection();
     const auto entity = m_document.Scene().Find(selection);
     std::optional<Gizmo> gizmo;
@@ -888,6 +902,53 @@ void EditorApp::ApplyDrag(const Ray& ray)
         break;
     }
     }
+}
+
+void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
+{
+    values::ValueRegistry* values = m_project != nullptr ? &m_project->Data().Values() : nullptr;
+    if (requests.play && m_scenePlay == nullptr)
+    {
+        auto session = ScenePlaySession::Start(m_document.Scene(), *m_chains, values, m_files, m_jobs);
+        if (!session)
+        {
+            INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
+            return;
+        }
+        m_scenePlay = std::move(*session);
+        for (const std::string& warning : m_scenePlay->Runtime().Warnings())
+        {
+            INTERI_LOG_WARN("Editor", "play: {}", warning);
+        }
+        return;
+    }
+    if (m_scenePlay == nullptr)
+    {
+        return;
+    }
+    if (requests.stop)
+    {
+        if (m_keepPlayValues && m_project != nullptr)
+        {
+            const std::size_t kept =
+                KeepRuntimeValues(m_scenePlay->Runtime().Executor().Values(), m_project->Data(), m_document.Undo());
+            if (kept > 0)
+            {
+                INTERI_LOG_INFO("Editor", "kept {} Value(s) chains set during play", kept);
+            }
+        }
+        m_scenePlay.reset();
+        return;
+    }
+    if (requests.pause)
+    {
+        m_scenePlay->SetPaused(!m_scenePlay->Paused());
+    }
+    if (requests.step)
+    {
+        m_scenePlay->StepOnce();
+    }
+    m_scenePlay->Advance(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<float>(seconds)));
 }
 
 void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
@@ -979,9 +1040,8 @@ void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
     }
 }
 
-std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(Entity entity)
+std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(const World& world, Entity entity)
 {
-    const World& world = m_document.Scene().GetWorld();
     std::string key;
     Result<scene::TriangleMesh> mesh = MakeError(ErrorCode::NotFound, "no mesh");
     if (const auto* primitive = world.Get<scene::PrimitiveComponent>(entity))
@@ -1038,20 +1098,26 @@ void EditorApp::BuildScene()
                            .occluder = true});
         return;
     }
-    const EditorScene& scene = m_document.Scene();
-    const World& world = scene.GetWorld();
-    m_meshColors.reserve(scene.Size()); // m_meshes keeps spans into it
-    for (const EditorEntityId id : scene.Ids())
+    // The edited scene, or the running one while playing.
+    World& world = m_scenePlay != nullptr ? m_scenePlay->Runtime().GetWorld() : m_document.Scene().GetWorld();
+    const scene::HierarchyIndex objects = scene::BuildHierarchy(world);
+    m_meshColors.reserve(objects.nodes.size()); // m_meshes keeps spans into it
+    for (const auto& [id, node] : objects.nodes)
     {
-        const Entity entity = *scene.Find(id);
-        const Transform transform = scene.WorldTransform(id);
-        const bool selected = m_document.IsSelected(id);
+        const Entity entity = node.entity;
+        const auto* worldTransform = world.Get<Transform>(entity);
+        if (worldTransform == nullptr || world.Has<chain::HiddenComponent>(entity))
+        {
+            continue;
+        }
+        const Transform transform = *worldTransform;
+        const bool selected = m_scenePlay == nullptr && m_document.IsSelected(id);
         const bool isDestructible = world.Has<DestructiblePlacementComponent>(entity);
         if (m_play != nullptr && (isDestructible || world.Has<SpawnPointComponent>(entity)))
         {
             continue; // playing: the simulation draws the destructibles; spawn points are not played
         }
-        if (const auto mesh = ObjectMesh(entity))
+        if (const auto mesh = ObjectMesh(world, entity))
         {
             if (m_renderer != nullptr)
             {
@@ -1112,6 +1178,10 @@ void EditorApp::DrawViewport()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     if (ImGui::Begin(kViewportWindow))
     {
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + 6.0f, ImGui::GetCursorPosY() + 4.0f));
+        m_playRequests = DrawPlayControls({.playing = m_scenePlay != nullptr,
+                                           .paused = m_scenePlay != nullptr && m_scenePlay->Paused(),
+                                           .step = m_scenePlay != nullptr ? m_scenePlay->StepIndex() : 0});
         const ImVec2 size = ImGui::GetContentRegionAvail();
         m_viewportWidth = std::max(size.x, 0.0f);
         m_viewportHeight = std::max(size.y, 0.0f);
@@ -1147,7 +1217,8 @@ void EditorApp::DrawViewport()
             DrawPreviewOverlay(viewport);
         }
         DrawStructureOverlay(viewport);
-        const EditorEntityId selection = (PreviewActive() || m_play != nullptr) ? 0 : m_document.Selection();
+        const EditorEntityId selection =
+            (PreviewActive() || m_play != nullptr || m_scenePlay != nullptr) ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
         {
             const Vec3 origin = m_document.Scene().WorldTransform(selection).position;
@@ -1201,6 +1272,7 @@ FrameResult EditorApp::Frame()
     ImGui::Render();
 
     HandleStructureRequests(structure);
+    HandlePlay(m_playRequests, io.DeltaTime);
     if (m_play != nullptr && !m_structure.paused)
     {
         StepPlay(io.DeltaTime);

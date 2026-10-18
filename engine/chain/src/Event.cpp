@@ -30,7 +30,8 @@ Result<void> CheckNames(std::string_view id, std::string_view what, std::span<co
             return MakeError(ErrorCode::InvalidArgument,
                              std::format("event '{}': {} '{}' is not a name ([A-Za-z0-9_])", id, what, names[i]));
         }
-        if (std::ranges::find(names.subspan(0, i), names[i]) != names.begin() + static_cast<std::ptrdiff_t>(i))
+        // contains, not find != begin() + i: iterators of different spans don't compare (MSVC debug checks it).
+        if (std::ranges::contains(names.first(i), names[i]))
         {
             return MakeError(ErrorCode::InvalidArgument,
                              std::format("event '{}': duplicate {} '{}'", id, what, names[i]));

@@ -119,7 +119,8 @@ private:
     struct Plan;
 
     Result<std::unique_ptr<Loaded>> Open(const std::string& id, const std::filesystem::path& library);
-    Result<void> Register(Loaded& module, std::span<const std::byte> savedState);
+    Result<void> Register(Loaded& module, std::span<const std::byte> savedState,
+                          std::span<const std::pair<std::string, values::Value>> savedFields);
     [[nodiscard]] Result<std::filesystem::path> FindLibrary(const sdk::ModuleManifest& manifest) const;
     Result<ModuleLoadStats> Execute(Plan plan);
     static void LogUnload(const Loaded& module);

@@ -63,7 +63,7 @@ public:
     void ClearProject();
     [[nodiscard]] UnresolvedProjectData& Unresolved() noexcept { return m_unresolved; }
     [[nodiscard]] const UnresolvedProjectData& Unresolved() const noexcept { return m_unresolved; }
-    /// The schema versions the project data was last loaded with (ProjectData.h), by item id.
+    /// The schema versions the project data was last loaded with (ProjectData.h), by "<section>/<id>".
     [[nodiscard]] std::map<std::string, std::uint32_t, std::less<>>& LoadedSchemaVersions() noexcept
     {
         return m_loadedVersions;

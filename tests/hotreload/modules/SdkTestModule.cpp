@@ -2,7 +2,7 @@
 // The libraries of the shared SDK test project (tests/sdk/modules), one source (INTERI_SDK_TEST_MODULE):
 //   1 com.test.ext:    declares the shared hook service.Greeter ("hello <name>").
 //   2 com.test.a:      declares com.test.a:Fire (damage + 1), com.test.a:Loads (how often this module was
-//                      registered, carried across reloads in its saved state) and com.test.a:Jump (10x the value
+//                      registered, carried across reloads in its reflected state) and com.test.a:Jump (10x the value
 //                      com.test.a:JumpHeight, read from the project's data at call time); a system adds 1 to every
 //                      counter.
 //   3 com.test.b:      provides service.Greeter (appends "!"), overrides com.test.a:Fire (x2), declares
@@ -15,9 +15,7 @@
 
 #include "TestComponents.h"
 
-#include <cstring>
 #include <string>
-#include <vector>
 
 #ifndef INTERI_SDK_TEST_MODULE
 #error "define INTERI_SDK_TEST_MODULE"
@@ -51,7 +49,11 @@ using Greet = std::string(const std::string&);
 }
 
 #if INTERI_SDK_TEST_MODULE == 2
-int g_loads = 0; // module-global state, carried across reloads
+struct ModuleState
+{
+    std::int32_t loads = 0; ///< carried across reloads as reflected state
+};
+ModuleState g_state;
 #endif
 
 bool Register(ModuleRegistrar& registrar)
@@ -63,26 +65,15 @@ bool Register(ModuleRegistrar& registrar)
                             [](const HookNext<Greet>&, const std::string& name) { return "hello " + name; })
         .has_value();
 #elif INTERI_SDK_TEST_MODULE == 2
-    const std::span<const std::byte> saved = registrar.SavedState();
-    g_loads = 0;
-    if (saved.size() == sizeof(g_loads))
-    {
-        std::memcpy(&g_loads, saved.data(), sizeof(g_loads));
-    }
-    ++g_loads;
-    registrar.SetStateSaver(
-        []
-        {
-            std::vector<std::byte> bytes(sizeof(g_loads));
-            std::memcpy(bytes.data(), &g_loads, sizeof(g_loads));
-            return bytes;
-        });
+    g_state = {};
+    interi::hotreload::DeclareState(registrar, g_state, {interi::values::Field("loads", &ModuleState::loads)});
+    ++g_state.loads;
     interi::hotreload::DeclareComponent<HrCounter>(registrar);
     registrar.AddSystem("AddOne", SystemAccess{}.Write<HrCounter>(), [](SystemContext& c) { AddToCounters(c, 1); });
     const interi::values::ValueRegistry& values = registrar.Data().Values();
     return scope.DeclareHook<Fire>(scope.Local("Fire"), [](const HookNext<Fire>&, int damage) { return damage + 1; })
                .has_value() &&
-           scope.DeclareHook<Fire>(scope.Local("Loads"), [](const HookNext<Fire>&, int) { return g_loads; })
+           scope.DeclareHook<Fire>(scope.Local("Loads"), [](const HookNext<Fire>&, int) { return g_state.loads; })
                .has_value() &&
            scope
                .DeclareHook<Fire>(

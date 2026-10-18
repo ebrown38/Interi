@@ -179,7 +179,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
     - Never leave the host anything from module code that outlives the module. Systems, hooks and the state saver are destroyed before the library closes.
     - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking its library: a shadow-copied DLL can't satisfy a link-time import.
     - Modules never call Jolt.
-  - `registrar.Scope()` registers hooks. `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `SetStateSaver`/`SavedState` carry module-global bytes across a reload.
+  - `registrar.Scope()` registers hooks. `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `DeclareState(registrar, g_state, {values::Field(...)})` carries a module global's reflected fields across a reload by name (a field whose type changed keeps its new initial value); `SetStateSaver`/`SavedState` carry raw bytes.
 - **`ModuleHost`**:
   - `LoadProject(order, manifests)` resolves the graph, finds each `library` in the manifest's folder and then `librarySearchPaths`, and registers in load order.
   - `Reload(id)` reopens the module and every loaded module that depends on it.
@@ -209,7 +209,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`DataRegistry`** = `ValueRegistry` + `CharacterRegistry` + `DataTableRegistry`, each a `ContributionRegistry` per item kind plus a **project layer** on top (project > higher module > lower module). The project layer is not a provider: entries are kept even when they stop fitting (inactive: reads fall back to the default; `Revalidate` reports them). `Provenance` lists `project` first.
 - **Characters.** An archetype's `AttributeLayout` = its sets' attributes (first wins), defaults: attribute < archetype < project. `AttributeBlock` (engine component, trivially copyable, at most `kMaxAttributes` = 32 slots of key + 32-bit bits + type) is self-describing, so `MigrateAttributeBlock` remaps by attribute key (convert bool/int/float, clamp, new = default, removed = dropped).
 - **Tables.** Modules declare columns (`renamedFrom` for renames); the project supplies rows by id. Invalid cells read as the default; `Validate` locates issues by table, row and column (`TableIssue::Text`).
-- **Project data** (`ProjectData.h`): JSON with sorted keys and a `schemas` map of the version each item was written against. Same version + invalid data fails the load (all or nothing); another version migrates with warnings. Unknown ids are kept and written back. Items that don't fit are written with their old version so they migrate next time.
+- **Project data** (`ProjectData.h`): JSON with sorted keys and a `schemas` object (per section: values, characters, tables) of the version each item was written against. Same version + invalid data fails the load (all or nothing); another version migrates with warnings. Unknown ids are kept and written back. Items that don't fit are written with their old version so they migrate next time.
 - **Cooked data** (`IVAL`: payload hash + versioned Archive): `CookData` resolves values, archetype layouts and table rows for a shipped game; `ReadCookedData` rejects corrupt files.
 - **Tests** use the shared SDK test project's data (`tests/sdk/modules`; `tests/values/*` headers describe it). `Values_RoundTrip_BitExact` pins JSON and binary round trips.
 

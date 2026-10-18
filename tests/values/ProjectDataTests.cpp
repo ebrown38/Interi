@@ -99,7 +99,7 @@ TEST_F(ProjectDataTest, CurrentVersion_InvalidData_ErrorAndNothingApplied)
     const Result<std::vector<std::string>> result = LoadProjectData(R"({
         "format": 1,
         "values": { "value.Gravity": -1, "com.test.a:JumpHeight": 50 },
-        "schemas": { "value.Gravity": 1, "com.test.a:JumpHeight": 1 } })",
+        "schemas": { "values": { "value.Gravity": 1, "com.test.a:JumpHeight": 1 } } })",
                                                                     *data);
     ASSERT_FALSE(result.has_value());
     EXPECT_NE(result.error().message.find("com.test.a:JumpHeight"), std::string::npos) << result.error().message;
@@ -107,7 +107,7 @@ TEST_F(ProjectDataTest, CurrentVersion_InvalidData_ErrorAndNothingApplied)
     EXPECT_EQ(data->Values().Get<float>("value.Gravity"), -5.0f);
 
     EXPECT_FALSE(LoadProjectData(R"({ "tables": { "com.test.a:Guns": { "shotgun": { "colour": 1 } } },
-                                      "schemas": { "com.test.a:Guns": 2 } })",
+                                      "schemas": { "tables": { "com.test.a:Guns": 2 } } })",
                                  *data)
                      .has_value())
         << "an unknown column at the current version";
@@ -123,8 +123,8 @@ TEST_F(ProjectDataTest, OlderVersion_Migrates)
         "values": { "com.test.a:JumpHeight": 50, "com.test.a:FireMode": "Burst" },
         "characters": { "com.test.a:Soldier": { "com.test.b:Armor": 7.9, "attr.Mana": 3 } },
         "tables": { "com.test.a:Guns": { "shotgun": { "reach": 30, "power": 2.7, "weight": 4 } } },
-        "schemas": { "com.test.a:JumpHeight": 0, "com.test.a:FireMode": 0, "com.test.a:Soldier": 0,
-                     "com.test.a:Guns": 1 } })",
+        "schemas": { "values": { "com.test.a:JumpHeight": 0, "com.test.a:FireMode": 0 },
+                     "characters": { "com.test.a:Soldier": 0 }, "tables": { "com.test.a:Guns": 1 } } })",
                                                                       *data);
     ASSERT_TRUE(warnings.has_value()) << warnings.error().message;
     EXPECT_EQ(data->Values().Get<float>("com.test.a:JumpHeight"), 20.0f) << "clamped into B's range";
@@ -149,7 +149,7 @@ TEST_F(ProjectDataTest, UnknownIds_KeptAndWrittenBack)
     const Result<std::vector<std::string>> warnings = LoadProjectData(R"({
         "values": { "com.gone.module:Speed": [1, 2, 3] },
         "tables": { "com.gone.module:Cars": { "van": { "seats": 3 } } },
-        "schemas": { "com.gone.module:Speed": 4 } })",
+        "schemas": { "values": { "com.gone.module:Speed": 4 } } })",
                                                                       *data);
     ASSERT_TRUE(warnings.has_value()) << warnings.error().message;
     EXPECT_EQ(warnings->size(), 2u);
@@ -157,6 +157,7 @@ TEST_F(ProjectDataTest, UnknownIds_KeptAndWrittenBack)
     EXPECT_NE(written.find("com.gone.module:Speed"), std::string::npos);
     EXPECT_NE(written.find("\"seats\": 3"), std::string::npos);
     EXPECT_NE(written.find("\"com.gone.module:Speed\": 4"), std::string::npos) << written;
+    EXPECT_FALSE(LoadProjectData(R"({ "schemas": { "values": [] } })", *data).has_value());
 }
 
 TEST_F(ProjectDataTest, Cooked_Corrupt_Rejected)

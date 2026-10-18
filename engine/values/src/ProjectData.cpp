@@ -19,6 +19,16 @@ namespace
 
 constexpr FourCC kCookedPayloadMagic = MakeFourCC("IVAP");
 
+/// The sections of a project data file; "schemas" has one object of versions per section, since one id may name
+/// items of several kinds (a shared attribute and a shared value, a value and a table of one module).
+constexpr std::string_view kSections[] = {"values", "characters", "tables"};
+
+/// The key of an item in DataRegistry::LoadedSchemaVersions: "<section>/<id>".
+std::string SchemaKey(std::string_view section, std::string_view id)
+{
+    return std::format("{}/{}", section, id);
+}
+
 std::unexpected<Error> Invalid(std::string message)
 {
     return MakeError(ErrorCode::InvalidArgument, std::move(message));
@@ -232,20 +242,27 @@ Result<std::vector<std::string>> LoadProjectData(std::string_view json, DataRegi
     Staged staged;
     std::vector<std::string> warnings;
     INTERI_TRY_ASSIGN(schemas, GetObject(root, "schemas", "project data"));
-    if (schemas != nullptr)
+    for (const std::string_view section : kSections)
     {
-        for (const auto& [id, version] : schemas->items())
+        INTERI_TRY_ASSIGN(versions, schemas == nullptr ? Result<const nlohmann::json*>(nullptr)
+                                                       : GetObject(*schemas, section, "project data \"schemas\""));
+        if (versions == nullptr)
+        {
+            continue;
+        }
+        for (const auto& [id, version] : versions->items())
         {
             if (!version.is_number_unsigned() || version.get<std::uint64_t>() > 0xFFFFFFFFu)
             {
-                return Invalid(std::format("project data: schema version of '{}' must be a non-negative integer", id));
+                return Invalid(
+                    std::format("project data: schema version of {} '{}' must be a non-negative integer", section, id));
             }
-            staged.versions.emplace(id, static_cast<std::uint32_t>(version.get<std::uint64_t>()));
+            staged.versions.emplace(SchemaKey(section, id), static_cast<std::uint32_t>(version.get<std::uint64_t>()));
         }
     }
-    const auto sameVersion = [&](std::string_view id, std::uint32_t current)
+    const auto sameVersion = [&](std::string_view section, std::string_view id, std::uint32_t current)
     {
-        const auto it = staged.versions.find(id);
+        const auto it = staged.versions.find(SchemaKey(section, id));
         if (it == staged.versions.end() || it->second == current)
         {
             return it != staged.versions.end();
@@ -270,8 +287,9 @@ Result<std::vector<std::string>> LoadProjectData(std::string_view json, DataRegi
                 warnings.push_back(std::format("value '{}': no loaded module defines it; kept as it is", id));
                 continue;
             }
-            INTERI_TRY_ASSIGN(read, ReadStored(value, definition->schema, sameVersion(id, definition->version),
-                                               std::format("value '{}'", id), warnings));
+            INTERI_TRY_ASSIGN(read,
+                              ReadStored(value, definition->schema, sameVersion("values", id, definition->version),
+                                         std::format("value '{}'", id), warnings));
             staged.values.emplace_back(id, std::move(read));
         }
     }
@@ -295,7 +313,7 @@ Result<std::vector<std::string>> LoadProjectData(std::string_view json, DataRegi
             {
                 return Invalid(std::format("archetype '{}' must be an object of attribute id -> value", archetype));
             }
-            const bool same = sameVersion(archetype, definition->version);
+            const bool same = sameVersion("characters", archetype, definition->version);
             for (const auto& [attribute, value] : defaults.items())
             {
                 const std::string where = std::format("archetype '{}' attribute '{}'", archetype, attribute);
@@ -331,7 +349,7 @@ Result<std::vector<std::string>> LoadProjectData(std::string_view json, DataRegi
             {
                 return Invalid(std::format("table '{}' must be an object of row id -> cells", table));
             }
-            const bool same = sameVersion(table, definition->version);
+            const bool same = sameVersion("tables", table, definition->version);
             for (const auto& [row, cells] : rows.items())
             {
                 if (!sdk::IsValidItemName(row) || row.find(':') != std::string::npos)
@@ -414,22 +432,25 @@ std::string WriteProjectData(const DataRegistry& data)
 
     // An item is written against its current schema version only if it fits it; otherwise it keeps the version it
     // was loaded with (or 0), so the next load migrates it instead of failing.
-    const auto version = [&](const std::string& id, std::optional<std::uint32_t> current, bool fits)
+    const auto version =
+        [&](std::string_view section, const std::string& id, std::optional<std::uint32_t> current, bool fits)
     {
+        nlohmann::json& versions = schemas[std::string(section)];
         if (current && fits)
         {
-            schemas[id] = *current;
+            versions[id] = *current;
             return;
         }
-        const auto loaded = data.LoadedSchemaVersions().find(id);
-        schemas[id] = loaded != data.LoadedSchemaVersions().end() ? loaded->second : 0u;
+        const auto loaded = data.LoadedSchemaVersions().find(SchemaKey(section, id));
+        versions[id] = loaded != data.LoadedSchemaVersions().end() ? loaded->second : 0u;
     };
 
     for (const auto& [id, project] : data.Values().ProjectValues())
     {
         values[id] = detail::ValueToJson(project.value);
         const ValueDefinition* definition = data.Values().Definition(id);
-        version(id, definition != nullptr ? std::optional(definition->version) : std::nullopt, project.active);
+        version("values", id, definition != nullptr ? std::optional(definition->version) : std::nullopt,
+                project.active);
     }
     for (const auto& [archetype, defaults] : data.Characters().ProjectDefaults())
     {
@@ -445,7 +466,8 @@ std::string WriteProjectData(const DataRegistry& data)
         {
             fits = fits && data.Characters().CheckProjectDefault(archetype, attribute, value).has_value();
         }
-        version(archetype, definition != nullptr ? std::optional(definition->version) : std::nullopt, fits);
+        version("characters", archetype, definition != nullptr ? std::optional(definition->version) : std::nullopt,
+                fits);
     }
     for (const auto& [table, rows] : data.Tables().ProjectRows())
     {
@@ -463,19 +485,19 @@ std::string WriteProjectData(const DataRegistry& data)
         }
         tables[table] = std::move(object);
         const DataTableDefinition* definition = data.Tables().Table(table);
-        version(table, definition != nullptr ? std::optional(definition->version) : std::nullopt, fits);
+        version("tables", table, definition != nullptr ? std::optional(definition->version) : std::nullopt, fits);
     }
     const UnresolvedProjectData& unresolved = data.Unresolved();
-    for (const auto& [section, entries] :
-         {std::pair{&values, &unresolved.values}, std::pair{&characters, &unresolved.characters},
-          std::pair{&tables, &unresolved.tables}})
+    for (const auto& [name, section, entries] : {std::tuple{kSections[0], &values, &unresolved.values},
+                                                 std::tuple{kSections[1], &characters, &unresolved.characters},
+                                                 std::tuple{kSections[2], &tables, &unresolved.tables}})
     {
         for (const auto& [id, text] : *entries)
         {
             if (!section->contains(id))
             {
                 (*section)[id] = nlohmann::json::parse(text, nullptr, false);
-                version(id, std::nullopt, false);
+                version(name, id, std::nullopt, false);
             }
         }
     }

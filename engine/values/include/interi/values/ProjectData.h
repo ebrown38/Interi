@@ -10,10 +10,12 @@
 //       "values":     { "com.author.fps:JumpHeight": 2.5 },
 //       "characters": { "com.author.fps:Soldier": { "attr.Health": 175 } },
 //       "tables":     { "com.author.fps:Guns": { "shotgun": { "range": 20, "mode": "Auto" } } },
-//       "schemas":    { "com.author.fps:JumpHeight": 1, "com.author.fps:Guns": 2, "com.author.fps:Soldier": 1 }
+//       "schemas":    { "values": { "com.author.fps:JumpHeight": 1 }, "characters": { "com.author.fps:Soldier": 1 },
+//                       "tables": { "com.author.fps:Guns": 2 } }
 //     }
 //
-// "schemas" records the version of every value, archetype and table definition the data was written against. On
+// "schemas" records, per section, the version of every value, archetype and table definition the data was written
+// against (per section: one id may name items of several kinds). On
 // load, data written against the current version must fit exactly (anything else is an error: the file was edited
 // by hand); data written against another version migrates with a warning each: numbers convert between bool, int,
 // u32 and float and clamp into the new range, a renamed column ("renamedFrom") takes its old cells, and what can't

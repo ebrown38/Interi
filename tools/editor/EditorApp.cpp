@@ -192,7 +192,13 @@ void EditorApp::SaveProjectData()
     {
         return;
     }
-    std::ofstream(m_projectDataPath, std::ios::binary | std::ios::trunc) << values::WriteProjectData(m_project->Data());
+    std::ofstream file(m_projectDataPath, std::ios::binary | std::ios::trunc);
+    file << values::WriteProjectData(m_project->Data());
+    if (!file.flush())
+    {
+        INTERI_LOG_ERROR("Editor", "can't write {}", m_projectDataPath.string());
+        return;
+    }
     INTERI_LOG_INFO("Editor", "saved {}", m_projectDataPath.string());
 }
 

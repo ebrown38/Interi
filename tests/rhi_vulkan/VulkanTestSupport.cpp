@@ -42,17 +42,18 @@ extern "C" const char* __lsan_default_suppressions() // NOLINT(bugprone-reserved
 /// consistent. A process has only one list, so an executable that also needs another library's suppression defines
 /// INTERI_EXTRA_TSAN_SUPPRESSIONS (a string literal, one suppression without the newline; e.g. the Jolt physics test
 /// helper's) and gets it here.
+#ifdef INTERI_EXTRA_TSAN_SUPPRESSIONS
+#define INTERI_EXTRA_TSAN_LINE INTERI_EXTRA_TSAN_SUPPRESSIONS "\n"
+#else
+#define INTERI_EXTRA_TSAN_LINE ""
+#endif
 extern "C" const char* __tsan_default_suppressions() // NOLINT(bugprone-reserved-identifier)
 {
-    return
-#ifdef INTERI_EXTRA_TSAN_SUPPRESSIONS
-        INTERI_EXTRA_TSAN_SUPPRESSIONS "\n"
-#endif
-        "race:libvulkan_lvp.so\n"
-        "race:libLLVM\n"
-        "race:libVkLayer_khronos_validation.so\n"
-        "deadlock:libvulkan_lvp.so\n"
-        "deadlock:libLLVM\n"
-        "deadlock:libvulkan.so\n";
+    return INTERI_EXTRA_TSAN_LINE "race:libvulkan_lvp.so\n"
+                                  "race:libLLVM\n"
+                                  "race:libVkLayer_khronos_validation.so\n"
+                                  "deadlock:libvulkan_lvp.so\n"
+                                  "deadlock:libLLVM\n"
+                                  "deadlock:libvulkan.so\n";
 }
 #endif

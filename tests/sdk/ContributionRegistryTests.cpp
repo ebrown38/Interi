@@ -251,37 +251,37 @@ struct PhysicsProject
 TEST_F(Registry, PhysicsContract_FromNonEngine_Rejected)
 {
     const PhysicsProject project;
-    const ModuleSet modules{project.graph, project.contracts};
-    ContributionRegistry<std::string> registry{modules};
-    auto fromModule = registry.Provide("com.test.game", "service.PhysicsQueries", "game");
+    const ModuleSet moduleSet{project.graph, project.contracts};
+    ContributionRegistry<std::string> contributions{moduleSet};
+    auto fromModule = contributions.Provide("com.test.game", "service.PhysicsQueries", "game");
     ASSERT_FALSE(fromModule.has_value());
     EXPECT_EQ(fromModule.error().code, ErrorCode::InvalidArgument);
     EXPECT_NE(fromModule.error().message.find("Physics Engine"), std::string::npos);
-    EXPECT_FALSE(registry.Provide(kEngineProviderId, "service.PhysicsQueries", "engine").has_value());
-    EXPECT_EQ(registry.Resolve("service.PhysicsQueries"), nullptr);
+    EXPECT_FALSE(contributions.Provide(kEngineProviderId, "service.PhysicsQueries", "engine").has_value());
+    EXPECT_EQ(contributions.Resolve("service.PhysicsQueries"), nullptr);
 }
 
 TEST_F(Registry, PhysicsContract_FromEngine_Accepted)
 {
     const PhysicsProject project;
-    const ModuleSet modules{project.graph, project.contracts};
-    ContributionRegistry<std::string> registry{modules};
-    ASSERT_TRUE(registry.Provide("test.physics.alpha", "service.PhysicsQueries", "alpha").has_value());
-    EXPECT_EQ(*registry.Resolve("service.PhysicsQueries"), "alpha");
+    const ModuleSet moduleSet{project.graph, project.contracts};
+    ContributionRegistry<std::string> contributions{moduleSet};
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha", "service.PhysicsQueries", "alpha").has_value());
+    EXPECT_EQ(*contributions.Resolve("service.PhysicsQueries"), "alpha");
 }
 
 TEST_F(Registry, ExtenderEngine_OverridesBaseContract)
 {
     const PhysicsProject project;
-    const ModuleSet modules{project.graph, project.contracts};
-    ContributionRegistry<std::string> registry{modules};
-    ASSERT_TRUE(registry.Provide("test.physics.alpha", "service.PhysicsQueries", "alpha").has_value());
-    ASSERT_TRUE(registry.Provide("test.physics.alpha", "service.PhysicsBodies", "alpha").has_value());
-    ASSERT_TRUE(registry.Provide("test.physics.alpha_plus", "service.PhysicsQueries", "plus").has_value());
+    const ModuleSet moduleSet{project.graph, project.contracts};
+    ContributionRegistry<std::string> contributions{moduleSet};
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha", "service.PhysicsQueries", "alpha").has_value());
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha", "service.PhysicsBodies", "alpha").has_value());
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha_plus", "service.PhysicsQueries", "plus").has_value());
     // Per item: the extender replaces what it provides, the base's other items stay.
-    EXPECT_EQ(*registry.Resolve("service.PhysicsQueries"), "plus");
-    EXPECT_EQ(*registry.Resolve("service.PhysicsBodies"), "alpha");
-    const auto provenance = registry.Provenance("service.PhysicsQueries");
+    EXPECT_EQ(*contributions.Resolve("service.PhysicsQueries"), "plus");
+    EXPECT_EQ(*contributions.Resolve("service.PhysicsBodies"), "alpha");
+    const auto provenance = contributions.Provenance("service.PhysicsQueries");
     ASSERT_EQ(provenance.size(), 2U);
     EXPECT_EQ(provenance[0].provider, "test.physics.alpha_plus");
     EXPECT_EQ(provenance[1].provider, "test.physics.alpha");

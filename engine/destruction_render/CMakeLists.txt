@@ -24,6 +24,7 @@ interi_add_test_executable(interi_destruction_render_gpu_tests
     SOURCES
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
         ${_tests}/ChunkGathererTests.cpp
+        ${_tests}/TsanSuppressionTests.cpp
     DEPS interi::destruction_render interi::rhi_vulkan interi::vulkan_testing interi::testing interi::physics_testing
     LABELS integration)
 

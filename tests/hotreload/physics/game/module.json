@@ -1,0 +1,9 @@
+{
+  "id": "com.test.physgame", "name": "com.test.physgame", "version": "1.0.0", "kind": "Module",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Physics Engine selection test fixture",
+  "engine": "*",
+  "library": "interi_physics_game",
+  "physicsEngines": [
+    { "id": "test.physics.alpha", "version": "^1", "default": true, "library": "interi_physics_game_alpha" },
+    { "id": "test.physics.beta", "version": "*", "library": "interi_physics_game_beta" } ]
+}

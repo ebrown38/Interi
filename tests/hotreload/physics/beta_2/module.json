@@ -1,0 +1,6 @@
+{
+  "id": "test.physics.beta", "name": "test.physics.beta", "version": "2.0.0", "kind": "PhysicsEngine",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Physics Engine selection test fixture",
+  "engine": "*",
+  "library": "interi_physics_beta"
+}

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -14,12 +15,14 @@ namespace interi::sdk
 {
 
 /// What a module is for. Only Extensions may be depended on and may declare shared contract ids; Plugins only
-/// override items other modules provide.
+/// override items other modules provide. A PhysicsEngine provides the reserved `service.Physics*` contracts; it is
+/// never depended on or listed in a project, only selected from the `physicsEngines` other modules declare.
 enum class ModuleKind : std::uint8_t
 {
     Module,
     Extension,
     Plugin,
+    PhysicsEngine,
 };
 
 [[nodiscard]] std::string_view ToString(ModuleKind kind) noexcept;
@@ -46,6 +49,24 @@ struct OverrideDeclaration
     VersionRange version;
 };
 
+/// A Physics Engine a module supports: the engine's module id, the versions it works with, and optionally the
+/// module's own adapter library for that engine (base name, found next to module.json like `library`). An engine
+/// that extends the named one satisfies the entry too (see SelectPhysicsEngine).
+struct PhysicsEngineEntry
+{
+    std::string id;
+    VersionRange version;
+    bool isDefault = false; ///< Exactly one entry of a list of several; a single entry is the default.
+    std::string library;
+};
+
+/// A named Physics Engine and the versions wanted: a PhysicsEngine's "extends" and the project's pin.
+struct PhysicsEngineRef
+{
+    std::string id;
+    VersionRange version;
+};
+
 /// A starter project a module ships: a folder (relative to the module) copied to make a new project.
 struct ModuleTemplate
 {
@@ -66,8 +87,16 @@ struct ModuleTemplate
 ///       "conflicts": [ { "id": "com.other.fps", "version": "*" } ],
 ///       "contracts": [ "service.PhysicsQueries" ],
 ///       "overrides": [ { "target": "com.author.base:FireGun", "version": "^1.0" } ],
-///       "templates": [ { "name": "Coin game", "path": "templates/coins", "description": "..." } ]
+///       "templates": [ { "name": "Coin game", "path": "templates/coins", "description": "..." } ],
+///       "physicsEngines": [ { "id": "com.interi.physics.jolt", "version": "^5", "default": true,
+///                            "library": "fps_jolt" },
+///                          { "id": "com.interi.physics.physx", "version": "^4" } ],
+///       "extends": { "id": "com.interi.physics.jolt", "version": "^5" }
 ///     }
+///
+/// "physicsEngines" (Module, Extension, Plugin) lists the Physics Engines the module supports, exactly one marked
+/// "default" when there are several; a module without it works with any engine. "extends" (PhysicsEngine only)
+/// names the engine it builds on. A PhysicsEngine declares no "dependencies" and no "physicsEngines".
 ///
 /// "id" and "version" are required. Missing metadata (name, kind, author, license, copyright, description, engine)
 /// takes a default and adds a warning; the other fields default silently. Unknown top-level sections add a warning
@@ -93,6 +122,8 @@ struct ModuleManifest
     std::vector<std::string> contracts; ///< Shared contract ids this Extension declares.
     std::vector<OverrideDeclaration> overrides;
     std::vector<ModuleTemplate> templates;
+    std::vector<PhysicsEngineEntry> physicsEngines;
+    std::optional<PhysicsEngineRef> extends; ///< PhysicsEngine only.
 
     std::filesystem::path directory; ///< Folder the manifest was loaded from (LoadManifest); empty when parsed.
     std::vector<std::string> warnings;

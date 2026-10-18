@@ -8,6 +8,7 @@
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleApi.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/platform/DynamicLibrary.h>
 #include <interi/sdk/ContributionRegistry.h>
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Manifest.h>
@@ -17,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -82,14 +84,19 @@ public:
 
     /// Loads a project (`projectOrder`, top = highest priority) from the modules in `available`, replacing whatever
     /// is loaded. All or nothing.
+    /// `physicsEngine` is the project's pin. The selected Physics Engine (and the engines it extends) load first,
+    /// then each declaring module's adapter library for it, if it names one, after its main library; every module
+    /// is told the engine's id and version (ModuleContext::physicsEngine).
     Result<ModuleLoadStats> LoadProject(std::span<const std::string> projectOrder,
-                                        std::span<const sdk::ModuleManifest> available);
+                                        std::span<const sdk::ModuleManifest> available,
+                                        const std::optional<sdk::PhysicsEngineRef>& physicsEngine = {});
 
     /// Loads (or reloads) the library at `path` as a project's only module, without a manifest (provider id
     /// kLocalModuleId). Fails if a project with manifests is loaded.
     Result<ModuleLoadStats> Load(const std::filesystem::path& path);
 
-    /// Reloads module `id` from its library (rebuilt in place) and every loaded module that depends on it.
+    /// Reloads module `id` from its library (rebuilt in place) and every loaded module that depends on it (a Physics
+    /// Engine: every module built against it and every engine extending it).
     Result<ModuleLoadStats> Reload(std::string_view id);
 
     /// Unloads every module, dependents first.
@@ -124,10 +131,14 @@ private:
     struct Loaded;
     struct Plan;
 
-    Result<std::unique_ptr<Loaded>> Open(const std::string& id, const std::filesystem::path& library);
+    Result<std::unique_ptr<Loaded>> Open(const std::string& id, const std::filesystem::path& library,
+                                         const std::filesystem::path& adapter = {});
+    Result<void> OpenLibrary(const std::filesystem::path& library, DynamicLibrary& opened,
+                             std::filesystem::path& shadowPath, const ModuleApi*& api);
     Result<void> Register(Loaded& module, std::span<const std::byte> savedState,
                           std::span<const std::pair<std::string, values::Value>> savedFields);
-    [[nodiscard]] Result<std::filesystem::path> FindLibrary(const sdk::ModuleManifest& manifest) const;
+    [[nodiscard]] Result<std::filesystem::path> FindLibrary(const sdk::ModuleManifest& manifest,
+                                                            std::string_view library) const;
     Result<ModuleLoadStats> Execute(Plan plan);
     static void LogUnload(const Loaded& module);
 

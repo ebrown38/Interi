@@ -53,9 +53,10 @@ constexpr MetadataField kQuietFields[] = {
 
 // The data sections ("values" to "dataTables") are parsed by interi::values (ParseModuleContent).
 constexpr std::string_view kKnownKeys[] = {
-    "id",        "name",     "version",    "kind",          "author",     "license",      "copyright", "description",
-    "icon",      "homepage", "engine",     "library",       "toolchain",  "dependencies", "conflicts", "contracts",
-    "overrides", "values",   "attributes", "attributeSets", "archetypes", "dataTables",   "templates",
+    "id",          "name",      "version",        "kind",    "author",     "license",       "copyright",
+    "description", "icon",      "homepage",       "engine",  "library",    "toolchain",     "dependencies",
+    "conflicts",   "contracts", "overrides",      "values",  "attributes", "attributeSets", "archetypes",
+    "dataTables",  "templates", "physicsEngines", "extends",
 };
 
 Result<std::string> GetString(const nlohmann::json& object, std::string_view key, std::string_view where)
@@ -112,6 +113,88 @@ Result<std::pair<std::string, VersionRange>> ParseIdAndRange(const nlohmann::jso
         range = std::move(*parsed);
     }
     return std::pair{std::move(id), std::move(range)};
+}
+
+Result<void> ParsePhysicsSections(const nlohmann::json& root, ModuleManifest& manifest)
+{
+    const bool isEngine = manifest.kind == ModuleKind::PhysicsEngine;
+    if (isEngine && !manifest.dependencies.empty())
+    {
+        return Invalid("a PhysicsEngine can't declare \"dependencies\"");
+    }
+    INTERI_TRY_ASSIGN(engines, GetArray(root, "physicsEngines"));
+    if (engines != nullptr)
+    {
+        if (isEngine)
+        {
+            return Invalid(R"(a PhysicsEngine can't declare "physicsEngines" (it can "extend" one))");
+        }
+        for (std::size_t i = 0; i < engines->size(); ++i)
+        {
+            const nlohmann::json& entry = (*engines)[i];
+            const std::string where = std::format("physicsEngines[{}]", i);
+            INTERI_TRY_ASSIGN(idAndRange, ParseIdAndRange(entry, "physicsEngines", i));
+            PhysicsEngineEntry parsed{.id = std::move(idAndRange.first),
+                                      .version = std::move(idAndRange.second),
+                                      .isDefault = false,
+                                      .library = {}};
+            if (const auto it = entry.find("default"); it != entry.end())
+            {
+                if (!it->is_boolean())
+                {
+                    return Invalid(std::format("{}: \"default\" must be a boolean", where));
+                }
+                parsed.isDefault = it->get<bool>();
+            }
+            if (entry.contains("library"))
+            {
+                INTERI_TRY_ASSIGN(library, GetString(entry, "library", where));
+                if (library.empty() || !IsValidItemName(library) || library.find('.') != std::string::npos)
+                {
+                    return Invalid(std::format("{}: \"library\" must be a base name without extension", where));
+                }
+                parsed.library = std::move(library);
+            }
+            if (std::ranges::any_of(manifest.physicsEngines,
+                                    [&](const PhysicsEngineEntry& e) { return e.id == parsed.id; }))
+            {
+                return Invalid(std::format("physicsEngines lists '{}' twice", parsed.id));
+            }
+            manifest.physicsEngines.push_back(std::move(parsed));
+        }
+        if (manifest.physicsEngines.size() == 1)
+        {
+            manifest.physicsEngines.front().isDefault = true;
+        }
+        else if (manifest.physicsEngines.size() > 1)
+        {
+            const auto defaults =
+                std::ranges::count_if(manifest.physicsEngines, [](const PhysicsEngineEntry& e) { return e.isDefault; });
+            if (defaults != 1)
+            {
+                return Invalid(std::format("physicsEngines needs exactly one \"default\" entry, found {}", defaults));
+            }
+        }
+    }
+
+    if (const auto it = root.find("extends"); it != root.end())
+    {
+        if (!isEngine)
+        {
+            return Invalid("only a PhysicsEngine can \"extend\" another engine");
+        }
+        if (!it->is_object())
+        {
+            return Invalid(R"("extends" must be an object { "id", "version" })");
+        }
+        INTERI_TRY_ASSIGN(idAndRange, ParseIdAndRange(*it, "extends", 0));
+        if (idAndRange.first == manifest.id)
+        {
+            return Invalid("a PhysicsEngine can't extend itself");
+        }
+        manifest.extends = PhysicsEngineRef{.id = std::move(idAndRange.first), .version = std::move(idAndRange.second)};
+    }
+    return {};
 }
 
 Result<void> ParseSections(const nlohmann::json& root, ModuleManifest& manifest)
@@ -244,6 +327,7 @@ Result<void> ParseSections(const nlohmann::json& root, ModuleManifest& manifest)
             manifest.templates.push_back(std::move(parsed));
         }
     }
+    INTERI_TRY(ParsePhysicsSections(root, manifest));
     return {};
 }
 
@@ -259,6 +343,8 @@ std::string_view ToString(ModuleKind kind) noexcept
         return "Extension";
     case ModuleKind::Plugin:
         return "Plugin";
+    case ModuleKind::PhysicsEngine:
+        return "PhysicsEngine";
     }
     return "Module";
 }
@@ -372,9 +458,14 @@ Result<ModuleManifest> ParseManifest(std::string_view json)
         {
             manifest.kind = ModuleKind::Plugin;
         }
+        else if (kind == "PhysicsEngine")
+        {
+            manifest.kind = ModuleKind::PhysicsEngine;
+        }
         else
         {
-            return Invalid(std::format("{}: unknown kind '{}' (Module, Extension or Plugin)", where, kind));
+            return Invalid(
+                std::format("{}: unknown kind '{}' (Module, Extension, Plugin or PhysicsEngine)", where, kind));
         }
     }
     else

@@ -20,6 +20,7 @@ interi_add_module(sdk SHARED
         ${_tests}/HooksTests.cpp
         ${_tests}/ManifestTests.cpp
         ${_tests}/ModuleGraphTests.cpp
+        ${_tests}/PhysicsEngineTests.cpp
         ${_tests}/ProjectTests.cpp
         ${_tests}/SemVerTests.cpp)
 

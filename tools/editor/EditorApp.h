@@ -141,6 +141,9 @@ private:
     /// opens its startup scene. Errors are logged; the current project stays.
     void OpenProjectFolder(const std::filesystem::path& folder);
     void HandleProjectRequests(const ProjectRequests& requests);
+    void HandleProjectSettings(const ProjectSettingsRequests& requests);
+    /// Saves and reopens the project `changed`, or logs and shows (Project menu) why it was refused.
+    void ApplyProjectChange(Result<sdk::Project> changed, const std::string& what);
     /// Panels for the editor services, autosave and profiler frame marks.
     void UpdateServices(float seconds);
     /// Carries out the Tools panel's modeling requests on the selection.
@@ -188,6 +191,10 @@ private:
     std::shared_ptr<LogBuffer> m_log = std::make_shared<LogBuffer>();
     ConsoleState m_console;
     ProjectMenuState m_projectMenu;
+    std::optional<sdk::Project> m_projectDef; ///< The open project folder's project.json.
+    std::vector<sdk::ModuleManifest> m_projectManifests;
+    PhysicsEngineStatus m_physicsEngine;
+    std::vector<std::string> m_addableModules; ///< Installed modules the Project menu can add.
     std::vector<ProjectTemplate> m_templates;
     std::unique_ptr<NativeFileSystem> m_projectFiles; ///< The open project folder, mounted over the data tree.
     sdk::ModuleSet m_chainModules;

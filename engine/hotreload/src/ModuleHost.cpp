@@ -28,6 +28,15 @@ struct ModuleHost::Loaded
     std::filesystem::path shadowPath;
     const ModuleApi* api = nullptr;
     bool attached = false; ///< api->load was called, so api->unload must be.
+    /// The adapter library for the selected Physics Engine (a `physicsEngines` entry's "library"): loaded after the
+    /// main one, into the same scope and scheduler, and unloaded before it.
+    std::filesystem::path adapterPath;
+    DynamicLibrary adapterLibrary;
+    std::filesystem::path adapterShadowPath;
+    const ModuleApi* adapterApi = nullptr;
+    bool adapterAttached = false;
+    std::string physicsEngineId; ///< The selected Physics Engine, told to the module when it loads (empty: none).
+    std::string physicsEngineVersion;
     std::unique_ptr<sdk::ModuleScope> scope;
     std::unique_ptr<Scheduler> scheduler = std::make_unique<Scheduler>();
     std::vector<std::string> systemNames; ///< By Scheduler::SystemId.
@@ -61,14 +70,23 @@ struct ModuleHost::Loaded
         // The systems (and whatever they captured) are module code: destroy them while the module is still loaded.
         scheduler.reset();
         saver = nullptr;
+        if (adapterAttached)
+        {
+            adapterApi->unload();
+        }
+        adapterLibrary.Close();
         if (attached)
         {
             api->unload();
         }
         library.Close();
+        std::error_code ignored;
+        if (!adapterShadowPath.empty())
+        {
+            std::filesystem::remove(adapterShadowPath, ignored);
+        }
         if (!shadowPath.empty())
         {
-            std::error_code ignored;
             std::filesystem::remove(shadowPath, ignored);
         }
     }
@@ -84,8 +102,9 @@ public:
               std::span<const std::byte> savedState, std::vector<std::string>& systemNames, Scheduler& scheduler,
               std::vector<std::pair<ComponentTypeId, ComponentMigrator>>& components, StateSaver& saver,
               std::span<const std::pair<std::string, values::Value>> savedFields, void*& stateObject,
-              std::vector<values::FieldInfo>& stateFields)
-        : m_scope(&scope)
+              std::vector<values::FieldInfo>& stateFields, PhysicsEngineInfo physicsEngine)
+        : m_physicsEngine(physicsEngine)
+        , m_scope(&scope)
         , m_data(&data)
         , m_chains(&chains)
         , m_savedState(savedState)
@@ -125,6 +144,7 @@ public:
         m_orders.emplace_back(system, dependency);
     }
 
+    [[nodiscard]] PhysicsEngineInfo PhysicsEngine() const override { return m_physicsEngine; }
     [[nodiscard]] const sdk::ModuleScope& Scope() const override { return *m_scope; }
     [[nodiscard]] const values::DataRegistry& Data() const override { return *m_data; }
     [[nodiscard]] chain::ChainRegistry& Chains() const override { return *m_chains; }
@@ -191,6 +211,7 @@ private:
         }
     }
 
+    PhysicsEngineInfo m_physicsEngine;
     const sdk::ModuleScope* m_scope;
     const values::DataRegistry* m_data;
     chain::ChainRegistry* m_chains;
@@ -343,6 +364,10 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     {
         m_desc.engineContracts.push_back(std::move(id));
     }
+    for (std::string& id : sdk::PhysicsContracts())
+    {
+        m_desc.engineContracts.push_back(std::move(id));
+    }
     for (const std::string& id : m_desc.engineContracts)
     {
         m_moduleSet->DeclareContract(id);
@@ -377,18 +402,9 @@ bool ModuleHost::Supported() noexcept
 #endif
 }
 
-Result<std::unique_ptr<ModuleHost::Loaded>> ModuleHost::Open(const std::string& id,
-                                                             const std::filesystem::path& library)
+Result<void> ModuleHost::OpenLibrary(const std::filesystem::path& library, DynamicLibrary& opened,
+                                     std::filesystem::path& shadowPath, const ModuleApi*& api)
 {
-    auto module = std::make_unique<Loaded>();
-    module->id = id;
-    module->scope = std::make_unique<sdk::ModuleScope>(*m_hooks, id);
-    if (library.empty())
-    {
-        return module; // content only
-    }
-    module->libraryPath = library;
-
     std::error_code error;
     if (!std::filesystem::is_regular_file(library, error))
     {
@@ -404,57 +420,92 @@ Result<std::unique_ptr<ModuleHost::Loaded>> ModuleHost::Open(const std::string& 
         return MakeError(ErrorCode::IoError,
                          std::format("copying '{}' to '{}': {}", library.string(), shadow.string(), error.message()));
     }
-    module->shadowPath = shadow;
-    INTERI_TRY_ASSIGN(opened, DynamicLibrary::Open(shadow.string()));
-    module->library = std::move(opened);
+    shadowPath = shadow;
+    INTERI_TRY_ASSIGN(library_, DynamicLibrary::Open(shadow.string()));
+    opened = std::move(library_);
 
     using GetApi = const ModuleApi* (*)();
-    const auto getApi = module->library.FindFunction<GetApi>(kModuleApiSymbol);
+    const auto getApi = opened.FindFunction<GetApi>(kModuleApiSymbol);
     if (getApi == nullptr)
     {
         return MakeError(ErrorCode::NotFound,
                          std::format("'{}' does not export {}", library.string(), kModuleApiSymbol));
     }
-    const ModuleApi* api = getApi();
-    if (api == nullptr || api->abiVersion != kModuleAbiVersion || api->load == nullptr || api->unload == nullptr)
+    const ModuleApi* found = getApi();
+    if (found == nullptr || found->abiVersion != kModuleAbiVersion || found->load == nullptr ||
+        found->unload == nullptr)
     {
         return MakeError(ErrorCode::VersionMismatch,
                          std::format("'{}' was built for module ABI {}, the host is {}", library.string(),
-                                     api != nullptr ? api->abiVersion : 0, kModuleAbiVersion));
+                                     found != nullptr ? found->abiVersion : 0, kModuleAbiVersion));
     }
     const std::string_view engine = sdk::EngineToolchainFingerprint();
-    if (api->toolchain == nullptr || engine != api->toolchain)
+    if (found->toolchain == nullptr || engine != found->toolchain)
     {
         return MakeError(ErrorCode::VersionMismatch,
                          std::format("'{}' was built with toolchain '{}', the engine with '{}'; rebuild it against "
                                      "this engine",
-                                     library.string(), api->toolchain != nullptr ? api->toolchain : "", engine));
+                                     library.string(), found->toolchain != nullptr ? found->toolchain : "", engine));
     }
-    module->api = api;
+    api = found;
+    return {};
+}
+
+Result<std::unique_ptr<ModuleHost::Loaded>>
+ModuleHost::Open(const std::string& id, const std::filesystem::path& library, const std::filesystem::path& adapter)
+{
+    auto module = std::make_unique<Loaded>();
+    module->id = id;
+    module->scope = std::make_unique<sdk::ModuleScope>(*m_hooks, id);
+    if (!library.empty())
+    {
+        module->libraryPath = library;
+        INTERI_TRY(OpenLibrary(library, module->library, module->shadowPath, module->api));
+    }
+    if (!adapter.empty())
+    {
+        module->adapterPath = adapter;
+        INTERI_TRY(OpenLibrary(adapter, module->adapterLibrary, module->adapterShadowPath, module->adapterApi));
+    }
     return module;
 }
 
 Result<void> ModuleHost::Register(Loaded& module, std::span<const std::byte> savedState,
                                   std::span<const std::pair<std::string, values::Value>> savedFields)
 {
-    if (module.api == nullptr)
+    if (module.api == nullptr && module.adapterApi == nullptr)
     {
-        return {};
+        return {}; // content only
     }
+    const PhysicsEngineInfo engine{.id = module.physicsEngineId, .version = module.physicsEngineVersion};
     Registrar registrar(*module.scope, *m_data, *m_chains, savedState, module.systemNames, *module.scheduler,
-                        module.components, module.saver, savedFields, module.stateObject, module.stateFields);
-    const ModuleContext context{.abiVersion = kModuleAbiVersion, .registrar = &registrar};
-    module.attached = true;
-    if (!module.api->load(context))
+                        module.components, module.saver, savedFields, module.stateObject, module.stateFields, engine);
+    const ModuleContext context{.abiVersion = kModuleAbiVersion, .registrar = &registrar, .physicsEngine = engine};
+    if (module.api != nullptr)
     {
-        return MakeError(ErrorCode::InvalidArgument, std::format("module '{}' refused to load", module.id));
+        module.attached = true;
+        if (!module.api->load(context))
+        {
+            return MakeError(ErrorCode::InvalidArgument, std::format("module '{}' refused to load", module.id));
+        }
+    }
+    if (module.adapterApi != nullptr)
+    {
+        module.adapterAttached = true;
+        if (!module.adapterApi->load(context))
+        {
+            return MakeError(ErrorCode::InvalidArgument,
+                             std::format("module '{}': its adapter for Physics Engine '{}' refused to load", module.id,
+                                         module.physicsEngineId));
+        }
     }
     return registrar.Finish();
 }
 
-Result<std::filesystem::path> ModuleHost::FindLibrary(const sdk::ModuleManifest& manifest) const
+Result<std::filesystem::path> ModuleHost::FindLibrary(const sdk::ModuleManifest& manifest,
+                                                      std::string_view library) const
 {
-    if (manifest.library.empty())
+    if (library.empty())
     {
         return std::filesystem::path{};
     }
@@ -466,7 +517,7 @@ Result<std::filesystem::path> ModuleHost::FindLibrary(const sdk::ModuleManifest&
     directories.insert(directories.end(), m_desc.librarySearchPaths.begin(), m_desc.librarySearchPaths.end());
     for (const std::filesystem::path& directory : directories)
     {
-        for (const std::filesystem::path& name : LibraryFileNames(manifest.library))
+        for (const std::filesystem::path& name : LibraryFileNames(library))
         {
             std::error_code error;
             if (std::filesystem::is_regular_file(directory / name, error))
@@ -475,8 +526,7 @@ Result<std::filesystem::path> ModuleHost::FindLibrary(const sdk::ModuleManifest&
             }
         }
     }
-    return MakeError(ErrorCode::NotFound,
-                     std::format("module '{}': library '{}' was not found", manifest.id, manifest.library));
+    return MakeError(ErrorCode::NotFound, std::format("module '{}': library '{}' was not found", manifest.id, library));
 }
 
 Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
@@ -613,13 +663,14 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
 }
 
 Result<ModuleLoadStats> ModuleHost::LoadProject(std::span<const std::string> projectOrder,
-                                                std::span<const sdk::ModuleManifest> available)
+                                                std::span<const sdk::ModuleManifest> available,
+                                                const std::optional<sdk::PhysicsEngineRef>& physicsEngine)
 {
     if (!Supported())
     {
         return MakeError(ErrorCode::Unsupported, "gameplay modules need the shared engine (INTERI_BUILD_SHARED)");
     }
-    INTERI_TRY_ASSIGN(graph, sdk::ResolveModuleGraph(projectOrder, available, sdk::CurrentHost()));
+    INTERI_TRY_ASSIGN(graph, sdk::ResolveModuleGraph(projectOrder, available, sdk::CurrentHost(), physicsEngine));
 
     Plan plan;
     for (const auto& module : m_modules)
@@ -634,8 +685,36 @@ Result<ModuleLoadStats> ModuleHost::LoadProject(std::span<const std::string> pro
     for (const std::size_t index : graph.loadOrder)
     {
         const sdk::ModuleManifest& manifest = graph.modules[index].manifest;
-        INTERI_TRY_ASSIGN(library, FindLibrary(manifest));
-        INTERI_TRY_ASSIGN(module, Open(manifest.id, library));
+        INTERI_TRY_ASSIGN(library, FindLibrary(manifest, manifest.library));
+        // The adapter of the entry the selected engine satisfies (the most specific engine in its chain first).
+        std::filesystem::path adapter;
+        if (!graph.physicsEngineChain.empty() && !manifest.physicsEngines.empty())
+        {
+            std::vector<const sdk::ModuleManifest*> chain;
+            chain.reserve(graph.physicsEngineChain.size());
+            for (const std::size_t engine : graph.physicsEngineChain)
+            {
+                chain.push_back(&graph.modules[engine].manifest);
+            }
+            for (const sdk::ModuleManifest* member : chain)
+            {
+                const auto entry = std::ranges::find_if(manifest.physicsEngines, [&](const sdk::PhysicsEngineEntry& e)
+                                                        { return sdk::Satisfies({&member, 1}, e); });
+                if (entry != manifest.physicsEngines.end())
+                {
+                    INTERI_TRY_ASSIGN(found, FindLibrary(manifest, entry->library));
+                    adapter = std::move(found);
+                    break;
+                }
+            }
+        }
+        INTERI_TRY_ASSIGN(module, Open(manifest.id, library, adapter));
+        if (graph.physicsEngine != sdk::ModuleGraph::npos)
+        {
+            const sdk::ModuleManifest& engine = graph.modules[graph.physicsEngine].manifest;
+            module->physicsEngineId = engine.id;
+            module->physicsEngineVersion = engine.version.ToString();
+        }
         INTERI_TRY_ASSIGN(content, values::LoadModuleContent(manifest));
         LogContentWarnings(content);
         module->content = std::move(content);
@@ -684,7 +763,7 @@ Result<ModuleLoadStats> ModuleHost::Load(const std::filesystem::path& path)
         manifest.id = std::string(kLocalModuleId);
         manifest.name = path.stem().string();
         sdk::ModuleGraph graph;
-        graph.modules.push_back({.manifest = std::move(manifest), .implicit = false, .priority = 0});
+        graph.modules.push_back({.manifest = std::move(manifest), .implicit = false, .priority = 0, .loadAfter = {}});
         graph.loadOrder.push_back(0);
         plan.moduleSet = sdk::ModuleSet(graph, m_desc.engineContracts);
         plan.graph = std::move(graph);
@@ -716,9 +795,10 @@ Result<ModuleLoadStats> ModuleHost::Reload(std::string_view id)
         {
             continue;
         }
-        const bool dependent =
-            std::ranges::any_of(resolved->manifest.dependencies, [&](const sdk::ModuleDependency& dependency)
-                                { return std::ranges::find(affected, dependency.id) != affected.end(); });
+        // loadAfter holds the dependencies plus the Physics Engine edges: reloading an engine reloads the modules
+        // built against it.
+        const bool dependent = std::ranges::any_of(resolved->loadAfter, [&](const std::string& before)
+                                                   { return std::ranges::find(affected, before) != affected.end(); });
         if (dependent)
         {
             affected.push_back(module->id);
@@ -740,7 +820,9 @@ Result<ModuleLoadStats> ModuleHost::Reload(std::string_view id)
     for (const std::string& name : affected)
     {
         const auto it = std::ranges::find_if(m_modules, [&](const auto& module) { return module->id == name; });
-        INTERI_TRY_ASSIGN(module, Open(name, (*it)->libraryPath));
+        INTERI_TRY_ASSIGN(module, Open(name, (*it)->libraryPath, (*it)->adapterPath));
+        module->physicsEngineId = (*it)->physicsEngineId;
+        module->physicsEngineVersion = (*it)->physicsEngineVersion;
         if (const sdk::ResolvedModule* resolved = m_graph.Get(name))
         {
             INTERI_TRY_ASSIGN(content, values::LoadModuleContent(resolved->manifest));
@@ -801,7 +883,7 @@ void ModuleHost::RunSystems(JobSystem& jobs, CommandBuffers& commands)
 {
     for (const auto& module : m_modules)
     {
-        if (module->api != nullptr) // content-only modules have no systems
+        if (module->api != nullptr || module->adapterApi != nullptr) // content-only modules have no systems
         {
             module->scheduler->Run(*m_world, jobs, commands);
         }

@@ -1,0 +1,6 @@
+{
+  "id": "test.physics.alpha", "name": "test.physics.alpha", "version": "1.0.0", "kind": "PhysicsEngine",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Physics Engine selection test fixture",
+  "engine": "*",
+  "library": "interi_physics_alpha"
+}

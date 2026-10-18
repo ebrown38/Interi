@@ -107,7 +107,7 @@ Result<Project> ParseProject(std::string_view text)
     }
     Project project;
     static constexpr std::string_view kKnown[] = {"version", "name",         "modules", "moduleDirs",
-                                                  "content", "startupScene", "data"};
+                                                  "content", "startupScene", "data",    "physicsEngine"};
     for (const auto& [key, value] : json.items())
     {
         if (!std::ranges::contains(kKnown, key))
@@ -134,6 +134,21 @@ Result<Project> ParseProject(std::string_view text)
     project.startupScene = std::move(startup);
     INTERI_TRY_ASSIGN(data, GetPath(json, "data"));
     project.data = std::move(data);
+    if (const auto pin = json.find("physicsEngine"); pin != json.end())
+    {
+        if (!pin->is_object() || !pin->contains("id") || !(*pin)["id"].is_string() ||
+            !IsValidModuleId((*pin)["id"].get<std::string>()) ||
+            (pin->contains("version") && !(*pin)["version"].is_string()))
+        {
+            return Invalid(R"(project: "physicsEngine" must be { "id": <module id>, "version": <range> })");
+        }
+        auto range = ParseVersionRange(pin->value("version", std::string{}));
+        if (!range)
+        {
+            return Invalid(std::format("project: \"physicsEngine\": {}", range.error().message));
+        }
+        project.physicsEngine = PhysicsEngineRef{.id = (*pin)["id"].get<std::string>(), .version = std::move(*range)};
+    }
     return project;
 }
 
@@ -170,6 +185,10 @@ std::string WriteProject(const Project& project)
     if (!project.data.empty())
     {
         json["data"] = project.data;
+    }
+    if (project.physicsEngine)
+    {
+        json["physicsEngine"] = {{"id", project.physicsEngine->id}, {"version", project.physicsEngine->version.Text()}};
     }
     return json.dump(2) + "\n";
 }

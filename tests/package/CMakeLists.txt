@@ -23,7 +23,7 @@ add_test(NAME Package_Starter_BuildsOutOfTree
     COMMAND ${CMAKE_COMMAND} -DSOURCE=${PROJECT_SOURCE_DIR}/samples/modules/starter -DBINARY=${_root}/starter
             ${_common} -P ${CMAKE_CURRENT_SOURCE_DIR}/BuildOutOfTree.cmake)
 set(_tests Package_Starter_BuildsOutOfTree)
-foreach(kind Module Extension Plugin)
+foreach(kind Module Extension Plugin PhysicsEngine)
     add_test(NAME Package_Scaffold${kind}_BuildsOutOfTree
         COMMAND ${CMAKE_COMMAND} -DSCAFFOLD_KIND=${kind} -DPYTHON=${Python3_EXECUTABLE}
                 -DNEW_MODULE=${PROJECT_SOURCE_DIR}/tools/new_module/new_module.py -DBINARY=${_root}/scaffold_${kind}

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Scaffolds an Interi gameplay Module, Extension or Plugin.
+"""Scaffolds an Interi gameplay Module, Extension, Plugin or Physics Engine.
 
     python3 tools/new_module/new_module.py --kind Module --id com.author.fps --name "FPS" --author "Author" \\
         --output path/to/fps
@@ -9,6 +9,10 @@ and a load test (interi_add_module_load_test, run by ctest), ready to build agai
 
     cmake -S path/to/fps -B path/to/fps/build -DCMAKE_PREFIX_PATH=<engine install prefix>
     cmake --build path/to/fps/build && ctest --test-dir path/to/fps/build
+
+--kind PhysicsEngine scaffolds a Physics Engine that other modules list in their "physicsEngines"; --extends
+com.interi.physics.jolt@^5 makes it extend another engine (it loads that one below itself and provides what it does,
+overriding per item).
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ import re
 import sys
 from pathlib import Path
 
-KINDS = ("Module", "Extension", "Plugin")
+KINDS = ("Module", "Extension", "Plugin", "PhysicsEngine")
 MODULE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 DEFAULT_ENGINE_RANGE = "^0.1"
 
@@ -54,12 +58,15 @@ def manifest(args: argparse.Namespace, library: str, pascal: str) -> dict:
         "description": args.description or f"{args.name}: an Interi {args.kind.lower()}.",
         "engine": args.engine,
         "library": library,
-        "dependencies": [],
     }
+    if args.kind != "PhysicsEngine":
+        data["dependencies"] = []  # an engine is never depended on and declares none
     if args.kind == "Extension":
         data["contracts"] = [f"service.{pascal}"]
     if args.kind == "Plugin":
         data["overrides"] = []
+    if args.extends:
+        data["extends"] = {"id": args.extends[0], "version": args.extends[1]}
     return data
 
 
@@ -75,7 +82,19 @@ interi_add_gameplay_module({library} SOURCES src/{pascal}Module.cpp)
 
 # ctest: loads this folder's module.json and the library through the engine's module host.
 enable_testing()
-interi_add_module_load_test({library})
+{load_test(args, library)}"""
+
+
+def load_test(args: argparse.Namespace, library: str) -> str:
+    if not args.extends:
+        return f"interi_add_module_load_test({library})\n"
+    return f"""# This engine extends {args.extends[0]}: its load test also needs that engine's folder (module.json + library).
+set(INTERI_BASE_ENGINE_DIR "" CACHE PATH "Folder of the Physics Engine this one extends, for the load test")
+if(INTERI_BASE_ENGINE_DIR)
+    interi_add_module_load_test({library} EXTRA_MODULE_DIRS ${{INTERI_BASE_ENGINE_DIR}})
+else()
+    message(STATUS "Set INTERI_BASE_ENGINE_DIR to the folder of {args.extends[0]} to add the load test")
+endif()
 """
 
 
@@ -114,6 +133,23 @@ using Example = int(int);
         .has_value();
 }}
 """
+    elif args.kind == "PhysicsEngine":
+        extends = (
+            f"\n    // This engine extends {args.extends[0]}: it loads that one below itself, so provide only what you change;\n"
+            "    // an item you provide replaces the base's."
+            if args.extends
+            else ""
+        )
+        body = f"""bool Register(interi::hotreload::ModuleRegistrar& registrar)
+{{
+    const interi::sdk::ModuleScope& scope = registrar.Scope();{extends}
+    // The abstract physics contracts (interi::sdk::PhysicsContracts(), service.Physics*) are reserved for the selected
+    // engine: implement them here as hooks. The signatures are the engine's (service.PhysicsQueries is a placeholder).
+    return scope
+        .DeclareHook<Example>("service.PhysicsQueries", [](const HookNext<Example>&, int value) {{ return value; }})
+        .has_value();
+}}
+"""
     else:
         body = """bool Register(interi::hotreload::ModuleRegistrar& registrar)
 {
@@ -134,9 +170,21 @@ INTERI_GAMEPLAY_MODULE(Register)
 """
 
 
+def parse_extends(text: str) -> tuple[str, str]:
+    engine, _, version = text.partition("@")
+    if not MODULE_ID.match(engine):
+        raise ScaffoldError(f"--extends needs <engine id>@<version range>, got '{text}'")
+    return engine, version or "*"
+
+
 def scaffold(args: argparse.Namespace) -> list[Path]:
     if args.kind not in KINDS:
         raise ScaffoldError(f"--kind must be one of {', '.join(KINDS)}")
+    args.extends = parse_extends(args.extends) if args.extends else None
+    if args.extends and args.kind != "PhysicsEngine":
+        raise ScaffoldError("--extends is only for --kind PhysicsEngine")
+    if args.extends and args.extends[0] == args.id:
+        raise ScaffoldError("a Physics Engine can't extend itself")
     if not MODULE_ID.match(args.id):
         raise ScaffoldError(f"invalid module id '{args.id}' (reverse-DNS, lowercase: com.author.name)")
     output = Path(args.output)
@@ -158,7 +206,7 @@ def scaffold(args: argparse.Namespace) -> list[Path]:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Scaffold an Interi Module, Extension or Plugin.")
+    parser = argparse.ArgumentParser(description="Scaffold an Interi Module, Extension, Plugin or Physics Engine.")
     parser.add_argument("--kind", default="Module", choices=KINDS)
     parser.add_argument("--id", required=True, help="reverse-DNS module id, e.g. com.author.fps")
     parser.add_argument("--name", help="display name (default: the id's last label)")
@@ -166,6 +214,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--license", default="MIT", help="SPDX license expression")
     parser.add_argument("--description", default="")
     parser.add_argument("--engine", default=DEFAULT_ENGINE_RANGE, help="engine version range")
+    parser.add_argument("--extends", help="PhysicsEngine only: the engine to extend, <id>@<version range>")
     parser.add_argument("--output", required=True, help="directory to create")
     parser.add_argument("--force", action="store_true", help="write into a non-empty directory")
     args = parser.parse_args(argv)

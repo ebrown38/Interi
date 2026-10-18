@@ -101,4 +101,70 @@ Result<std::vector<sdk::ModuleManifest>> LoadProjectModules(const sdk::Project& 
     return manifests;
 }
 
+PhysicsEngineStatus DescribePhysicsEngine(const sdk::ModuleGraph& graph, const sdk::Project& project,
+                                          std::span<const sdk::ModuleManifest> manifests, const sdk::HostInfo& host)
+{
+    PhysicsEngineStatus status;
+    if (graph.physicsEngine != sdk::ModuleGraph::npos)
+    {
+        const sdk::ModuleManifest& engine = graph.modules[graph.physicsEngine].manifest;
+        status.selected = true;
+        status.pinned = graph.physicsEngineReason == sdk::PhysicsEngineReason::Pinned;
+        status.id = engine.id;
+        status.version = engine.version.ToString();
+        switch (graph.physicsEngineReason)
+        {
+        case sdk::PhysicsEngineReason::Pinned:
+            status.reason = "pinned by the project";
+            break;
+        case sdk::PhysicsEngineReason::Default:
+            status.reason = std::format("default of {}", graph.physicsEngineChosenBy);
+            break;
+        case sdk::PhysicsEngineReason::Fallback:
+            status.reason =
+                std::format("fallback of {}: its default isn't supported by every module", graph.physicsEngineChosenBy);
+            break;
+        case sdk::PhysicsEngineReason::None:
+            break;
+        }
+    }
+    std::vector<std::string> ids;
+    for (const sdk::ModuleManifest& manifest : manifests)
+    {
+        if (manifest.kind == sdk::ModuleKind::PhysicsEngine && !std::ranges::contains(ids, manifest.id))
+        {
+            ids.push_back(manifest.id);
+        }
+    }
+    std::ranges::sort(ids);
+    for (const std::string& id : ids)
+    {
+        const std::optional<sdk::PhysicsEngineRef> pin = sdk::PhysicsEngineRef{.id = id, .version = {}};
+        if (sdk::ResolveModuleGraph(project.modules, manifests, host, pin))
+        {
+            status.pinnable.push_back(id);
+        }
+    }
+    return status;
+}
+
+Result<sdk::Project> AddProjectModule(const sdk::Project& project, std::span<const sdk::ModuleManifest> manifests,
+                                      const sdk::ModuleManifest& candidate, const sdk::HostInfo& host)
+{
+    INTERI_TRY(sdk::CanAddModule(project, manifests, candidate, host));
+    sdk::Project result = project;
+    result.modules.insert(result.modules.begin(), candidate.id);
+    return result;
+}
+
+Result<sdk::Project> PinProjectPhysicsEngine(const sdk::Project& project,
+                                             std::span<const sdk::ModuleManifest> manifests,
+                                             const std::optional<sdk::PhysicsEngineRef>& pin, const sdk::HostInfo& host)
+{
+    INTERI_TRY_ASSIGN(graph, sdk::ResolveModuleGraph(project.modules, manifests, host, pin));
+    sdk::Project result = project;
+    result.physicsEngine = pin;
+    return result;
+}
+
 } // namespace interi::editor

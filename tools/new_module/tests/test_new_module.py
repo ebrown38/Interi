@@ -52,6 +52,31 @@ class NewModuleTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads((output / "module.json").read_text())["overrides"], [])
 
+    def test_physics_engine_has_no_dependencies_and_provides_the_contract(self) -> None:
+        code, output = self.scaffold("--kind", "PhysicsEngine", "--name", "Soft")
+        self.assertEqual(code, 0)
+        manifest = json.loads((output / "module.json").read_text())
+        self.assertEqual(manifest["kind"], "PhysicsEngine")
+        self.assertNotIn("dependencies", manifest)
+        self.assertNotIn("extends", manifest)
+        source = (output / "src" / "SoftModule.cpp").read_text()
+        self.assertIn('"service.PhysicsQueries"', source)
+
+    def test_physics_engine_extends(self) -> None:
+        code, output = self.scaffold("--kind", "PhysicsEngine", "--extends", "com.interi.physics.jolt@^5")
+        self.assertEqual(code, 0)
+        manifest = json.loads((output / "module.json").read_text())
+        self.assertEqual(manifest["extends"], {"id": "com.interi.physics.jolt", "version": "^5"})
+        self.assertIn("com.interi.physics.jolt", (output / "src" / "FpsModule.cpp").read_text())
+        cmake = (output / "CMakeLists.txt").read_text()
+        self.assertIn("INTERI_BASE_ENGINE_DIR", cmake)
+        self.assertIn("EXTRA_MODULE_DIRS", cmake)
+
+    def test_extends_needs_a_physics_engine_and_a_valid_id(self) -> None:
+        self.assertEqual(self.scaffold("--kind", "Module", "--extends", "com.a.b@^1")[0], 1)
+        self.assertEqual(self.scaffold("--kind", "PhysicsEngine", "--extends", "NotAnId")[0], 1)
+        self.assertEqual(self.scaffold("--kind", "PhysicsEngine", "--extends", "com.author.fps@^1")[0], 1)
+
     def test_invalid_id_fails(self) -> None:
         output = Path(self.temp.name) / "bad"
         self.assertEqual(new_module.main(["--id", "NotReverseDns", "--output", str(output)]), 1)

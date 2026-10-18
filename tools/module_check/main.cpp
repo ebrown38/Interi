@@ -5,7 +5,9 @@
 //
 //   interi_module_check [--search <library dir>]... <module dir>...
 //
-// Every <module dir> holds a module.json; the project order is the order given (first = highest priority).
+// Every <module dir> holds a module.json; the project order is the order given (first = highest priority). A
+// PhysicsEngine module is not part of the order (engines are reached through the modules' physicsEngines): it is
+// installed and pinned, so it loads even when no other module declares it.
 // Libraries are looked up in each module's folder, then in the --search directories. Exit code 0 when the project
 // loads.
 #include <interi/core/Log.h>
@@ -13,8 +15,10 @@
 #include <interi/hotreload/ModuleHost.h>
 #include <interi/sdk/Manifest.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,6 +64,9 @@ int main(int argc, char** argv)
 
     std::vector<interi::sdk::ModuleManifest> manifests;
     std::vector<std::string> project;
+    std::optional<interi::sdk::PhysicsEngineRef> pin;
+    std::vector<std::string> engines; // PhysicsEngine modules given, and the engine each extends
+    std::vector<std::string> extended;
     for (const std::filesystem::path& directory : moduleDirectories)
     {
         auto manifest = interi::sdk::LoadManifest(directory);
@@ -72,15 +79,32 @@ int main(int argc, char** argv)
         {
             std::fprintf(stderr, "warning: %s\n", warning.c_str());
         }
-        project.push_back(manifest->id);
+        if (manifest->kind == interi::sdk::ModuleKind::PhysicsEngine)
+        {
+            engines.push_back(manifest->id);
+            extended.push_back(manifest->extends ? manifest->extends->id : std::string{});
+        }
+        else
+        {
+            project.push_back(manifest->id);
+        }
         manifests.push_back(std::move(*manifest));
+    }
+
+    // The engine to check is the one no other given engine extends (an extender comes with its base's folder).
+    for (const std::string& id : engines)
+    {
+        if (std::ranges::find(extended, id) == extended.end())
+        {
+            pin = interi::sdk::PhysicsEngineRef{.id = id, .version = {}};
+        }
     }
 
     interi::World world;
     interi::hotreload::ModuleHostDesc desc;
     desc.librarySearchPaths = std::move(searchPaths);
     interi::hotreload::ModuleHost host(world, desc);
-    auto loaded = host.LoadProject(project, manifests);
+    auto loaded = host.LoadProject(project, manifests, pin);
     if (!loaded)
     {
         std::fprintf(stderr, "error: %s\n", loaded.error().message.c_str());

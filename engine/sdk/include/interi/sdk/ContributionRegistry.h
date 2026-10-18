@@ -11,6 +11,8 @@
 //   - A shared contract id has no ':' ("service.PhysicsQueries", "input.Jump") and must be declared by the engine or
 //     by an Extension's manifest ("contracts"). Any module may provide it; the highest provider wins outright.
 //   - Plugins only override: they may provide a shared id that already has a provider, or Override a local id.
+//   - The `service.Physics*` ids are reserved: only the selected Physics Engine (and the engines it extends) provides
+//     them; an extending engine ranks above its base, so it replaces the base's items one by one.
 // Resolve(id) is the top of the stack; Provenance(id) lists the winner and every shadowed provider. Not thread-safe
 // to modify; concurrent reads are fine while nothing modifies it.
 
@@ -34,6 +36,14 @@ namespace interi::sdk
 
 /// The engine's own provider id: below every module.
 inline constexpr std::string_view kEngineProviderId = "interi.engine";
+
+/// Shared contract ids starting with this ("service.PhysicsQueries") are reserved for the selected Physics Engine
+/// and the engines it extends: no other provider may provide or override them.
+inline constexpr std::string_view kPhysicsContractPrefix = "service.Physics";
+
+/// The abstract physics service contract ids the engine declares (all start with kPhysicsContractPrefix). The
+/// selected Physics Engine provides them as hooks; the host declares them for every project.
+[[nodiscard]] std::vector<std::string> PhysicsContracts();
 
 /// Someone who contributes items.
 struct Provider

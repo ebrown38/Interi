@@ -2,9 +2,11 @@
 #pragma once
 
 #include <interi/core/Result.h>
+#include <interi/sdk/Manifest.h>
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,12 +26,14 @@ inline constexpr std::uint32_t kProjectFormatVersion = 1;
 ///       "moduleDirs": [ "modules" ],
 ///       "content": [ "content" ],
 ///       "startupScene": "content/scenes/main.scene.json",
-///       "data": "project_data.json"
+///       "data": "project_data.json",
+///       "physicsEngine": { "id": "com.interi.physics.jolt", "version": "^5" }
 ///     }
 ///
 /// "modules" is the ordered module list (top = highest priority, see ResolveModuleGraph), "moduleDirs" the folders
 /// holding module folders, "content" the folders mounted for assets, "data" the project Value overrides
-/// (values/ProjectData.h). "version" is required; a missing name warns; unknown keys warn; anything malformed is
+/// (values/ProjectData.h), "physicsEngine" an optional pin of the Physics Engine (see SelectPhysicsEngine; written
+/// only when set). "version" is required; a missing name warns; unknown keys warn; anything malformed is
 /// an error.
 struct Project
 {
@@ -39,6 +43,7 @@ struct Project
     std::vector<std::string> content{"content"};
     std::string startupScene;
     std::string data;
+    std::optional<PhysicsEngineRef> physicsEngine; ///< Pins the project's Physics Engine.
 
     std::filesystem::path directory; ///< Folder the project was loaded from (LoadProject); empty when parsed.
     std::vector<std::string> warnings;
@@ -46,7 +51,10 @@ struct Project
     friend bool operator==(const Project& a, const Project& b)
     {
         return a.name == b.name && a.modules == b.modules && a.moduleDirs == b.moduleDirs && a.content == b.content &&
-               a.startupScene == b.startupScene && a.data == b.data;
+               a.startupScene == b.startupScene && a.data == b.data &&
+               a.physicsEngine.has_value() == b.physicsEngine.has_value() &&
+               (!a.physicsEngine || (a.physicsEngine->id == b.physicsEngine->id &&
+                                     a.physicsEngine->version.Text() == b.physicsEngine->version.Text()));
     }
 };
 

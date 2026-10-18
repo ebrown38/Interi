@@ -55,3 +55,33 @@ TEST(ServicePanels, F5_PlaysAndStops)
     (void)context.Frame([&] { play = DrawPlayControls({.playing = true, .paused = false, .step = 0}); });
     EXPECT_TRUE(play.stop);
 }
+
+TEST(ServicePanels, ProjectSettings_ShowsEngineAndRequestsNothingUntilPicked)
+{
+    editor::testing::ImGuiTestContext context;
+    PhysicsEngineStatus status;
+    status.selected = true;
+    status.id = "test.physics.alpha";
+    status.version = "1.5.0";
+    status.reason = "default of com.t.a";
+    status.pinnable = {"test.physics.alpha", "test.physics.beta"};
+    ProjectSettingsRequests requests;
+    ProjectMenuState menu;
+    menu.refusal = "module 'com.t.b' needs a Physics Engine the project's modules don't support";
+    ProjectRequests projectRequests;
+    const std::string addable[] = {"com.t.b"};
+    const ImDrawData& data = context.Frame(
+        [&]
+        {
+            requests = DrawProjectSettingsPanel(status);
+            projectRequests = DrawProjectMenu(menu, {}, {}, addable);
+        });
+    EXPECT_GT(data.TotalVtxCount, 0);
+    EXPECT_FALSE(requests.pin.has_value());
+    EXPECT_FALSE(requests.clearPin);
+    EXPECT_FALSE(projectRequests.addModule.has_value());
+
+    const PhysicsEngineStatus none;
+    (void)context.Frame([&] { requests = DrawProjectSettingsPanel(none); });
+    EXPECT_FALSE(requests.pin.has_value());
+}

@@ -113,7 +113,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v5.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v6.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -200,7 +200,10 @@ void EditorApp::OpenProject(const EditorAppDesc& desc)
     {
         for (const sdk::ModuleManifest& manifest : manifests)
         {
-            order.push_back(manifest.id);
+            if (manifest.kind != sdk::ModuleKind::PhysicsEngine) // engines are reached through physicsEngines
+            {
+                order.push_back(manifest.id);
+            }
         }
         std::ranges::sort(order);
     }
@@ -979,7 +982,7 @@ void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
         INTERI_LOG_ERROR("Editor", "project modules: {}", manifests.error().message);
         return;
     }
-    auto graph = sdk::ResolveModuleGraph(project->modules, *manifests, sdk::CurrentHost());
+    auto graph = sdk::ResolveModuleGraph(project->modules, *manifests, sdk::CurrentHost(), project->physicsEngine);
     if (!graph)
     {
         INTERI_LOG_ERROR("Editor", "project: {}", graph.error().message);
@@ -992,6 +995,18 @@ void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
         return;
     }
     m_project = std::move(*data);
+    m_physicsEngine = DescribePhysicsEngine(*graph, *project, *manifests, sdk::CurrentHost());
+    m_addableModules.clear();
+    for (const sdk::ModuleManifest& manifest : *manifests)
+    {
+        if (manifest.kind != sdk::ModuleKind::PhysicsEngine && graph->Find(manifest.id) == sdk::ModuleGraph::npos)
+        {
+            m_addableModules.push_back(manifest.id);
+        }
+    }
+    m_projectMenu.refusal.clear();
+    m_projectDef = *project;
+    m_projectManifests = *manifests;
     m_projectDataPath = project->data.empty() ? std::filesystem::path() : folder / project->data;
     if (!m_projectDataPath.empty() && std::filesystem::exists(m_projectDataPath))
     {
@@ -1047,6 +1062,50 @@ void EditorApp::HandleProjectRequests(const ProjectRequests& requests)
     {
         OpenProjectFolder(*requests.open);
     }
+    if (requests.addModule && m_projectDef)
+    {
+        const auto candidate = std::ranges::find(m_projectManifests, *requests.addModule, &sdk::ModuleManifest::id);
+        if (candidate != m_projectManifests.end())
+        {
+            ApplyProjectChange(AddProjectModule(*m_projectDef, m_projectManifests, *candidate, sdk::CurrentHost()),
+                               std::format("add module {}", *requests.addModule));
+        }
+    }
+}
+
+void EditorApp::HandleProjectSettings(const ProjectSettingsRequests& requests)
+{
+    if (!m_projectDef || (!requests.pin && !requests.clearPin))
+    {
+        return;
+    }
+    std::optional<sdk::PhysicsEngineRef> pin;
+    if (requests.pin)
+    {
+        pin = sdk::PhysicsEngineRef{.id = *requests.pin, .version = {}};
+    }
+    ApplyProjectChange(PinProjectPhysicsEngine(*m_projectDef, m_projectManifests, pin, sdk::CurrentHost()),
+                       requests.pin ? std::format("pin Physics Engine {}", *requests.pin)
+                                    : "clear the Physics Engine pin");
+}
+
+void EditorApp::ApplyProjectChange(Result<sdk::Project> changed, const std::string& what)
+{
+    if (!changed)
+    {
+        // The project stays as it was; the reason goes to the console and the Project menu.
+        INTERI_LOG_ERROR("Editor", "can't {}: {}", what, changed.error().message);
+        m_projectMenu.refusal = changed.error().message;
+        return;
+    }
+    if (auto saved = sdk::SaveProject(*changed); !saved)
+    {
+        INTERI_LOG_ERROR("Editor", "can't {}: {}", what, saved.error().message);
+        m_projectMenu.refusal = saved.error().message;
+        return;
+    }
+    // Changing the module set or the engine re-resolves the project (and stops the play first).
+    OpenProjectFolder(changed->directory);
 }
 
 void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
@@ -1396,7 +1455,8 @@ FrameResult EditorApp::Frame()
 
     ImGui::NewFrame();
     // The Project menu first: File's right-aligned title would push later menus off the bar.
-    const ProjectRequests projectRequests = DrawProjectMenu(m_projectMenu, m_preferences.recentProjects, m_templates);
+    const ProjectRequests projectRequests =
+        DrawProjectMenu(m_projectMenu, m_preferences.recentProjects, m_templates, m_addableModules);
     MenuRequests requests = DrawMainMenu(m_document);
     (void)DrawDockSpace(m_buildLayout);
     m_buildLayout = false;
@@ -1414,6 +1474,7 @@ FrameResult EditorApp::Frame()
         DrawDataTablesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
     }
     DrawConsolePanel(*m_log, m_console);
+    const ProjectSettingsRequests settings = DrawProjectSettingsPanel(m_physicsEngine);
     if (DrawPreferencesPanel(m_preferences, INTERI_PROFILING_ACTIVE != 0, ProfilerConnected()))
     {
         m_tools.snap = m_preferences.snap;
@@ -1429,6 +1490,7 @@ FrameResult EditorApp::Frame()
     }
     DrawViewport();
     HandleProjectRequests(projectRequests);
+    HandleProjectSettings(settings);
     const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
 

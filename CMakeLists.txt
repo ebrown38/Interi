@@ -59,5 +59,18 @@ if(INTERI_BUILD_SHARED)
     add_subdirectory(samples/modules/starter) # a sample Module, built like any out-of-tree one
 endif()
 
+# Optional module projects kept next to the engine (gitignored /modules/<name>/, e.g. the Jolt Physics Engine): each
+# folder with a CMakeLists.txt is built in tree. Absent folders change nothing. -DINTERI_MODULE_DIRS= skips them all.
+if(NOT DEFINED INTERI_MODULE_DIRS)
+    file(GLOB INTERI_MODULE_DIRS LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/modules/*")
+endif()
+foreach(_module_dir IN LISTS INTERI_MODULE_DIRS)
+    if(EXISTS "${_module_dir}/CMakeLists.txt")
+        message(STATUS "Module project: ${_module_dir}")
+        cmake_path(GET _module_dir FILENAME _module_name)
+        add_subdirectory("${_module_dir}" "modules/${_module_name}")
+    endif()
+endforeach()
+
 include(InteriPackage) # after the libraries and tools/module_check
 include(InteriCoverage) # after all test executables are declared

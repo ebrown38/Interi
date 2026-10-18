@@ -18,3 +18,6 @@ __pycache__/
 /progress.md
 /.planning/
 /.claude/
+
+# Module projects kept next to the engine, each with its own nested git history (M19)
+/modules/

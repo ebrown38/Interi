@@ -1,0 +1,7 @@
+{
+  "id": "com.test.plaingame", "name": "com.test.plaingame", "version": "1.0.0", "kind": "Module",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Physics Engine selection test fixture",
+  "engine": "*",
+  "library": "interi_physics_game",
+  "physicsEngines": [ { "id": "test.physics.alpha", "version": "^1" } ]
+}

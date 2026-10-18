@@ -1,0 +1,6 @@
+{
+  "id": "com.test.betaonly", "name": "com.test.betaonly", "version": "1.0.0", "kind": "Module",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Physics Engine selection test fixture",
+  "engine": "*",
+  "physicsEngines": [ { "id": "test.physics.beta" } ]
+}

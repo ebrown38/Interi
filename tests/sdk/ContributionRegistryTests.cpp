@@ -213,3 +213,76 @@ TEST(RegistryGraph, TestProject_PriorityOrder)
     }
     EXPECT_EQ(ids, (std::vector<std::string>{"com.test.plugin", "com.test.b", "com.test.a", "com.test.ext"}));
 }
+
+namespace
+{
+
+/// A project with a physics-declaring module, an engine and an engine that extends it.
+struct PhysicsProject
+{
+    interi::sdk::ModuleGraph graph;
+    std::vector<std::string> contracts{"service.PhysicsQueries", "service.PhysicsBodies"};
+
+    PhysicsProject()
+    {
+        const auto make = [](const char* id, interi::sdk::ModuleKind kind)
+        {
+            interi::sdk::ModuleManifest manifest;
+            manifest.id = id;
+            manifest.name = id;
+            manifest.kind = kind;
+            manifest.version = interi::sdk::ParseSemVer("1.0.0").value();
+            return manifest;
+        };
+        auto game = make("com.test.game", interi::sdk::ModuleKind::Module);
+        game.physicsEngines.push_back(
+            {.id = "test.physics.alpha_plus", .version = {}, .isDefault = true, .library = {}});
+        auto base = make("test.physics.alpha", interi::sdk::ModuleKind::PhysicsEngine);
+        auto extender = make("test.physics.alpha_plus", interi::sdk::ModuleKind::PhysicsEngine);
+        extender.extends = interi::sdk::PhysicsEngineRef{.id = "test.physics.alpha", .version = {}};
+        const std::vector available = {game, base, extender};
+        const std::vector<std::string> project = {"com.test.game"};
+        graph = interi::sdk::ResolveModuleGraph(project, available, interi::sdk::CurrentHost()).value();
+    }
+};
+
+} // namespace
+
+TEST_F(Registry, PhysicsContract_FromNonEngine_Rejected)
+{
+    const PhysicsProject project;
+    const ModuleSet moduleSet{project.graph, project.contracts};
+    ContributionRegistry<std::string> contributions{moduleSet};
+    auto fromModule = contributions.Provide("com.test.game", "service.PhysicsQueries", "game");
+    ASSERT_FALSE(fromModule.has_value());
+    EXPECT_EQ(fromModule.error().code, ErrorCode::InvalidArgument);
+    EXPECT_NE(fromModule.error().message.find("Physics Engine"), std::string::npos);
+    EXPECT_FALSE(contributions.Provide(kEngineProviderId, "service.PhysicsQueries", "engine").has_value());
+    EXPECT_EQ(contributions.Resolve("service.PhysicsQueries"), nullptr);
+}
+
+TEST_F(Registry, PhysicsContract_FromEngine_Accepted)
+{
+    const PhysicsProject project;
+    const ModuleSet moduleSet{project.graph, project.contracts};
+    ContributionRegistry<std::string> contributions{moduleSet};
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha", "service.PhysicsQueries", "alpha").has_value());
+    EXPECT_EQ(*contributions.Resolve("service.PhysicsQueries"), "alpha");
+}
+
+TEST_F(Registry, ExtenderEngine_OverridesBaseContract)
+{
+    const PhysicsProject project;
+    const ModuleSet moduleSet{project.graph, project.contracts};
+    ContributionRegistry<std::string> contributions{moduleSet};
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha", "service.PhysicsQueries", "alpha").has_value());
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha", "service.PhysicsBodies", "alpha").has_value());
+    ASSERT_TRUE(contributions.Provide("test.physics.alpha_plus", "service.PhysicsQueries", "plus").has_value());
+    // Per item: the extender replaces what it provides, the base's other items stay.
+    EXPECT_EQ(*contributions.Resolve("service.PhysicsQueries"), "plus");
+    EXPECT_EQ(*contributions.Resolve("service.PhysicsBodies"), "alpha");
+    const auto provenance = contributions.Provenance("service.PhysicsQueries");
+    ASSERT_EQ(provenance.size(), 2U);
+    EXPECT_EQ(provenance[0].provider, "test.physics.alpha_plus");
+    EXPECT_EQ(provenance[1].provider, "test.physics.alpha");
+}

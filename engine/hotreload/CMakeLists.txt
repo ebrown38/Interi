@@ -5,7 +5,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/hotreload)
 # Modules link the shared engine; a static engine can't share its globals, so the module tests need it shared.
 set(_module_tests "")
 if(INTERI_BUILD_SHARED)
-    set(_module_tests ${_tests}/ModuleHostTests.cpp ${_tests}/ModuleProjectTests.cpp)
+    set(_module_tests ${_tests}/ModuleHostTests.cpp ${_tests}/ModuleProjectTests.cpp ${_tests}/PhysicsEngineHostTests.cpp)
 endif()
 
 interi_add_module(hotreload SHARED
@@ -53,3 +53,19 @@ endforeach()
 target_compile_definitions(interi_hotreload_tests PRIVATE
     INTERI_SDK_TEST_LIBRARY_DIR="${_sdk_library_dir}"
     INTERI_SDK_TEST_MODULES_DIR="${PROJECT_SOURCE_DIR}/tests/sdk/modules")
+
+# The Physics Engine selection fixtures (tests/hotreload/physics/*/module.json name them), in one directory.
+set(_physics_library_dir ${CMAKE_CURRENT_BINARY_DIR}/physics_test_modules)
+set(_physics_variant 1)
+foreach(name alpha beta alpha_plus game game_alpha game_beta thief)
+    set(_module interi_physics_${name})
+    add_library(${_module} MODULE ${_tests}/modules/PhysicsTestModule.cpp)
+    target_link_libraries(${_module} PRIVATE interi::hotreload interi::warnings)
+    target_compile_definitions(${_module} PRIVATE INTERI_PHYSICS_TEST_MODULE=${_physics_variant})
+    set_target_properties(${_module} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${_physics_library_dir})
+    add_dependencies(interi_hotreload_tests ${_module})
+    math(EXPR _physics_variant "${_physics_variant} + 1")
+endforeach()
+target_compile_definitions(interi_hotreload_tests PRIVATE
+    INTERI_PHYSICS_TEST_LIBRARY_DIR="${_physics_library_dir}"
+    INTERI_PHYSICS_TEST_MODULES_DIR="${_tests}/physics")

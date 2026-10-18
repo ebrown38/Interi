@@ -6,6 +6,11 @@
 namespace interi::sdk
 {
 
+std::vector<std::string> PhysicsContracts()
+{
+    return {"service.PhysicsQueries"};
+}
+
 ModuleSet::ModuleSet()
 {
     m_providers.push_back(Provider{.id = std::string(kEngineProviderId),
@@ -83,6 +88,12 @@ Result<std::uint32_t> CheckContribution(const ModuleSet& modules, std::string_vi
         {
             return MakeError(ErrorCode::InvalidArgument, std::format("'{}' already provides '{}'", provider, id));
         }
+    }
+    if (id.starts_with(kPhysicsContractPrefix) && contributor->kind != ModuleKind::PhysicsEngine)
+    {
+        return MakeError(
+            ErrorCode::InvalidArgument,
+            std::format("'{}' is reserved for the selected Physics Engine; '{}' can't provide it", id, provider));
     }
     const bool isPlugin = contributor->kind == ModuleKind::Plugin;
 

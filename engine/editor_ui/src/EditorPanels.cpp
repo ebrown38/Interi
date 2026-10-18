@@ -67,6 +67,7 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout)
         ImGui::DockBuilderDockWindow(kAssetsWindow, bottom);
         ImGui::DockBuilderDockWindow(kConsoleWindow, bottom);
         ImGui::DockBuilderDockWindow(kPreferencesWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kProjectSettingsWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kViewportWindow, centre);
         ImGui::DockBuilderFinish(dockspace);
     }

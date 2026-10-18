@@ -97,3 +97,45 @@ TEST(Project, Malformed_ErrorsNameTheField)
     ASSERT_FALSE(newer.has_value());
     EXPECT_EQ(newer.error().code, ErrorCode::VersionMismatch);
 }
+
+TEST(Project, PhysicsEnginePin_RoundTrips)
+{
+    auto project = ParseProject(R"({"version": 1, "name": "P",
+        "physicsEngine": {"id": "com.interi.physics.jolt", "version": "^5.0"}})");
+    ASSERT_TRUE(project.has_value()) << project.error().message;
+    EXPECT_TRUE(project->warnings.empty());
+    ASSERT_TRUE(project->physicsEngine.has_value());
+    EXPECT_EQ(project->physicsEngine->id, "com.interi.physics.jolt");
+    EXPECT_EQ(project->physicsEngine->version.Text(), "^5.0");
+
+    const std::string text = WriteProject(*project);
+    auto again = ParseProject(text);
+    ASSERT_TRUE(again.has_value()) << again.error().message;
+    EXPECT_EQ(*again, *project);
+    EXPECT_EQ(WriteProject(*again), text);
+    EXPECT_LT(text.find("name"), text.find("physicsEngine")); // sorted keys
+
+    Project other = *project;
+    other.physicsEngine->version = ParseVersionRange("^6").value();
+    EXPECT_NE(other, *project);
+    other.physicsEngine.reset();
+    EXPECT_NE(other, *project);
+}
+
+TEST(Project, NoPhysicsEnginePin_NotWritten)
+{
+    auto project = ParseProject(kSample);
+    ASSERT_TRUE(project.has_value());
+    EXPECT_FALSE(project->physicsEngine.has_value());
+    EXPECT_EQ(WriteProject(*project).find("physicsEngine"), std::string::npos);
+}
+
+TEST(Project, PhysicsEnginePin_Invalid_Error)
+{
+    for (const char* pin : {R"("x")", R"({})", R"({"id": "Bad"})", R"({"id": "com.a.b", "version": "nope"})",
+                            R"({"id": "com.a.b", "version": 3})"})
+    {
+        const std::string text = std::string(R"({"version": 1, "physicsEngine": )") + pin + "}";
+        EXPECT_FALSE(ParseProject(text).has_value()) << pin;
+    }
+}

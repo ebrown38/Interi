@@ -152,13 +152,18 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Module SDK (`engine/sdk`, namespace `interi::sdk`)
 
-- **Manifests** (`Manifest.h`): `module.json` holds metadata (id `com.author.name`, semver version, author, SPDX license, engine range), `kind` (Module, Extension, Plugin), `library`, `toolchain`, `dependencies`, `conflicts`, `contracts` (Extensions only) and `overrides`. `ParseManifest` follows `ParseMaterials`: missing metadata and unknown sections are warnings, anything malformed is an error.
+- **Manifests** (`Manifest.h`): `module.json` holds metadata (id `com.author.name`, semver version, author, SPDX license, engine range), `kind` (Module, Extension, Plugin, PhysicsEngine), `library`, `toolchain`, `dependencies`, `conflicts`, `contracts` (Extensions only) and `overrides`. `ParseManifest` follows `ParseMaterials`: missing metadata and unknown sections are warnings, anything malformed is an error.
+  - `physicsEngines` (Module, Extension, Plugin) lists the Physics Engines a module supports: `{ id, version range, default, library }` entries, exactly one `default` in a list of several (a single entry is it). Entries may name an adapter `library`. A module without the section is physics-agnostic. A `PhysicsEngine` module declares `extends: { id, version }` (one base) and neither `dependencies` nor `physicsEngines`; it is never listed in a project or depended on (the error says to use `physicsEngines`).
   - `SemVer`/`VersionRange` follow semver 2.0 and npm range syntax (`^`, `~`, comparators, `||`, `*`). A pre-release matches only a range that names one on the same major.minor.patch.
   - `Toolchain.h` builds the fingerprint in the preprocessor: compiler, standard library, debug mode, C++ standard, `INTERI_MODULE_ABI_VERSION`, CPU baseline, shipping, profiling and shared/static engine. Bump the ABI version when `ModuleApi.h`, the registrar, the hook types or the chain registry change.
 - **`ResolveModuleGraph`** turns the project's ordered list (top = highest priority) into a `ModuleGraph`.
   - Required dependencies are pulled in, and each implicit Extension goes directly below its lowest dependent. Optional dependencies are used only when the project includes them.
   - Load order puts dependencies first, otherwise lowest priority first.
   - All or nothing: unknown or duplicate modules, missing dependencies, a dependency on a non-Extension, version mismatches, declared conflicts, host incompatibility and cycles each fail the project.
+- **Physics Engine selection** (`ModuleGraph.h`, `SelectPhysicsEngine`): a project has one Physics Engine or none. `project.json` may pin one (`physicsEngine: { id, version }`, `sdk::Project::physicsEngine`); otherwise the candidates are the engines named by declaring modules in priority order (a module's default first). The first candidate every declaring module supports wins, at the highest installed version inside every applicable range (several versions of one engine id may be installed; other ids must be unique). An engine that `extends` another satisfies entries naming its bases (bases chosen highest version first, then the first chain that satisfies everyone, `Satisfies(chain, entry)`). Nothing works: `ResolveModuleGraph` fails with `VersionMismatch` (`NotFound` when no candidate is installed), naming each candidate's blockers. A pin with no declaring module still selects its engine.
+  - The selected engine joins the graph as an implicit module with its bases directly below it, below the lowest-priority declaring module. `ModuleGraph::physicsEngine`/`physicsEngineChain`/`physicsEngineReason` (Pinned, Default, Fallback)/`physicsEngineChosenBy` record it; `ResolvedModule::loadAfter` holds the effective load edges (dependencies plus declaring module -> engine, engine -> base), which the loader and `ModuleHost::Reload` follow.
+  - `CanAddModule(project, available, candidate, host, position)` resolves the project with the candidate added (top by default) and returns why it would be refused; the project is unchanged. The editor's Project menu uses it (`AddProjectModule`).
+  - `service.Physics*` contract ids (`kPhysicsContractPrefix`; `PhysicsContracts()` are declared by every host) are reserved: only a `PhysicsEngine` provider may provide them. An extender ranks above its base, so it overrides the base's items one by one.
 - **`ContributionRegistry<T>`** implements the identity rule. Each id holds a stack ordered by rank (engine 0, a module's priority + 1). `Resolve` returns the top; `Provenance` lists the winner and every shadowed provider.
   - Local ids (`<module id>:<name>`) are provided only by their owner. A higher module or Plugin replaces one only with `Override`, declared in its manifest's `overrides` with a range of the owner's version.
   - Shared ids (no `:`) must be declared by the engine (`ModuleHostDesc::engineContracts`) or an Extension's `contracts`. The highest provider wins outright.
@@ -168,21 +173,24 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - `ClassFactory<T>` is a hook returning `std::unique_ptr<T>`.
   - Modules use their `ModuleScope` (`DeclareHook`, `DeclareFactory`, `INTERI_OVERRIDE(scope, targetId, impl)`).
   - Signatures are compared by their compiler spelling.
+- **Tests:** the Physics Engine tests (`tests/sdk/PhysicsEngineTests.cpp`) build manifests in code; the host tests (`tests/hotreload/PhysicsEngineHostTests.cpp`) use `tests/hotreload/physics` (engines alpha, beta, alpha_plus extends alpha, with several versions, and modules declaring different combinations, one with adapter libraries; libraries from `modules/PhysicsTestModule.cpp`). `interi_module_check` pins a PhysicsEngine module given on its command line. Writing an engine: `docs/writing-a-physics-engine.md`.
 - **Tests** share `tests/sdk/modules`: Extension `com.test.ext`, modules `com.test.a` and `com.test.b`, and Plugin `com.test.plugin`, with conflicting shared ids and overrides. The hotreload tests build their libraries from `tests/hotreload/modules/SdkTestModule.cpp`.
 
 ## Hot reload and module host (`engine/hotreload`, namespace `interi::hotreload`)
 
-- **Module ABI v5** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
+- **Module ABI v6** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
   - The loader rejects a library whose `ModuleApi::toolchain` differs from `sdk::EngineToolchainFingerprint()`. Modules are built from source against the engine, which is what makes C++ types safe across the boundary.
   - Rules that keep this safe:
     - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. Nothing else enforces it (there is no registry "module mode" any more).
     - Never leave the host anything from module code that outlives the module. Systems, hooks and the state saver are destroyed before the library closes.
     - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking its library: a shadow-copied DLL can't satisfy a link-time import.
     - Modules never call Jolt.
+  - `ModuleContext::physicsEngine` and `registrar.PhysicsEngine()` give the selected engine's id and version (empty id: none).
   - `registrar.Scope()` registers hooks. `registrar.Chains()` is the host's `chain::ChainRegistry` (provide events and functions as `Scope().Provider()`). `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `DeclareState(registrar, g_state, {values::Field(...)})` carries a module global's reflected fields across a reload by name (a field whose type changed keeps its new initial value); `SetStateSaver`/`SavedState` carry raw bytes.
 - **`ModuleHost`**:
   - `LoadProject(order, manifests)` resolves the graph, finds each `library` in the manifest's folder and then `librarySearchPaths`, and registers in load order.
-  - `Reload(id)` reopens the module and every loaded module that depends on it.
+  - `LoadProject(order, manifests, pin)` loads the selected Physics Engine and its bases first (they are modules in the graph). A declaring module's adapter `library` (the `physicsEngines` entry the engine chain satisfies, the most specific engine first) loads after its main library, into the same scope, scheduler and registrar, and unloads before it; reloads reopen both.
+  - `Reload(id)` reopens the module and every loaded module that depends on it (`loadAfter`; reloading an engine reloads the modules built against it).
   - `Load(path)` is a single manifest-less module (`local.module`), which the sandbox uses.
   - Each transaction:
     1. Copies every library to a unique shadow file and opens it.
@@ -527,7 +535,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   folder: recent projects, autosave, play, snapping, Tracy frame marks), `AutosaveTimer` (writes
   `<scene>.autosave` without marking clean), `LogBuffer`/`LogBufferSink` (console panel; thread-safe, the sink runs
   on the logger's flush thread). Projects (`Projects.h`): `CreateProject` (empty or from a module template),
-  `LoadProjectModules`; the Project menu opens, creates and lists recent projects, and `--project-file <dir>` opens
+  `LoadProjectModules`; the Project menu opens, creates and lists recent projects, adds installed modules (`AddProjectModule`, refused with the reason in the console and the menu when no Physics Engine fits them all), the Project Settings panel shows the selected Physics Engine, its version and why (`DescribePhysicsEngine`) with a pin dropdown (`PinProjectPhysicsEngine`), and `--project-file <dir>` opens
   one at startup (the folder is mounted over the data tree: its paths are project-relative and writes go there).
 - **Play and replays.** `PlaySession` spawns `ExportLevel(scene)` into fresh physics/ECS/destruction worlds (needs a
   `JoltRuntime`) and steps at 60 Hz; `Detonate` queues an explosion for the next step and records it. `Replay` files
@@ -538,7 +546,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   detonates, saves and verifies a replay, writes the last frame). `--fracture destruction/samples/building.gltf`
   opens a source in the Fracture panel. `--project-file <dir> --play 1` opens a project and plays its startup scene
   (prints `Played N steps`). The dock layout is saved in the temp directory
-  (`interi_editor_layout_v5.ini`; bump the version when windows are added).
+  (`interi_editor_layout_v6.ini`; bump the version when windows are added).
 
 ## Dependencies and licensing
 

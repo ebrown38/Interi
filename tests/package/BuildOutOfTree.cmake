@@ -2,7 +2,7 @@
 # Builds a gameplay module out of tree against the installed engine (find_package(Interi)) and runs its ctest (the
 # module load test). With SCAFFOLD_KIND, the module is first scaffolded by tools/new_module/new_module.py.
 #
-#   cmake -DSOURCE=<module dir> | -DSCAFFOLD_KIND=<Module|Extension|Plugin> -DPYTHON=<python> -DNEW_MODULE=<script>
+#   cmake -DSOURCE=<module dir> | -DSCAFFOLD_KIND=<Module|Extension|Plugin|PhysicsEngine> -DPYTHON=<python> -DNEW_MODULE=<script>
 #         -DBINARY=<scratch dir> -DPREFIX=<prefixes separated by |> -DGENERATOR=<generator> -DCOMPILER=<c++ compiler>
 #         -DBUILD_TYPE=<config> -DCTEST=<ctest> [-DLINKER_TYPE=<type>] -P BuildOutOfTree.cmake
 

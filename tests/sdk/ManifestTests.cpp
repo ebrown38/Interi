@@ -179,7 +179,7 @@ TEST(Manifest, CurrentHost_UsesEngineFingerprint)
     EXPECT_EQ(host.toolchain, interi::sdk::EngineToolchainFingerprint());
     // This test is compiled with the same toolchain as the engine.
     EXPECT_EQ(host.toolchain, interi::sdk::kToolchainFingerprint);
-    EXPECT_EQ(host.toolchain.rfind("abi5;", 0), 0u);
+    EXPECT_EQ(host.toolchain.rfind("abi6;", 0), 0u);
 }
 
 TEST(Manifest, LoadManifest_ReadsDirectory)
@@ -190,4 +190,117 @@ TEST(Manifest, LoadManifest_ReadsDirectory)
     ASSERT_TRUE(manifest.has_value());
     EXPECT_EQ(manifest->directory, dir.Path());
     EXPECT_EQ(interi::sdk::LoadManifest(dir.Path() / "missing").error().code, ErrorCode::IoError);
+}
+
+namespace
+{
+
+std::string EngineModule(const std::string& extra, const char* kind = "Module")
+{
+    return std::string(R"({"id": "com.test.game", "version": "1.0.0", "kind": ")") + kind + R"(", )" + extra + "}";
+}
+
+} // namespace
+
+TEST(Manifest, PhysicsEngines_ParsesEntries)
+{
+    const auto manifest = ParseManifest(EngineModule(R"("physicsEngines": [
+        { "id": "com.interi.physics.jolt", "version": "^5.0", "default": true, "library": "game_jolt" },
+        { "id": "com.interi.physics.physx", "version": ">=4 <6" } ])"));
+    ASSERT_TRUE(manifest.has_value()) << manifest.error().message;
+    ASSERT_EQ(manifest->physicsEngines.size(), 2U);
+    EXPECT_EQ(manifest->physicsEngines[0].id, "com.interi.physics.jolt");
+    EXPECT_EQ(manifest->physicsEngines[0].version.Text(), "^5.0");
+    EXPECT_TRUE(manifest->physicsEngines[0].isDefault);
+    EXPECT_EQ(manifest->physicsEngines[0].library, "game_jolt");
+    EXPECT_FALSE(manifest->physicsEngines[1].isDefault);
+    EXPECT_TRUE(manifest->physicsEngines[1].library.empty());
+    EXPECT_FALSE(manifest->extends.has_value());
+}
+
+TEST(Manifest, PhysicsEngines_SingleEntryIsDefault)
+{
+    const auto manifest = ParseManifest(EngineModule(R"("physicsEngines": [ { "id": "com.interi.physics.jolt" } ])"));
+    ASSERT_TRUE(manifest.has_value()) << manifest.error().message;
+    ASSERT_EQ(manifest->physicsEngines.size(), 1U);
+    EXPECT_TRUE(manifest->physicsEngines[0].isDefault);
+    EXPECT_TRUE(manifest->physicsEngines[0].version.MatchesAny());
+}
+
+TEST(Manifest, PhysicsEngines_TwoDefaults_Error)
+{
+    const auto two = ParseManifest(EngineModule(R"("physicsEngines": [
+        { "id": "com.interi.physics.jolt", "default": true }, { "id": "com.interi.physics.physx", "default": true } ])"));
+    ASSERT_FALSE(two.has_value());
+    EXPECT_EQ(two.error().code, ErrorCode::InvalidArgument);
+    const auto none = ParseManifest(EngineModule(R"("physicsEngines": [
+        { "id": "com.interi.physics.jolt" }, { "id": "com.interi.physics.physx" } ])"));
+    ASSERT_FALSE(none.has_value());
+    EXPECT_NE(none.error().message.find("default"), std::string::npos);
+}
+
+TEST(Manifest, PhysicsEngines_InvalidEntries_Error)
+{
+    EXPECT_FALSE(ParseManifest(EngineModule(R"("physicsEngines": [ { "id": "" } ])")).has_value());
+    EXPECT_FALSE(ParseManifest(EngineModule(R"("physicsEngines": [ { "version": "^1" } ])")).has_value());
+    EXPECT_FALSE(
+        ParseManifest(EngineModule(R"("physicsEngines": [ { "id": "com.a.b", "version": "nope" } ])")).has_value());
+    EXPECT_FALSE(
+        ParseManifest(EngineModule(R"("physicsEngines": [ { "id": "com.a.b", "library": "x.so" } ])")).has_value());
+    const auto duplicate = ParseManifest(
+        EngineModule(R"("physicsEngines": [ { "id": "com.a.b", "default": true }, { "id": "com.a.b" } ])"));
+    ASSERT_FALSE(duplicate.has_value());
+    EXPECT_NE(duplicate.error().message.find("twice"), std::string::npos);
+    EXPECT_FALSE(ParseManifest(EngineModule(R"("physicsEngines": {})")).has_value());
+}
+
+TEST(Manifest, PhysicsEngines_OnPhysicsEngineModule_Error)
+{
+    const auto manifest = ParseManifest(EngineModule(R"("physicsEngines": [ { "id": "com.a.b" } ])", "PhysicsEngine"));
+    ASSERT_FALSE(manifest.has_value());
+    EXPECT_EQ(manifest.error().code, ErrorCode::InvalidArgument);
+}
+
+TEST(Manifest, PhysicsEngine_KindAndExtends_Parse)
+{
+    const auto manifest = ParseManifest(EngineModule(R"("extends": { "id": "com.interi.physics.jolt", "version": "^5" },
+        "library": "jolt_soft")",
+                                                     "PhysicsEngine"));
+    ASSERT_TRUE(manifest.has_value()) << manifest.error().message;
+    EXPECT_EQ(manifest->kind, ModuleKind::PhysicsEngine);
+    EXPECT_EQ(interi::sdk::ToString(manifest->kind), "PhysicsEngine");
+    ASSERT_TRUE(manifest->extends.has_value());
+    EXPECT_EQ(manifest->extends->id, "com.interi.physics.jolt");
+    EXPECT_EQ(manifest->extends->version.Text(), "^5");
+}
+
+TEST(Manifest, ExtendsOnNonEngine_Error)
+{
+    for (const char* kind : {"Module", "Extension", "Plugin"})
+    {
+        const auto manifest = ParseManifest(EngineModule(R"("extends": { "id": "com.a.b", "version": "^1" })", kind));
+        ASSERT_FALSE(manifest.has_value()) << kind;
+        EXPECT_EQ(manifest.error().code, ErrorCode::InvalidArgument);
+    }
+}
+
+TEST(Manifest, Extends_Invalid_Error)
+{
+    EXPECT_FALSE(ParseManifest(EngineModule(R"("extends": "com.a.b")", "PhysicsEngine")).has_value());
+    EXPECT_FALSE(ParseManifest(EngineModule(R"("extends": { "version": "^1" })", "PhysicsEngine")).has_value());
+    EXPECT_FALSE(ParseManifest(EngineModule(R"("extends": { "id": "com.test.game" })", "PhysicsEngine")).has_value());
+}
+
+TEST(Manifest, PhysicsEngineDependencies_Error)
+{
+    const auto manifest = ParseManifest(EngineModule(R"("dependencies": [ { "id": "com.a.b" } ])", "PhysicsEngine"));
+    ASSERT_FALSE(manifest.has_value());
+    EXPECT_NE(manifest.error().message.find("dependencies"), std::string::npos);
+}
+
+TEST(Manifest, PhysicsSections_NoUnknownSectionWarning)
+{
+    const auto manifest = ParseManifest(EngineModule(R"("physicsEngines": [ { "id": "com.a.b" } ])"));
+    ASSERT_TRUE(manifest.has_value());
+    EXPECT_FALSE(HasWarningContaining(*manifest, "unknown section"));
 }

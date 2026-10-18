@@ -182,3 +182,119 @@ TEST(Projects, FromTemplate_CopiesFilesAndRenames)
     EXPECT_EQ(sdk::LoadProject(dir.Path() / "mine")->name, "My coins");
     EXPECT_TRUE(std::filesystem::exists(dir.Path() / "mine" / "content" / "readme.txt"));
 }
+
+namespace
+{
+
+sdk::ModuleManifest PhysicsManifest(const char* id, sdk::ModuleKind kind, std::vector<const char*> engines = {})
+{
+    sdk::ModuleManifest manifest;
+    manifest.id = id;
+    manifest.name = id;
+    manifest.kind = kind;
+    manifest.version = sdk::ParseSemVer("1.0.0").value();
+    for (std::size_t i = 0; i < engines.size(); ++i)
+    {
+        manifest.physicsEngines.push_back(
+            {.id = engines[i], .version = {}, .isDefault = i == 0 || engines.size() == 1, .library = {}});
+    }
+    return manifest;
+}
+
+} // namespace
+
+TEST(ProjectPhysicsEngine, Describe_ShowsEngineReasonAndPinnableEngines)
+{
+    const std::vector<sdk::ModuleManifest> manifests = {
+        PhysicsManifest("com.t.a", sdk::ModuleKind::Module, {"test.physics.alpha", "test.physics.beta"}),
+        PhysicsManifest("com.t.b", sdk::ModuleKind::Module, {"test.physics.beta"}),
+        PhysicsManifest("com.t.c", sdk::ModuleKind::Module, {"test.physics.alpha"}),
+        PhysicsManifest("test.physics.alpha", sdk::ModuleKind::PhysicsEngine),
+        PhysicsManifest("test.physics.beta", sdk::ModuleKind::PhysicsEngine)};
+    sdk::Project project;
+    project.modules = {"com.t.a", "com.t.b"};
+    const sdk::HostInfo host = sdk::CurrentHost();
+    auto graph = sdk::ResolveModuleGraph(project.modules, manifests, host, project.physicsEngine);
+    ASSERT_TRUE(graph.has_value()) << graph.error().message;
+    const PhysicsEngineStatus status = DescribePhysicsEngine(*graph, project, manifests, host);
+    EXPECT_TRUE(status.selected);
+    EXPECT_FALSE(status.pinned);
+    EXPECT_EQ(status.id, "test.physics.beta");
+    EXPECT_EQ(status.version, "1.0.0");
+    EXPECT_NE(status.reason.find("fallback of com.t.a"), std::string::npos) << status.reason;
+    EXPECT_EQ(status.pinnable, (std::vector<std::string>{"test.physics.beta"})); // B can't use alpha
+
+    project.modules = {"com.t.a"};
+    graph = sdk::ResolveModuleGraph(project.modules, manifests, host, project.physicsEngine);
+    ASSERT_TRUE(graph.has_value());
+    const PhysicsEngineStatus open = DescribePhysicsEngine(*graph, project, manifests, host);
+    EXPECT_EQ(open.id, "test.physics.alpha");
+    EXPECT_EQ(open.reason, "default of com.t.a");
+    EXPECT_EQ(open.pinnable, (std::vector<std::string>{"test.physics.alpha", "test.physics.beta"}));
+
+    project.physicsEngine = sdk::PhysicsEngineRef{.id = "test.physics.beta", .version = {}};
+    graph = sdk::ResolveModuleGraph(project.modules, manifests, host, project.physicsEngine);
+    ASSERT_TRUE(graph.has_value());
+    const PhysicsEngineStatus pinned = DescribePhysicsEngine(*graph, project, manifests, host);
+    EXPECT_TRUE(pinned.pinned);
+    EXPECT_EQ(pinned.id, "test.physics.beta");
+    EXPECT_EQ(pinned.reason, "pinned by the project");
+}
+
+TEST(ProjectPhysicsEngine, Describe_NoEngine_NotSelected)
+{
+    const std::vector<sdk::ModuleManifest> manifests = {PhysicsManifest("com.t.a", sdk::ModuleKind::Module)};
+    sdk::Project project;
+    project.modules = {"com.t.a"};
+    auto graph = sdk::ResolveModuleGraph(project.modules, manifests, sdk::CurrentHost());
+    ASSERT_TRUE(graph.has_value());
+    const PhysicsEngineStatus status = DescribePhysicsEngine(*graph, project, manifests, sdk::CurrentHost());
+    EXPECT_FALSE(status.selected);
+    EXPECT_TRUE(status.pinnable.empty());
+}
+
+TEST(ProjectPhysicsEngine, AddProjectModule_IncompatibleRefusedProjectUnchanged)
+{
+    const std::vector<sdk::ModuleManifest> manifests = {
+        PhysicsManifest("com.t.a", sdk::ModuleKind::Module, {"test.physics.alpha"}),
+        PhysicsManifest("com.t.b", sdk::ModuleKind::Module, {"test.physics.beta"}),
+        PhysicsManifest("com.t.c", sdk::ModuleKind::Module),
+        PhysicsManifest("test.physics.alpha", sdk::ModuleKind::PhysicsEngine),
+        PhysicsManifest("test.physics.beta", sdk::ModuleKind::PhysicsEngine)};
+    sdk::Project project;
+    project.modules = {"com.t.a"};
+    const sdk::Project before = project;
+    const sdk::HostInfo host = sdk::CurrentHost();
+
+    auto refused = AddProjectModule(project, manifests, manifests[1], host);
+    ASSERT_FALSE(refused.has_value());
+    EXPECT_NE(refused.error().message.find("com.t.a"), std::string::npos) << refused.error().message;
+    EXPECT_EQ(project, before);
+
+    auto added = AddProjectModule(project, manifests, manifests[2], host);
+    ASSERT_TRUE(added.has_value()) << added.error().message;
+    EXPECT_EQ(added->modules, (std::vector<std::string>{"com.t.c", "com.t.a"}));
+    EXPECT_EQ(project, before);
+}
+
+TEST(ProjectPhysicsEngine, PinProjectPhysicsEngine_OnlyWhenEveryModuleSupportsIt)
+{
+    const std::vector<sdk::ModuleManifest> manifests = {
+        PhysicsManifest("com.t.a", sdk::ModuleKind::Module, {"test.physics.alpha"}),
+        PhysicsManifest("test.physics.alpha", sdk::ModuleKind::PhysicsEngine),
+        PhysicsManifest("test.physics.beta", sdk::ModuleKind::PhysicsEngine)};
+    sdk::Project project;
+    project.modules = {"com.t.a"};
+    const sdk::HostInfo host = sdk::CurrentHost();
+    const auto alpha = std::optional(sdk::PhysicsEngineRef{.id = "test.physics.alpha", .version = {}});
+    const auto beta = std::optional(sdk::PhysicsEngineRef{.id = "test.physics.beta", .version = {}});
+
+    EXPECT_FALSE(PinProjectPhysicsEngine(project, manifests, beta, host).has_value());
+    auto pinned = PinProjectPhysicsEngine(project, manifests, alpha, host);
+    ASSERT_TRUE(pinned.has_value()) << pinned.error().message;
+    EXPECT_EQ(pinned->physicsEngine->id, "test.physics.alpha");
+    EXPECT_FALSE(project.physicsEngine.has_value());
+    auto cleared = PinProjectPhysicsEngine(*pinned, manifests, std::nullopt, host);
+    ASSERT_TRUE(cleared.has_value());
+    EXPECT_FALSE(cleared->physicsEngine.has_value());
+}

@@ -96,8 +96,49 @@ bool DrawPreferencesPanel(Preferences& preferences, bool profilerBuild, bool pro
     return changed;
 }
 
+ProjectSettingsRequests DrawProjectSettingsPanel(const PhysicsEngineStatus& status)
+{
+    ProjectSettingsRequests requests;
+    if (ImGui::Begin(kProjectSettingsWindow))
+    {
+        ImGui::SeparatorText("Physics Engine");
+        if (!status.selected)
+        {
+            ImGui::TextDisabled("None: no module declares a Physics Engine.");
+        }
+        else
+        {
+            ImGui::Text("%s %s", status.id.c_str(), status.version.c_str());
+            ImGui::TextDisabled("%s", status.reason.c_str());
+        }
+        const char* current = status.pinned ? status.id.c_str() : "(automatic)";
+        if (ImGui::BeginCombo("Pin", current))
+        {
+            if (ImGui::Selectable("(automatic)", !status.pinned))
+            {
+                requests.clearPin = status.pinned;
+            }
+            for (const std::string& id : status.pinnable)
+            {
+                if (ImGui::Selectable(id.c_str(), status.pinned && id == status.id) &&
+                    !(status.pinned && id == status.id))
+                {
+                    requests.pin = id;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Only engines every module of the project supports are listed.");
+        }
+    }
+    ImGui::End();
+    return requests;
+}
+
 ProjectRequests DrawProjectMenu(ProjectMenuState& state, std::span<const std::string> recent,
-                                std::span<const ProjectTemplate> templates)
+                                std::span<const ProjectTemplate> templates, std::span<const std::string> addable)
 {
     ProjectRequests requests;
     if (ImGui::BeginMainMenuBar())
@@ -116,6 +157,22 @@ ProjectRequests DrawProjectMenu(ProjectMenuState& state, std::span<const std::st
                     }
                 }
                 ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Add module", !addable.empty()))
+            {
+                for (const std::string& id : addable)
+                {
+                    if (ImGui::MenuItem(id.c_str()))
+                    {
+                        requests.addModule = id;
+                    }
+                }
+                ImGui::EndMenu();
+            }
+            if (!state.refusal.empty())
+            {
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "Refused: %s", state.refusal.c_str());
             }
             ImGui::EndMenu();
         }

@@ -1,0 +1,7 @@
+{
+  "id": "com.test.thief", "name": "com.test.thief", "version": "1.0.0", "kind": "Module",
+  "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Physics Engine selection test fixture",
+  "engine": "*",
+  "library": "interi_physics_thief",
+  "physicsEngines": [ { "id": "test.physics.alpha" } ]
+}

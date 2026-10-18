@@ -4,7 +4,8 @@
 // The boundary between the engine (host) and a gameplay module: a Module, Extension or Plugin built as a shared
 // library (.so / .dll) from game code, described by a module.json manifest (see interi/sdk/Manifest.h).
 //
-// ABI v4 (v2 made the engine shared; v3 added module data; v4 Chain Reaction events): the engine is a set of shared
+// ABI v6 (v2 made the engine shared; v3 added module data; v4 Chain Reaction events; v5 hooks, state and manifests;
+// v6 the selected Physics Engine in ModuleContext and ModuleRegistrar): the engine is a set of shared
 // libraries (INTERI_BUILD_SHARED) and every module links them, so the host and all modules share one component
 // registry, logger, assert handler and job thread state. Modules are distributed as source and built against the
 // engine; the loader rejects a module whose toolchain fingerprint (compiler, standard library, debug level, ABI
@@ -65,6 +66,13 @@ using ComponentMigrator = bool (*)(std::uint32_t fromVersion, const void* from, 
 /// Saves module-global state before the module is reloaded; the bytes reach the next instance (SavedState).
 using StateSaver = std::function<std::vector<std::byte>()>;
 
+/// The project's selected Physics Engine, as a module is told when it loads. `version` is semver text.
+struct PhysicsEngineInfo
+{
+    std::string_view id;
+    std::string_view version;
+};
+
 /// What a module registers into, implemented by the host.
 class ModuleRegistrar
 {
@@ -85,6 +93,9 @@ public:
 
     /// The module's provider id and the project's hooks (declare hooks and factories, override other modules').
     [[nodiscard]] virtual const sdk::ModuleScope& Scope() const = 0;
+    /// The project's selected Physics Engine (see ModuleContext); an empty id when the project has none. A module
+    /// with an adapter library (a `physicsEngines` entry's "library") is loaded against the engine that entry names.
+    [[nodiscard]] virtual PhysicsEngineInfo PhysicsEngine() const = 0;
     /// The project's data: every loaded module's Values, attributes and tables with the project's overrides. Valid
     /// until the host is destroyed.
     [[nodiscard]] virtual const values::DataRegistry& Data() const = 0;
@@ -128,6 +139,8 @@ struct ModuleContext
 {
     std::uint32_t abiVersion = kModuleAbiVersion;
     ModuleRegistrar* registrar = nullptr;
+    /// The project's selected Physics Engine (empty id: none). Valid during the load call.
+    PhysicsEngineInfo physicsEngine;
 };
 
 /// The module's exported entry points.

@@ -2,7 +2,7 @@
 #pragma once
 
 // The bridge between scenes and the legacy level format (gameplay::LevelDef), which the sandbox, the destruction
-// play session and replays still read. It moves to the Destruction Module's importer in M19.
+// play session and replays still read. It moves to the Destruction Module's importer in M20.
 //
 // Import: each static box becomes a Box primitive (size = 2 x half extents), each destructible an object with a
 // DestructiblePlacementComponent, each spawn point an object with a SpawnPointComponent (yaw = rotation about +Y).

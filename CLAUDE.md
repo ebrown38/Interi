@@ -8,7 +8,7 @@ Interi is an MIT-licensed C++23 game engine built only for large-scale, multithr
 
 ## Starting a milestone
 
-The milestone plan is `~/.claude/plans/create-a-plan-for-starry-dove.md` (modular engine and Chain Reaction, M13–M24). It supersedes the old plan `~/.claude/plans/cheeky-kindling-moth.md`, which still governs M12 (the editor); the old M13/M14 move to the Destruction Module's backlog. When asked to start a milestone:
+The milestone plan is `~/.claude/plans/create-a-plan-for-starry-dove.md` (modular engine and Chain Reaction, M13–M25). It supersedes the old plan `~/.claude/plans/cheeky-kindling-moth.md`, which still governs M12 (the editor); the old M13/M14 move to the Destruction Module's backlog. When asked to start a milestone:
 
 1. **Plan first, with the `planning-with-files` skill.** Invoke it before writing any code, and give it that milestone's section of the plan as input. It produces a Manus-style plan in the repo root:
    - `task_plan.md`: phases (the milestone's sub-areas) with explicit verification steps.
@@ -486,7 +486,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   (unknown) ones; prefab-derived ids never advance `NextId`. `EditorDocument` opens `.scene.json` (expanding prefab
   instances) or imports a legacy level (any other `.json`) through `LevelBridge.h` (static boxes become Box
   primitives; the scene is named `<stem>.scene.json` and the level remembered for File > Export level, which
-  `PlaySession`, replays and the sandbox read until M19). Saving collapses prefab instances. Multi-selection:
+  `PlaySession`, replays and the sandbox read until M20). Saving collapses prefab instances. Multi-selection:
   `SelectedIds`, `SelectedRoots` (no selected ancestor; what operations act on), `ToggleSelected`.
 - **Undo.** `UndoStack` executes `ICommand`s; commands with the same non-zero merge key merge until `Seal()` (the UI
   seals on widget release), a capacity drops the oldest, `MarkClean`/`IsDirty` track the save point. Edits go through

@@ -2,7 +2,7 @@
 #pragma once
 
 // A scene running: its objects in their own World, their chains in a ChainExecutor, one fixed step at a time.
-// Play-in-editor runs one on a copy of the edited scene; games (M17) run the startup scene the same way.
+// Play-in-editor runs one on a copy of the edited scene; games (M18) run the startup scene the same way.
 //
 // Each Step:
 //   1. ChainExecutor::Step (a sync point; ECS changes through CommandBuffers).

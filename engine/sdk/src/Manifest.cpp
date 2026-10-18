@@ -55,7 +55,7 @@ constexpr MetadataField kQuietFields[] = {
 constexpr std::string_view kKnownKeys[] = {
     "id",        "name",     "version",    "kind",          "author",     "license",      "copyright", "description",
     "icon",      "homepage", "engine",     "library",       "toolchain",  "dependencies", "conflicts", "contracts",
-    "overrides", "values",   "attributes", "attributeSets", "archetypes", "dataTables",
+    "overrides", "values",   "attributes", "attributeSets", "archetypes", "dataTables",   "templates",
 };
 
 Result<std::string> GetString(const nlohmann::json& object, std::string_view key, std::string_view where)
@@ -212,6 +212,36 @@ Result<void> ParseSections(const nlohmann::json& root, ModuleManifest& manifest)
                 range = std::move(*parsed);
             }
             manifest.overrides.push_back({.target = std::move(target), .version = std::move(range)});
+        }
+    }
+
+    INTERI_TRY_ASSIGN(templates, GetArray(root, "templates"));
+    if (templates != nullptr)
+    {
+        for (std::size_t i = 0; i < templates->size(); ++i)
+        {
+            const nlohmann::json& entry = (*templates)[i];
+            const std::string where = std::format("templates[{}]", i);
+            if (!entry.is_object() || !entry.contains("name") || !entry.contains("path"))
+            {
+                return Invalid(std::format(R"({} needs a "name" and a "path")", where));
+            }
+            ModuleTemplate parsed;
+            INTERI_TRY_ASSIGN(name, GetString(entry, "name", where));
+            INTERI_TRY_ASSIGN(path, GetString(entry, "path", where));
+            if (path.empty() || path.front() == '/' || path.find("..") != std::string::npos ||
+                path.find(':') != std::string::npos || path.find('\\') != std::string::npos)
+            {
+                return Invalid(std::format("{}: \"path\" must be a folder inside the module", where));
+            }
+            parsed.name = std::move(name);
+            parsed.path = std::move(path);
+            if (entry.contains("description"))
+            {
+                INTERI_TRY_ASSIGN(description, GetString(entry, "description", where));
+                parsed.description = std::move(description);
+            }
+            manifest.templates.push_back(std::move(parsed));
         }
     }
     return {};

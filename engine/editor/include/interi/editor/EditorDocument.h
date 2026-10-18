@@ -43,6 +43,9 @@ public:
     [[nodiscard]] Result<void> SaveAs(IFileSystem& files, std::string path);
     /// Writes the scene as a level (LevelBridge.h) to `path`, or ExportPath() when empty.
     [[nodiscard]] Result<void> ExportLevel(IFileSystem& files, std::string_view path = {});
+    /// Writes the scene to its autosave file (EditorServices.h AutosavePath) without marking it clean; returns the
+    /// path written.
+    [[nodiscard]] Result<std::string> Autosave(IFileSystem& files);
     [[nodiscard]] const std::string& Path() const noexcept { return m_path; }
     [[nodiscard]] const std::string& ExportPath() const noexcept { return m_exportPath; }
     [[nodiscard]] bool IsDirty() const noexcept { return m_undo.IsDirty(); }

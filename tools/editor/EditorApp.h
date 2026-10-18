@@ -16,6 +16,7 @@
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/FracturePanel.h>
 #include <interi/editor_ui/ImGuiInput.h>
+#include <interi/editor_ui/ServicePanels.h>
 #include <interi/editor_ui/StructurePanel.h>
 #include <interi/platform/FileSystem.h>
 
@@ -46,6 +47,8 @@ struct EditorAppDesc
     std::vector<std::string> project;
     /// The project data file (ProjectData.h), loaded at startup if it exists and written with the level.
     std::filesystem::path projectDataPath;
+    /// Where preferences are kept; empty: DefaultPreferencesPath().
+    std::filesystem::path preferencesPath;
 };
 
 struct FrameResult
@@ -71,6 +74,14 @@ public:
     [[nodiscard]] FrameResult Frame();
     /// Opens a glTF under the data directory in the Fracture panel and previews it.
     void OpenFractureSource(const std::string& path) { OpenSource(path); }
+    /// Starts play-in-editor of the open scene (smoke runs: --play 1).
+    void PlayScene() { HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f); }
+    [[nodiscard]] std::uint64_t ScenePlaySteps() const noexcept
+    {
+        return m_scenePlay != nullptr ? m_scenePlay->StepIndex() : 0;
+    }
+    /// Opens a project folder (project.json): see OpenProjectFolder.
+    void OpenProject(const std::filesystem::path& folder) { OpenProjectFolder(folder); }
     /// A scripted session for smoke runs (--demo): at `frame` of `frames`, plays the level, sets off an explosion at
     /// the middle wall, saves the session as a replay and verifies it.
     void DemoStep(std::uint64_t frame, std::uint64_t frames);
@@ -126,6 +137,12 @@ private:
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
     void HandlePlay(const ScenePlayRequests& requests, float seconds);
+    /// Opens a project folder: mounts it (its paths are the project's), resolves its modules, loads its data and
+    /// opens its startup scene. Errors are logged; the current project stays.
+    void OpenProjectFolder(const std::filesystem::path& folder);
+    void HandleProjectRequests(const ProjectRequests& requests);
+    /// Panels for the editor services, autosave and profiler frame marks.
+    void UpdateServices(float seconds);
     /// Carries out the Tools panel's modeling requests on the selection.
     void HandleModeling(const ToolRequests& tools, bool groupShortcut);
     /// The mesh an object draws (its primitive's, cached by parameters, or its mesh asset's); nullptr if none.
@@ -164,6 +181,14 @@ private:
     std::unique_ptr<ScenePlaySession> m_scenePlay;
     bool m_keepPlayValues = true;
     ScenePlayRequests m_playRequests; ///< From this frame's viewport.
+    Preferences m_preferences;
+    std::filesystem::path m_preferencesPath;
+    AutosaveTimer m_autosave{std::chrono::seconds(120)};
+    std::shared_ptr<LogBuffer> m_log = std::make_shared<LogBuffer>();
+    ConsoleState m_console;
+    ProjectMenuState m_projectMenu;
+    std::vector<ProjectTemplate> m_templates;
+    std::unique_ptr<NativeFileSystem> m_projectFiles; ///< The open project folder, mounted over the data tree.
     sdk::ModuleSet m_chainModules;
     std::unique_ptr<chain::ChainRegistry> m_chains;
     std::optional<Replay> m_watching; ///< The replay being played back, if any.

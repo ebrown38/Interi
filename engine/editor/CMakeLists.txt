@@ -12,6 +12,7 @@ interi_add_module(editor
         src/EditorDocument.cpp
         src/EditorMath.cpp
         src/EditorScene.cpp
+        src/EditorServices.cpp
         src/FracturePreview.cpp
         src/Gizmo.cpp
         src/HeaderCheck.cpp
@@ -20,6 +21,7 @@ interi_add_module(editor
         src/Modeling.cpp
         src/Picking.cpp
         src/Prefabs.cpp
+        src/Projects.cpp
         src/PlaySession.cpp
         src/Reflection.cpp
         src/Replay.cpp
@@ -27,12 +29,14 @@ interi_add_module(editor
         src/StructureDebug.cpp
         src/UndoStack.cpp
     DEPS interi::modeling interi::scene interi::runtime interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
         ${_tests}/DataEditingTests.cpp
         ${_tests}/EditorCameraTests.cpp
         ${_tests}/EditorDocumentTests.cpp
         ${_tests}/EditorSceneTests.cpp
+        ${_tests}/EditorServicesTests.cpp
         ${_tests}/FracturePreviewTests.cpp
         ${_tests}/GizmoTests.cpp
         ${_tests}/InspectorTests.cpp

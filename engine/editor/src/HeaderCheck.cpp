@@ -8,6 +8,7 @@
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorMath.h>
 #include <interi/editor/EditorScene.h>
+#include <interi/editor/EditorServices.h>
 #include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Inspector.h>
@@ -16,6 +17,7 @@
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
 #include <interi/editor/Prefabs.h>
+#include <interi/editor/Projects.h>
 #include <interi/editor/Reflection.h>
 #include <interi/editor/Replay.h>
 #include <interi/editor/ScenePlay.h>

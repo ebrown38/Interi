@@ -7,13 +7,15 @@
 //
 //   level_editor [--level <path under data/>] [--fracture <glTF under data/>] [--video-driver <name>]
 //                [--frames <count>] [--screenshot <file.ppm>] [--demo 1] [--validation 1]
-//                [--modules <dir> [--project <id>,<id>...] [--project-data <file.json>]]
+//                [--modules <dir> [--project <id>,<id>...] [--project-data <file.json>]] [--project-file <dir>] [--play
+//                1]
 //
 // --frames exits after that many frames (smoke runs; --video-driver offscreen renders without a display, dummy has
 // no Vulkan so the UI runs without drawing). --demo plays the level, blows up the middle wall, then saves and verifies
 // a replay of it (the Structure panel's tools). --modules edits the data of the module folders in <dir> (the project
 // order from --project, top first; default every module by id) in the Values, Characters and Data Tables panels;
-// --project-data is loaded at startup and saved with the level.
+// --project-data is loaded at startup and saved with the level. --project-file opens a project folder (project.json:
+// its modules, data and startup scene) instead of a level. --play starts play-in-editor of the opened scene.
 #include <interi/core/Log.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/physics/JoltRuntime.h>
@@ -44,6 +46,8 @@ struct Options
     std::string modules;
     std::vector<std::string> project;
     std::string projectData;
+    std::string projectFolder;
+    bool play = false;
 };
 
 Options ParseOptions(int argc, char** argv)
@@ -91,6 +95,14 @@ Options ParseOptions(int argc, char** argv)
                 options.project.emplace_back(std::string_view(part.begin(), part.end()));
             }
         }
+        else if (flag == "--play")
+        {
+            options.play = std::string_view(argv[i + 1]) == "1";
+        }
+        else if (flag == "--project-file")
+        {
+            options.projectFolder = argv[i + 1];
+        }
         else if (flag == "--project-data")
         {
             options.projectData = argv[i + 1];
@@ -134,14 +146,23 @@ int main(int argc, char** argv)
                                        .validation = options.validation,
                                        .modulesDir = options.modules,
                                        .project = options.project,
-                                       .projectDataPath = options.projectData});
-        if (auto opened = app.OpenLevel(options.level); !opened)
+                                       .projectDataPath = options.projectData,
+                                       .preferencesPath = {}});
+        if (!options.projectFolder.empty())
+        {
+            app.OpenProject(options.projectFolder);
+        }
+        else if (auto opened = app.OpenLevel(options.level); !opened)
         {
             INTERI_LOG_ERROR("Editor", "{}: {}", options.level, opened.error().message);
         }
         if (!options.fracture.empty())
         {
             app.OpenFractureSource(options.fracture);
+        }
+        if (options.play)
+        {
+            app.PlayScene();
         }
         std::uint64_t presented = 0;
         std::uint64_t frame = 0;
@@ -169,6 +190,10 @@ int main(int argc, char** argv)
             std::printf("Presented %llu of %llu frames (%zu entities in %s)\n",
                         static_cast<unsigned long long>(presented), static_cast<unsigned long long>(frame),
                         app.Document().Scene().Size(), app.Document().Path().c_str());
+            if (options.play)
+            {
+                std::printf("Played %llu steps\n", static_cast<unsigned long long>(app.ScenePlaySteps()));
+            }
             if (!app.ReplayMessage().empty())
             {
                 std::printf("Replay: %s\n", app.ReplayMessage().c_str());

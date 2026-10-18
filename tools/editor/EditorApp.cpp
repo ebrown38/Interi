@@ -4,6 +4,7 @@
 #include <interi/chain/CoreLibrary.h>
 #include <interi/core/Hash.h>
 #include <interi/core/Log.h>
+#include <interi/core/Profiling.h>
 #include <interi/core/math/Mat4.h>
 #include <interi/core/math/Quat.h>
 #include <interi/destruction/BondGraph.h>
@@ -40,6 +41,21 @@
 
 namespace interi::editor
 {
+
+namespace
+{
+
+/// Whether a Tracy profiler is connected (profile builds only).
+[[nodiscard]] bool ProfilerConnected()
+{
+#if INTERI_PROFILING_ACTIVE
+    return TracyIsConnected;
+#else
+    return false;
+#endif
+}
+
+} // namespace
 
 namespace
 {
@@ -97,7 +113,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v4.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v5.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -107,6 +123,25 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
         m_chainModules.DeclareContract(std::move(id));
     }
     m_chains = std::make_unique<chain::ChainRegistry>(m_chainModules);
+    if (Logger* logger = GetGlobalLogger())
+    {
+        logger->AddSink(std::make_unique<LogBufferSink>(m_log));
+    }
+    m_preferencesPath = desc.preferencesPath.empty() ? DefaultPreferencesPath() : desc.preferencesPath;
+    if (auto preferences = LoadPreferences(m_preferencesPath))
+    {
+        m_preferences = std::move(*preferences);
+    }
+    else
+    {
+        INTERI_LOG_WARN("Editor", "{}: {} (using defaults)", m_preferencesPath.string(), preferences.error().message);
+    }
+    m_tools.snap = m_preferences.snap;
+    m_tools.moveSnap = m_preferences.moveSnap;
+    m_tools.rotateSnapDegrees = m_preferences.rotateSnapDegrees;
+    m_tools.sizeSnap = m_preferences.sizeSnap;
+    m_keepPlayValues = m_preferences.keepPlayValues;
+    m_autosave.SetInterval(std::chrono::seconds(m_preferences.autosaveSeconds));
     if (auto registered = chain::RegisterCoreLibrary(*m_chains); !registered)
     {
         INTERI_LOG_ERROR("Editor", "chain library: {}", registered.error().message);
@@ -904,6 +939,110 @@ void EditorApp::ApplyDrag(const Ray& ray)
     }
 }
 
+void EditorApp::UpdateServices(float seconds)
+{
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<float>(seconds));
+    if (m_preferences.autosave && m_autosave.Tick(elapsed, m_document.IsDirty()))
+    {
+        if (auto path = m_document.Autosave(m_files); !path)
+        {
+            INTERI_LOG_WARN("Editor", "autosave: {}", path.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "autosaved {}", *path);
+        }
+    }
+    if (m_preferences.profilerFrameMarks)
+    {
+        INTERI_FRAME_MARK();
+    }
+}
+
+void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
+{
+    auto project = sdk::LoadProject(folder);
+    if (!project)
+    {
+        INTERI_LOG_ERROR("Editor", "project: {}", project.error().message);
+        return;
+    }
+    for (const std::string& warning : project->warnings)
+    {
+        INTERI_LOG_WARN("Editor", "{}: {}", folder.string(), warning);
+    }
+    auto manifests = LoadProjectModules(*project);
+    if (!manifests)
+    {
+        INTERI_LOG_ERROR("Editor", "project modules: {}", manifests.error().message);
+        return;
+    }
+    auto graph = sdk::ResolveModuleGraph(project->modules, *manifests, sdk::CurrentHost());
+    if (!graph)
+    {
+        INTERI_LOG_ERROR("Editor", "project: {}", graph.error().message);
+        return;
+    }
+    auto data = ProjectData::Create(*graph);
+    if (!data)
+    {
+        INTERI_LOG_ERROR("Editor", "project data: {}", data.error().message);
+        return;
+    }
+    m_project = std::move(*data);
+    m_projectDataPath = project->data.empty() ? std::filesystem::path() : folder / project->data;
+    if (!m_projectDataPath.empty() && std::filesystem::exists(m_projectDataPath))
+    {
+        std::ifstream file(m_projectDataPath, std::ios::binary);
+        std::ostringstream text;
+        text << file.rdbuf();
+        if (auto loaded = values::LoadProjectData(text.str(), m_project->Data()); !loaded)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", m_projectDataPath.string(), loaded.error().message);
+        }
+    }
+    m_templates = ListTemplates(*manifests);
+    m_projectFiles = std::make_unique<NativeFileSystem>(folder);
+    (void)m_files.Mount("", *m_projectFiles); // newest: the project's files shadow the data tree, writes go there
+    m_dataDir = folder;
+    m_assetList = ListAssets(m_dataDir);
+    m_meshCache.clear();
+    AddRecentProject(m_preferences, folder.string());
+    (void)SavePreferences(m_preferencesPath, m_preferences);
+    if (!project->startupScene.empty())
+    {
+        if (auto opened = OpenLevel(project->startupScene); !opened)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", project->startupScene, opened.error().message);
+        }
+    }
+    m_window.SetTitle(std::format("Interi Editor - {}", project->name));
+    INTERI_LOG_INFO("Editor", "opened project {} ({} modules)", project->name, graph->loadOrder.size());
+}
+
+void EditorApp::HandleProjectRequests(const ProjectRequests& requests)
+{
+    if (requests.createFolder)
+    {
+        const ProjectTemplate* from =
+            requests.createTemplate >= 0 && static_cast<std::size_t>(requests.createTemplate) < m_templates.size()
+                ? &m_templates[static_cast<std::size_t>(requests.createTemplate)]
+                : nullptr;
+        if (auto created = CreateProject(*requests.createFolder, requests.createName, from); !created)
+        {
+            INTERI_LOG_ERROR("Editor", "new project: {}", created.error().message);
+        }
+        else
+        {
+            OpenProjectFolder(*requests.createFolder);
+        }
+    }
+    if (requests.open)
+    {
+        OpenProjectFolder(*requests.open);
+    }
+}
+
 void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
 {
     values::ValueRegistry* values = m_project != nullptr ? &m_project->Data().Values() : nullptr;
@@ -999,7 +1138,7 @@ void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
         std::string name(m_document.Scene().NameOf(root));
         std::ranges::replace_if(name, [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
         const std::string path = std::format("prefabs/{}.prefab.json", name.empty() ? "prefab" : name);
-        if (auto created = CreatePrefabFromSelection(m_document, m_dataFiles, path); !created)
+        if (auto created = CreatePrefabFromSelection(m_document, m_files, path); !created)
         {
             INTERI_LOG_ERROR("Editor", "create prefab: {}", created.error().message);
         }
@@ -1012,8 +1151,8 @@ void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
     if (tools.revertPrefab || tools.applyPrefab)
     {
         const EditorEntityId root = InstanceRootOf(m_document.Scene(), m_document.Selection());
-        auto done = tools.revertPrefab ? RevertInstance(m_document, m_files, root)
-                                       : ApplyInstance(m_document, m_dataFiles, root);
+        auto done =
+            tools.revertPrefab ? RevertInstance(m_document, m_files, root) : ApplyInstance(m_document, m_files, root);
         if (!done)
         {
             INTERI_LOG_ERROR("Editor", "prefab: {}", done.error().message);
@@ -1028,7 +1167,7 @@ void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
         {
             path = std::format("meshes/csg_{}.imesh", n);
         }
-        if (auto created = CsgSelection(m_document, m_dataFiles, *tools.csg, path); !created)
+        if (auto created = CsgSelection(m_document, m_files, *tools.csg, path); !created)
         {
             INTERI_LOG_ERROR("Editor", "csg: {}", created.error().message);
         }
@@ -1251,6 +1390,8 @@ FrameResult EditorApp::Frame()
     m_previous = now;
 
     ImGui::NewFrame();
+    // The Project menu first: File's right-aligned title would push later menus off the bar.
+    const ProjectRequests projectRequests = DrawProjectMenu(m_projectMenu, m_preferences.recentProjects, m_templates);
     MenuRequests requests = DrawMainMenu(m_document);
     (void)DrawDockSpace(m_buildLayout);
     m_buildLayout = false;
@@ -1267,12 +1408,28 @@ FrameResult EditorApp::Frame()
         DrawCharactersPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
         DrawDataTablesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
     }
+    DrawConsolePanel(*m_log, m_console);
+    if (DrawPreferencesPanel(m_preferences, INTERI_PROFILING_ACTIVE != 0, ProfilerConnected()))
+    {
+        m_tools.snap = m_preferences.snap;
+        m_tools.moveSnap = m_preferences.moveSnap;
+        m_tools.rotateSnapDegrees = m_preferences.rotateSnapDegrees;
+        m_tools.sizeSnap = m_preferences.sizeSnap;
+        m_keepPlayValues = m_preferences.keepPlayValues;
+        m_autosave.SetInterval(std::chrono::seconds(m_preferences.autosaveSeconds));
+        if (auto saved = SavePreferences(m_preferencesPath, m_preferences); !saved)
+        {
+            INTERI_LOG_WARN("Editor", "preferences: {}", saved.error().message);
+        }
+    }
     DrawViewport();
+    HandleProjectRequests(projectRequests);
     const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
 
     HandleStructureRequests(structure);
     HandlePlay(m_playRequests, io.DeltaTime);
+    UpdateServices(io.DeltaTime);
     if (m_play != nullptr && !m_structure.paused)
     {
         StepPlay(io.DeltaTime);
@@ -1332,7 +1489,7 @@ FrameResult EditorApp::Frame()
     }
     if (requests.exportLevel)
     {
-        if (auto exported = m_document.ExportLevel(m_dataFiles); !exported)
+        if (auto exported = m_document.ExportLevel(m_files); !exported)
         {
             INTERI_LOG_ERROR("Editor", "export: {}", exported.error().message);
         }
@@ -1343,13 +1500,14 @@ FrameResult EditorApp::Frame()
     }
     if (requests.save)
     {
-        if (auto saved = m_document.Save(m_dataFiles); !saved)
+        if (auto saved = m_document.Save(m_files); !saved)
         {
             INTERI_LOG_ERROR("Editor", "save: {}", saved.error().message);
         }
         else
         {
             INTERI_LOG_INFO("Editor", "saved {}", m_document.Path());
+            m_autosave.Reset();
         }
         SaveProjectData();
     }

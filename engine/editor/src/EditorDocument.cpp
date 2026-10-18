@@ -2,6 +2,7 @@
 #include <interi/core/Log.h>
 #include <interi/editor/Commands.h>
 #include <interi/editor/EditorDocument.h>
+#include <interi/editor/EditorServices.h>
 #include <interi/editor/LevelBridge.h>
 #include <interi/editor/Prefabs.h>
 #include <interi/platform/FileSystem.h>
@@ -92,6 +93,16 @@ Result<void> EditorDocument::Save(IFileSystem& files)
     m_undo.MarkClean();
     m_undo.Seal();
     return {};
+}
+
+Result<std::string> EditorDocument::Autosave(IFileSystem& files)
+{
+    scene::SceneDocument document = m_scene.ToDocument();
+    scene::CollapsePrefabs(document, PrefabLoaderFor(files), m_reflection);
+    const std::string json = scene::WriteScene(document);
+    std::string path = AutosavePath(m_path);
+    INTERI_TRY(files.WriteFile(path, std::as_bytes(std::span(json))));
+    return path;
 }
 
 Result<void> EditorDocument::SaveAs(IFileSystem& files, std::string path)

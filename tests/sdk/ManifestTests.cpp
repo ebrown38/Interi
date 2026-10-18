@@ -42,6 +42,20 @@ HostInfo Host(std::string toolchain = "abi2;test")
 
 } // namespace
 
+TEST(Manifest, Templates_Parse)
+{
+    auto manifest = ParseManifest(R"({"id": "com.a.b", "version": "1.0.0",
+        "templates": [{"name": "Coins", "path": "templates/coins", "description": "d"}, {"name": "x", "path": "y"}]})");
+    ASSERT_TRUE(manifest.has_value()) << manifest.error().message;
+    ASSERT_EQ(manifest->templates.size(), 2u);
+    EXPECT_EQ(manifest->templates[0].path, "templates/coins");
+    EXPECT_EQ(manifest->templates[0].description, "d");
+    EXPECT_FALSE(ParseManifest(R"({"id": "com.a.b", "version": "1.0.0", "templates": [{"name": "x"}]})").has_value());
+    EXPECT_FALSE(
+        ParseManifest(R"({"id": "com.a.b", "version": "1.0.0", "templates": [{"name": "x", "path": "../up"}]})")
+            .has_value());
+}
+
 TEST(Manifest, Full_ParsesEveryField)
 {
     auto manifest = ParseManifest(kFull);

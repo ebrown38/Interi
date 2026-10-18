@@ -3,6 +3,7 @@
 #include <interi/editor/Prefabs.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
+#include <interi/editor_ui/ServicePanels.h>
 #include <interi/editor_ui/ValueWidgets.h>
 
 #include <imgui.h>
@@ -64,6 +65,8 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout)
         ImGui::DockBuilderDockWindow(kCharactersWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kDataTablesWindow, bottom);
         ImGui::DockBuilderDockWindow(kAssetsWindow, bottom);
+        ImGui::DockBuilderDockWindow(kConsoleWindow, bottom);
+        ImGui::DockBuilderDockWindow(kPreferencesWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kViewportWindow, centre);
         ImGui::DockBuilderFinish(dockspace);
     }
@@ -170,7 +173,11 @@ void DrawOutliner(EditorDocument& document)
         for (const OutlinerRow& row : OutlinerRows(document.Scene()))
         {
             ImGui::PushID(static_cast<int>(row.id));
-            ImGui::Indent(static_cast<float>(row.depth) * 14.0f);
+            const float indent = static_cast<float>(row.depth) * 14.0f; // Indent(0) would use the default width
+            if (indent > 0.0f)
+            {
+                ImGui::Indent(indent);
+            }
             const std::string label = (row.hasChildren ? "> " : "  ") + row.label;
             if (ImGui::Selectable(label.c_str(), document.IsSelected(row.id)))
             {
@@ -199,7 +206,10 @@ void DrawOutliner(EditorDocument& document)
                 }
                 ImGui::EndDragDropTarget();
             }
-            ImGui::Unindent(static_cast<float>(row.depth) * 14.0f);
+            if (indent > 0.0f)
+            {
+                ImGui::Unindent(indent);
+            }
             ImGui::PopID();
         }
         // The space below the rows takes a dropped row as a root.

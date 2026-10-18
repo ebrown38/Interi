@@ -46,6 +46,14 @@ struct OverrideDeclaration
     VersionRange version;
 };
 
+/// A starter project a module ships: a folder (relative to the module) copied to make a new project.
+struct ModuleTemplate
+{
+    std::string name;
+    std::string path;
+    std::string description;
+};
+
 /// A parsed module.json. The format:
 ///
 ///     {
@@ -57,7 +65,8 @@ struct OverrideDeclaration
 ///       "dependencies": [ { "id": "com.interi.physics", "version": "^1.0", "optional": false } ],
 ///       "conflicts": [ { "id": "com.other.fps", "version": "*" } ],
 ///       "contracts": [ "service.PhysicsQueries" ],
-///       "overrides": [ { "target": "com.author.base:FireGun", "version": "^1.0" } ]
+///       "overrides": [ { "target": "com.author.base:FireGun", "version": "^1.0" } ],
+///       "templates": [ { "name": "Coin game", "path": "templates/coins", "description": "..." } ]
 ///     }
 ///
 /// "id" and "version" are required. Missing metadata (name, kind, author, license, copyright, description, engine)
@@ -83,6 +92,7 @@ struct ModuleManifest
     std::vector<ModuleConflict> conflicts;
     std::vector<std::string> contracts; ///< Shared contract ids this Extension declares.
     std::vector<OverrideDeclaration> overrides;
+    std::vector<ModuleTemplate> templates;
 
     std::filesystem::path directory; ///< Folder the manifest was loaded from (LoadManifest); empty when parsed.
     std::vector<std::string> warnings;

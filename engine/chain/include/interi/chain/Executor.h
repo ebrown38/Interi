@@ -106,7 +106,7 @@ struct SpawnRequest
     Transform transform;  ///< The root's world transform.
 };
 
-/// One record of the debug trace (for the M21 debugger).
+/// One record of the debug trace (for the M22 debugger).
 struct TraceRecord
 {
     enum class Kind : std::uint8_t

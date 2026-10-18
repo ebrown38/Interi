@@ -2,7 +2,7 @@
 #pragma once
 
 // The chain asset format (.chain.json): event nodes, and links ("chains") from a node's output to another node.
-// Authored as JSON until the visual editor (M21) writes it; keys are written sorted so files diff well.
+// Authored as JSON until the visual editor (M22) writes it; keys are written sorted so files diff well.
 //
 //     {
 //       "version": 1,

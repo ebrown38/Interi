@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include <interi/chain/CoreLibrary.h>
 #include <interi/core/Log.h>
 #include <interi/hotreload/ModuleHost.h>
 #include <interi/platform/DynamicLibrary.h>
@@ -79,13 +80,14 @@ namespace
 class Registrar final : public ModuleRegistrar
 {
 public:
-    Registrar(const sdk::ModuleScope& scope, const values::DataRegistry& data, std::span<const std::byte> savedState,
-              std::vector<std::string>& systemNames, Scheduler& scheduler,
+    Registrar(const sdk::ModuleScope& scope, const values::DataRegistry& data, chain::ChainRegistry& chains,
+              std::span<const std::byte> savedState, std::vector<std::string>& systemNames, Scheduler& scheduler,
               std::vector<std::pair<ComponentTypeId, ComponentMigrator>>& components, StateSaver& saver,
               std::span<const std::pair<std::string, values::Value>> savedFields, void*& stateObject,
               std::vector<values::FieldInfo>& stateFields)
         : m_scope(&scope)
         , m_data(&data)
+        , m_chains(&chains)
         , m_savedState(savedState)
         , m_systemNames(&systemNames)
         , m_scheduler(&scheduler)
@@ -125,6 +127,7 @@ public:
 
     [[nodiscard]] const sdk::ModuleScope& Scope() const override { return *m_scope; }
     [[nodiscard]] const values::DataRegistry& Data() const override { return *m_data; }
+    [[nodiscard]] chain::ChainRegistry& Chains() const override { return *m_chains; }
     [[nodiscard]] std::span<const std::byte> SavedState() const override { return m_savedState; }
     void SetStateSaver(StateSaver saver) override { *m_saver = std::move(saver); }
 
@@ -190,6 +193,7 @@ private:
 
     const sdk::ModuleScope* m_scope;
     const values::DataRegistry* m_data;
+    chain::ChainRegistry* m_chains;
     std::span<const std::byte> m_savedState;
     std::vector<std::string>* m_systemNames;
     Scheduler* m_scheduler;
@@ -333,7 +337,18 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     , m_moduleSet(std::make_unique<sdk::ModuleSet>())
     , m_hooks(std::make_unique<sdk::HookRegistry>(*m_moduleSet))
     , m_data(std::make_unique<values::DataRegistry>(*m_moduleSet))
+    , m_chains(std::make_unique<chain::ChainRegistry>(*m_moduleSet))
 {
+    for (std::string& id : chain::CoreContracts())
+    {
+        m_desc.engineContracts.push_back(std::move(id));
+    }
+    for (const std::string& id : m_desc.engineContracts)
+    {
+        m_moduleSet->DeclareContract(id);
+    }
+    auto core = chain::RegisterCoreLibrary(*m_chains);
+    INTERI_VERIFY(core.has_value(), "the chain core library must register");
     if (m_desc.shadowDirectory.empty())
     {
         std::error_code ignored;
@@ -348,6 +363,7 @@ ModuleHost::~ModuleHost()
     {
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
         m_data->RemoveProvider(m_modules.back()->id);
+        m_chains->RemoveProvider(m_modules.back()->id);
         m_modules.pop_back();
     }
 }
@@ -425,8 +441,8 @@ Result<void> ModuleHost::Register(Loaded& module, std::span<const std::byte> sav
     {
         return {};
     }
-    Registrar registrar(*module.scope, *m_data, savedState, module.systemNames, *module.scheduler, module.components,
-                        module.saver, savedFields, module.stateObject, module.stateFields);
+    Registrar registrar(*module.scope, *m_data, *m_chains, savedState, module.systemNames, *module.scheduler,
+                        module.components, module.saver, savedFields, module.stateObject, module.stateFields);
     const ModuleContext context{.abiVersion = kModuleAbiVersion, .registrar = &registrar};
     module.attached = true;
     if (!module.api->load(context))
@@ -469,11 +485,13 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     // register the incoming modules in load order.
     std::vector<HookEntries> extracted;
     std::vector<values::ExtractedData> extractedData;
+    std::vector<chain::ChainRegistry::Extracted> extractedChains;
     extracted.reserve(plan.outgoing.size());
     for (const std::string& id : plan.outgoing)
     {
         extracted.push_back(m_hooks->Registry().ExtractProvider(id));
         extractedData.push_back(m_data->ExtractProvider(id));
+        extractedChains.push_back(m_chains->ExtractProvider(id));
     }
     std::optional<sdk::ModuleSet> previousSet;
     if (plan.moduleSet)
@@ -488,6 +506,7 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
         {
             m_hooks->Registry().RemoveProvider(module->id);
             m_data->RemoveProvider(module->id);
+            m_chains->RemoveProvider(module->id);
         }
         if (previousSet)
         {
@@ -500,6 +519,10 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
         for (values::ExtractedData& data : extractedData)
         {
             m_data->Restore(std::move(data));
+        }
+        for (chain::ChainRegistry::Extracted& chains : extractedChains)
+        {
+            m_chains->Restore(std::move(chains));
         }
         // Dependents first, like any unload.
         while (!plan.incoming.empty())
@@ -543,6 +566,7 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     // Character blocks follow their archetypes' new layouts; project data that no longer fits is reported.
     extracted.clear();
     extractedData.clear();
+    extractedChains.clear();
     stats.migratedAttributeBlocks = m_data->Characters().MigrateBlocks(*m_world);
     for (const std::string& warning : m_data->Revalidate())
     {
@@ -744,6 +768,7 @@ void ModuleHost::Unload()
     {
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
         m_data->RemoveProvider(m_modules.back()->id);
+        m_chains->RemoveProvider(m_modules.back()->id);
         LogUnload(*m_modules.back());
         m_modules.pop_back();
     }

@@ -4,7 +4,8 @@
 //   2 com.test.a:      declares com.test.a:Fire (damage + 1), com.test.a:Loads (how often this module was
 //                      registered, carried across reloads in its reflected state) and com.test.a:Jump (10x the value
 //                      com.test.a:JumpHeight, read from the project's data at call time); a system adds 1 to every
-//                      counter.
+//                      counter. Chain event com.test.a:Hit(amount: int = 1) -> Out {total: int} fires
+//                      total = 10 * amount + loads.
 //   3 com.test.b:      provides service.Greeter (appends "!"), overrides com.test.a:Fire (x2), declares
 //                      com.test.b:Reload (identity); a system adds 10 to every counter.
 //   4 com.test.plugin: overrides com.test.a:Fire (-100) and com.test.b:Reload (+1).
@@ -15,6 +16,8 @@
 
 #include "TestComponents.h"
 
+#include <cstdint>
+#include <memory>
 #include <string>
 
 #ifndef INTERI_SDK_TEST_MODULE
@@ -71,6 +74,21 @@ bool Register(ModuleRegistrar& registrar)
     interi::hotreload::DeclareComponent<HrCounter>(registrar);
     registrar.AddSystem("AddOne", SystemAccess{}.Write<HrCounter>(), [](SystemContext& c) { AddToCounters(c, 1); });
     const interi::values::ValueRegistry& values = registrar.Data().Values();
+    interi::chain::EventDefinition hit;
+    interi::chain::EventParam amount;
+    amount.name = "amount";
+    amount.schema.type = interi::values::ValueType::Int;
+    amount.schema.defaultValue = std::int32_t{1};
+    hit.inputs = {amount};
+    hit.outputs = {{.name = "Out", .payload = {{.name = "total", .type = interi::values::ValueType::Int}}}};
+    // The load count is read when the module registers: each instance's implementation fires its own.
+    hit.implementation = std::make_shared<const interi::chain::EventImpl>(
+        [loads = g_state.loads](interi::chain::EventCall& call)
+        { call.Fire(0, {std::int32_t{10 * call.Get<std::int32_t>(0) + loads}}); });
+    if (!registrar.Chains().Events().Provide(scope.Provider(), scope.Local("Hit"), std::move(hit)).has_value())
+    {
+        return false;
+    }
     return scope.DeclareHook<Fire>(scope.Local("Fire"), [](const HookNext<Fire>&, int damage) { return damage + 1; })
                .has_value() &&
            scope.DeclareHook<Fire>(scope.Local("Loads"), [](const HookNext<Fire>&, int) { return g_state.loads; })

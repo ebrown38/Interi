@@ -4,9 +4,13 @@
 // Hashes what a chain run produced (Values, the trace) from binary data, for determinism tests.
 
 #include <interi/chain/Executor.h>
+#include <interi/core/math/Transform.h>
+#include <interi/ecs/Query.h>
+#include <interi/ecs/World.h>
 #include <interi/testing/StateHasher.h>
 
 #include <cstdint>
+#include <map>
 #include <string_view>
 #include <variant>
 
@@ -74,6 +78,35 @@ inline void HashExecutor(interi::testing::StateHasher& hasher, const ChainExecut
     }
     hasher.Add(executor.LastStats().activations);
     hasher.Add(executor.LastStats().eventsRun);
+}
+
+/// Every entity with a StableIdComponent: id, transform, hidden; by id.
+inline void HashWorld(interi::testing::StateHasher& hasher, World& world)
+{
+    std::map<std::uint64_t, std::pair<Transform, bool>> entities;
+    Query().With<StableIdComponent, Transform>().ForEachChunk(world,
+                                                              [&](ChunkView& view)
+                                                              {
+                                                                  const auto ids = view.Read<StableIdComponent>();
+                                                                  const auto transforms = view.Read<Transform>();
+                                                                  const bool hidden = view.Has<HiddenComponent>();
+                                                                  for (std::size_t i = 0; i < ids.size(); ++i)
+                                                                  {
+                                                                      entities[ids[i].id] = {transforms[i], hidden};
+                                                                  }
+                                                              });
+    for (const auto& [id, entry] : entities)
+    {
+        const auto& [transform, hidden] = entry;
+        hasher.Add(id);
+        for (const float component : {transform.position.x, transform.position.y, transform.position.z,
+                                      transform.rotation.x, transform.rotation.y, transform.rotation.z,
+                                      transform.rotation.w, transform.scale.x, transform.scale.y, transform.scale.z})
+        {
+            hasher.Add(component);
+        }
+        hasher.Add(hidden);
+    }
 }
 
 } // namespace interi::chain::testing

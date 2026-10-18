@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <ios>
 
 using namespace interi;
 using namespace interi::chain;
@@ -82,4 +83,75 @@ TEST(Chain, SameInput_IdenticalHashAt1_4_32Threads)
     const std::uint64_t one = RunScenario(1);
     EXPECT_EQ(RunScenario(4), one);
     EXPECT_EQ(RunScenario(32), one);
+}
+
+namespace
+{
+
+/// World events only, no trigonometry: moves with arithmetic and sqrt, value writes, hides, delays.
+constexpr std::string_view kWorldChain = R"json({"version": 1, "nodes": [
+    {"id": "tick", "event": "trigger.Tick"},
+    {"id": "roll", "event": "flow.Random", "params": {"min": {"const": -50}, "max": {"const": 50}}},
+    {"id": "move", "event": "world.Move",
+     "params": {"delta": {"expr": "vec3(float(payload.value) / 7, sqrt(abs(float(payload.value))) * 0.1, 1 / 3.0)"}}},
+    {"id": "score", "event": "world.ModifyValue",
+     "params": {"id": {"const": "com.test.a:Health"}, "delta": {"expr": "float(payload.value) * 0.01"}}},
+    {"id": "hide", "event": "world.Hide"},
+    {"id": "wait", "event": "flow.Delay", "params": {"seconds": {"const": 0.1}}},
+    {"id": "show", "event": "world.Show"}],
+  "links": [
+    {"from": "tick", "to": "roll"},
+    {"from": "roll", "to": "move"},
+    {"from": "roll", "to": "score", "condition": "payload.value > 0"},
+    {"from": "roll", "to": "hide", "condition": "payload.value < -40"},
+    {"from": "hide", "to": "wait"},
+    {"from": "wait", "to": "show"}]})json";
+
+std::uint64_t RunWorldScenario(std::uint32_t threads)
+{
+    TestProject project;
+    World world;
+    JobSystem jobs(JobSystemDesc{.workerCount = threads - 1, .pinThreads = false});
+    CommandBuffers commands(jobs);
+    ExecutorDesc desc;
+    desc.seed = 0xC4A1Bull;
+    desc.trace = true;
+    desc.grain = 4;
+    desc.stepNanoseconds = 16'666'667;
+    ChainExecutor executor(*project.chains, project.values.get(), desc);
+    const ChainAsset asset = Chain(kWorldChain);
+    for (std::uint64_t id = 1; id <= 64; ++id)
+    {
+        Transform transform;
+        transform.position = Vec3(static_cast<float>(id), 0.0f, 0.0f);
+        world.CreateEntity(StableIdComponent{.id = id}, transform);
+        const auto chain = executor.AddChain(asset, id);
+        EXPECT_TRUE(executor.IsActive(chain));
+    }
+    interi::testing::StateHasher hasher;
+    for (int step = 0; step < 90; ++step)
+    {
+        executor.Step(world, jobs, commands);
+        HashExecutor(hasher, executor);
+    }
+    HashWorld(hasher, world);
+    return hasher.Finish();
+}
+
+} // namespace
+
+TEST(ChainDeterminism, WorldEvents_IdenticalHashAt1_4_32Threads)
+{
+    const std::uint64_t one = RunWorldScenario(1);
+    EXPECT_EQ(RunWorldScenario(4), one);
+    EXPECT_EQ(RunWorldScenario(32), one);
+}
+
+// Pins chain execution bit-for-bit across compilers and platforms (Linux/Clang and Windows/MSVC in CI). Any change
+// to expression evaluation, executor ordering, the flow/world library, Random or the scenario changes it.
+TEST(ChainDeterminism, MatchesCrossPlatformGoldenHash)
+{
+    constexpr std::uint64_t kGolden = 0x6a446849bd84911eull;
+    const std::uint64_t hash = RunWorldScenario(4);
+    EXPECT_EQ(hash, kGolden) << std::hex << "0x" << hash;
 }

@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: MIT
 #include <interi/chain/CoreLibrary.h>
+#include <interi/chain/Executor.h>
 #include <interi/core/Random.h>
+#include <interi/core/math/Quat.h>
+#include <interi/core/math/Transform.h>
+#include <interi/core/math/Vec.h>
 #include <interi/sdk/ContributionRegistry.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace interi::chain
@@ -131,14 +136,172 @@ Result<void> RegisterFlow(EventRegistry& events)
     return {};
 }
 
+EventDefinition World(std::vector<EventParam> inputs, std::string tooltip, EventImpl implementation)
+{
+    EventDefinition definition;
+    definition.inputs = std::move(inputs);
+    definition.outputs = {{.name = "Out", .payload = {}}};
+    definition.category = "World";
+    definition.tooltip = std::move(tooltip);
+    definition.implementation = std::make_shared<const EventImpl>(std::move(implementation));
+    return definition;
+}
+
+/// The stable id an input names: its own, or (0) the activation's entity.
+[[nodiscard]] std::uint64_t TargetOf(const EventCall& call, std::size_t input)
+{
+    const std::uint64_t id = call.Get<values::EntityRef>(input).id;
+    return id != 0 ? id : call.Entity();
+}
+
+EventParam TargetInput()
+{
+    EventParam target = Input("target", ValueType::EntityRef, values::EntityRef{});
+    target.schema.meta.tooltip = "The entity; none means the activation's entity.";
+    return target;
+}
+
+EventParam TypedFrom(std::string name, std::string source)
+{
+    EventParam param;
+    param.name = std::move(name);
+    param.typeFrom = std::move(source);
+    return param;
+}
+
+/// An event that applies `apply(context, entity)` to its target entity (skipped when it doesn't exist).
+template <typename Apply>
+EventImpl OnTarget(Apply apply)
+{
+    return [apply](EventCall& call)
+    {
+        const std::uint64_t id = TargetOf(call, 0);
+        call.Defer(
+            [apply, id](ApplyContext& context)
+            {
+                if (const std::optional<Entity> entity = context.FindEntity(id))
+                {
+                    apply(context, *entity, id);
+                }
+            });
+        call.Fire(0);
+    };
+}
+
+Result<void> RegisterWorld(EventRegistry& events)
+{
+    const std::string_view engine = sdk::kEngineProviderId;
+
+    INTERI_TRY(events.Provide(engine, kWorldSetValue,
+                              World({Input("id", ValueType::String, std::string()), TypedFrom("value", "id")},
+                                    "Sets a Value (the last write in a step wins).",
+                                    [](EventCall& call)
+                                    {
+                                        call.Defer([id = call.Get<std::string>(0), value = call.Input(1)](
+                                                       ApplyContext& context) { context.SetValue(id, value); });
+                                        call.Fire(0);
+                                    })));
+    INTERI_TRY(events.Provide(engine, kWorldModifyValue,
+                              World({Input("id", ValueType::String, std::string()), TypedFrom("delta", "id")},
+                                    "Adds to a numeric Value (deltas in one step accumulate).",
+                                    [](EventCall& call)
+                                    {
+                                        call.Defer([id = call.Get<std::string>(0), delta = call.Input(1)](
+                                                       ApplyContext& context) { context.ModifyValue(id, delta); });
+                                        call.Fire(0);
+                                    })));
+    INTERI_TRY(events.Provide(engine, kWorldDestroy,
+                              World({TargetInput()}, "Destroys the entity.",
+                                    OnTarget(
+                                        [](ApplyContext& context, Entity entity, std::uint64_t id)
+                                        {
+                                            context.Commands().DestroyEntity(context.NextCommandKey(), entity);
+                                            context.RaiseTrigger(kTriggerDestroyed, id, {},
+                                                                 {values::EntityRef{.id = id}});
+                                        }))));
+    INTERI_TRY(events.Provide(
+        engine, kWorldMove,
+        World({TargetInput(), Input("delta", ValueType::Vec3, Vec3{})}, "Moves the entity by delta (world space).",
+              [](EventCall& call)
+              {
+                  const std::uint64_t id = TargetOf(call, 0);
+                  const Vec3 delta = call.Get<Vec3>(1);
+                  call.Defer(
+                      [id, delta](ApplyContext& context)
+                      {
+                          const std::optional<Entity> entity = context.FindEntity(id);
+                          std::optional<Transform> transform = entity ? context.GetTransform(*entity) : std::nullopt;
+                          if (transform)
+                          {
+                              transform->position =
+                                  Vec3(transform->position.x + delta.x, transform->position.y + delta.y,
+                                       transform->position.z + delta.z);
+                              context.SetTransform(*entity, *transform);
+                          }
+                      });
+                  call.Fire(0);
+              })));
+    INTERI_TRY(events.Provide(
+        engine, kWorldRotate,
+        World({TargetInput(), Input("axis", ValueType::Vec3, Vec3(0.0f, 1.0f, 0.0f)),
+               Input("degrees", ValueType::Float, 0.0f)},
+              "Rotates the entity about a world axis.",
+              [](EventCall& call)
+              {
+                  const std::uint64_t id = TargetOf(call, 0);
+                  const Vec3 axis = NormalizeOrZero(call.Get<Vec3>(1));
+                  const float radians = call.Get<float>(2) * (3.14159265358979f / 180.0f);
+                  call.Defer(
+                      [id, axis, radians](ApplyContext& context)
+                      {
+                          const std::optional<Entity> entity = context.FindEntity(id);
+                          std::optional<Transform> transform = entity ? context.GetTransform(*entity) : std::nullopt;
+                          if (transform && !(axis == Vec3{}))
+                          {
+                              transform->rotation = Normalize(Quat::FromAxisAngle(axis, radians) * transform->rotation);
+                              context.SetTransform(*entity, *transform);
+                          }
+                      });
+                  call.Fire(0);
+              })));
+    INTERI_TRY(events.Provide(
+        engine, kWorldShow,
+        World({TargetInput()}, "Shows the entity.",
+              OnTarget([](ApplyContext& context, Entity entity, std::uint64_t)
+                       { context.Commands().Remove<HiddenComponent>(context.NextCommandKey(), entity); }))));
+    INTERI_TRY(events.Provide(
+        engine, kWorldHide,
+        World({TargetInput()}, "Hides the entity.",
+              OnTarget([](ApplyContext& context, Entity entity, std::uint64_t)
+                       { context.Commands().Add(context.NextCommandKey(), entity, HiddenComponent{}); }))));
+    EventParam volume = Input("volume", ValueType::Float, 1.0f);
+    volume.schema.meta.min = 0.0;
+    INTERI_TRY(events.Provide(engine, kWorldPlaySound,
+                              World({Input("cue", ValueType::String, std::string()), TargetInput(), std::move(volume)},
+                                    "Asks the host to play a sound cue at the entity.",
+                                    [](EventCall& call)
+                                    {
+                                        SoundRequest request{.cue = call.Get<std::string>(0),
+                                                             .entity = TargetOf(call, 1),
+                                                             .volume = call.Get<float>(2)};
+                                        call.Defer([request = std::move(request)](ApplyContext& context)
+                                                   { context.PlaySound(request); });
+                                        call.Fire(0);
+                                    })));
+    return {};
+}
+
 } // namespace
 
 std::vector<std::string> CoreContracts()
 {
-    return {std::string(kFlowDelay),           std::string(kFlowTimer),          std::string(kFlowBranch),
-            std::string(kFlowSequence),        std::string(kFlowRandom),         std::string(kTriggerStart),
-            std::string(kTriggerTick),         std::string(kTriggerInputAction), std::string(kTriggerTimer),
-            std::string(kTriggerValueChanged), std::string(kTriggerSpawned),     std::string(kTriggerDestroyed)};
+    return {std::string(kWorldSetValue),      std::string(kWorldModifyValue), std::string(kWorldDestroy),
+            std::string(kWorldMove),          std::string(kWorldRotate),      std::string(kWorldShow),
+            std::string(kWorldHide),          std::string(kWorldPlaySound),   std::string(kFlowDelay),
+            std::string(kFlowTimer),          std::string(kFlowBranch),       std::string(kFlowSequence),
+            std::string(kFlowRandom),         std::string(kTriggerStart),     std::string(kTriggerTick),
+            std::string(kTriggerInputAction), std::string(kTriggerTimer),     std::string(kTriggerValueChanged),
+            std::string(kTriggerSpawned),     std::string(kTriggerDestroyed)};
 }
 
 Result<void> RegisterCoreLibrary(ChainRegistry& registry)
@@ -168,7 +331,8 @@ Result<void> RegisterCoreLibrary(ChainRegistry& registry)
     INTERI_TRY(events.Provide(
         engine, kTriggerDestroyed,
         Trigger({}, {{.name = "entity", .type = ValueType::EntityRef}}, "Fires when an entity is destroyed.")));
-    return RegisterFlow(events);
+    INTERI_TRY(RegisterFlow(events));
+    return RegisterWorld(events);
 }
 
 } // namespace interi::chain

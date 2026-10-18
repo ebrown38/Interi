@@ -2,8 +2,10 @@
 #include <interi/destruction/FractureMesh.h>
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/EditorScene.h>
+#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/Reflection.h>
+#include <interi/testing/ExpectNear.h>
 #include <interi/testing/ScopedTempDir.h>
 
 #include <gtest/gtest.h>
@@ -30,10 +32,12 @@ TEST(Picking, Ray_SelectsNearestEntity)
     ReflectionRegistry reflection;
     RegisterEngineReflection(reflection);
     EditorScene scene(reflection);
-    const EditorEntityId far = scene.CreateStaticBox(At({0, 1, -10}), Vec3(1.0f));
-    const EditorEntityId near = scene.CreateStaticBox(At({0, 1, -4}), Vec3(1.0f));
-    const EditorEntityId wall = scene.CreateDestructible(At({5, 0, 0}), "wall.idest");
-    const EditorEntityId spawn = scene.CreateSpawnPoint(At({-5, 0, 0}), "player");
+    scene::PrimitiveParams box;
+    box.size = Vec3(2.0f);
+    const EditorEntityId far = scene.CreatePrimitive(box, At({0, 1, -10}));
+    const EditorEntityId near = scene.CreatePrimitive(box, At({0, 1, -4}));
+    const EditorEntityId wall = CreateDestructible(scene, At({5, 0, 0}), "wall.idest");
+    const EditorEntityId spawn = CreateSpawnPoint(scene, At({-5, 0, 0}), "player");
     const AssetBoundsFn bounds = [](std::string_view asset) -> std::optional<AABB>
     {
         if (asset == "wall.idest")
@@ -62,6 +66,27 @@ TEST(Picking, Ray_SelectsNearestEntity)
     (void)far;
 }
 
+TEST(Picking, ChildAndScaledPrimitive_UseWorldBounds)
+{
+    ReflectionRegistry reflection;
+    RegisterEngineReflection(reflection);
+    EditorScene scene(reflection);
+    Transform group = At({10, 0, 0});
+    group.scale = Vec3(3.0f);
+    const EditorEntityId parent = scene.CreateObject("group", group);
+    scene::PrimitiveParams sphere;
+    sphere.shape = scene::PrimitiveShape::Sphere;
+    const EditorEntityId ball = scene.CreatePrimitive(sphere, At({0, 1, 0}), "", parent);
+    EXPECT_FALSE(PickBoxOf(scene, parent, {}).has_value()); // a group has no shape of its own
+    const auto box = PickBoxOf(scene, ball, {});
+    ASSERT_TRUE(box.has_value());
+    INTERI_EXPECT_VEC_NEAR(box->centre, Vec3(10, 3, 0), 1e-5f);
+    INTERI_EXPECT_VEC_NEAR(box->halfExtents, Vec3(1.5f), 1e-6f);
+    const auto hit = PickEntity(scene, {.origin = {10, 4.4f, 10}, .direction = {0, 0, -1}}, {});
+    ASSERT_TRUE(hit.has_value());
+    EXPECT_EQ(hit->id, ball);
+}
+
 TEST(AssetBrowser, ListsAssetsByKind)
 {
     const interi::testing::ScopedTempDir dir;
@@ -71,6 +96,8 @@ TEST(AssetBrowser, ListsAssetsByKind)
         std::ofstream(dir.Path() / path) << "x";
     };
     touch("levels/a.json");
+    touch("levels/a.scene.json");
+    touch("meshes/csg.imesh");
     touch("destruction/samples/building.gltf");
     touch("destruction/samples/building.fracture.json");
     touch("destruction/samples/building.idest");
@@ -78,13 +105,17 @@ TEST(AssetBrowser, ListsAssetsByKind)
     touch("audio/clip.wav");
 
     const auto assets = ListAssets(dir.Path());
-    ASSERT_EQ(assets.size(), 3u);
+    ASSERT_EQ(assets.size(), 5u);
     EXPECT_EQ(assets[0].path, "destruction/samples/building.gltf");
     EXPECT_EQ(assets[0].kind, AssetKind::Source);
     EXPECT_EQ(assets[1].path, "destruction/samples/building.idest");
     EXPECT_EQ(assets[1].kind, AssetKind::Destructible);
     EXPECT_EQ(assets[2].path, "levels/a.json");
     EXPECT_EQ(assets[2].kind, AssetKind::Level);
+    EXPECT_EQ(assets[3].path, "levels/a.scene.json");
+    EXPECT_EQ(assets[3].kind, AssetKind::Scene);
+    EXPECT_EQ(assets[4].kind, AssetKind::Mesh);
+    EXPECT_EQ(ToString(AssetKind::Mesh), "mesh");
     EXPECT_TRUE(ListAssets(dir.Path() / "missing").empty());
 }
 

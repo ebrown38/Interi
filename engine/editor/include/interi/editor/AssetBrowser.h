@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace interi::editor
@@ -13,8 +14,12 @@ enum class AssetKind : std::uint8_t
 {
     Destructible, ///< A cooked `.idest`: placed into levels.
     Source,       ///< A `.gltf` / `.glb` scene: cooked into a destructible (with its `.fracture.json`).
-    Level,        ///< A level `.json` under `levels/`.
+    Level,        ///< A legacy level `.json` under `levels/` (opened through the level importer).
+    Scene,        ///< A `.scene.json`.
+    Mesh,         ///< A `.imesh` mesh asset: placed into scenes.
 };
+
+[[nodiscard]] std::string_view ToString(AssetKind kind) noexcept;
 
 struct AssetEntry
 {

@@ -3,10 +3,22 @@
 #include <interi/editor/Inspector.h>
 
 #include <format>
+#include <map>
 #include <memory>
 
 namespace interi::editor
 {
+
+namespace
+{
+
+[[nodiscard]] ComponentSnapshot LocalSnapshot(const Transform& local)
+{
+    return {.component = scene::LocalTransformComponent::kComponentName,
+            .values = {local.position, local.rotation, local.scale}};
+}
+
+} // namespace
 
 bool EditField(EditorScene& scene, UndoStack& undo, EditorEntityId id, std::string_view component,
                std::string_view field, const FieldValue& value, std::uint64_t mergeKey)
@@ -33,18 +45,15 @@ bool EditField(EditorScene& scene, UndoStack& undo, EditorEntityId id, std::stri
     return true;
 }
 
-bool EditTransform(EditorScene& scene, UndoStack& undo, EditorEntityId id, const Transform& transform,
-                   std::uint64_t mergeKey)
+bool EditLocalTransform(EditorScene& scene, UndoStack& undo, EditorEntityId id, const Transform& local,
+                        std::uint64_t mergeKey)
 {
-    const TypeReflection* reflection = scene.Reflection().Find(ComponentId<Transform>());
-    std::optional<ComponentSnapshot> before =
-        reflection == nullptr ? std::nullopt : scene.ReadComponent(id, reflection->name);
+    std::optional<ComponentSnapshot> before = scene.ReadComponent(id, scene::LocalTransformComponent::kComponentName);
     if (!before)
     {
         return false;
     }
-    ComponentSnapshot after{.component = before->component,
-                            .values = {transform.position, transform.rotation, transform.scale}};
+    ComponentSnapshot after = LocalSnapshot(local);
     if (after.values == before->values)
     {
         return false;
@@ -53,35 +62,77 @@ bool EditTransform(EditorScene& scene, UndoStack& undo, EditorEntityId id, const
     return true;
 }
 
+bool EditTransform(EditorScene& scene, UndoStack& undo, EditorEntityId id, const Transform& world,
+                   std::uint64_t mergeKey)
+{
+    const EditorEntityId parent = scene.ParentOf(id);
+    const Transform local = parent == 0 ? world : scene.WorldTransform(parent).Inverse() * world;
+    return EditLocalTransform(scene, undo, id, local, mergeKey);
+}
+
+bool Reparent(EditorScene& scene, UndoStack& undo, EditorEntityId id, EditorEntityId parent)
+{
+    if (!scene.Contains(id) || (parent != 0 && !scene.Contains(parent)) || scene.ParentOf(id) == parent ||
+        (parent != 0 && scene.Hierarchy().IsWithin(parent, id)))
+    {
+        return false;
+    }
+    std::optional<ComponentSnapshot> link = scene.ReadComponent(id, scene::ParentComponent::kComponentName);
+    std::optional<ComponentSnapshot> before = scene.ReadComponent(id, scene::LocalTransformComponent::kComponentName);
+    if (!link || !before)
+    {
+        return false;
+    }
+    const Transform world = scene.WorldTransform(id);
+    const Transform local = parent == 0 ? world : scene.WorldTransform(parent).Inverse() * world;
+    std::vector<std::unique_ptr<ICommand>> commands;
+    commands.push_back(std::make_unique<SetComponentCommand>(
+        scene, id, std::move(*link),
+        ComponentSnapshot{.component = scene::ParentComponent::kComponentName, .values = {values::EntityRef{parent}}}));
+    commands.push_back(std::make_unique<SetComponentCommand>(scene, id, std::move(*before), LocalSnapshot(local)));
+    undo.Execute(std::make_unique<MacroCommand>("Reparent", std::move(commands)));
+    return true;
+}
+
+bool AddComponent(EditorScene& scene, UndoStack& undo, EditorEntityId id, std::string_view component)
+{
+    const TypeReflection* reflection = scene.Reflection().Find(component);
+    if (reflection == nullptr || !scene.Contains(id) || scene.ReadComponent(id, component).has_value())
+    {
+        return false;
+    }
+    undo.Execute(std::make_unique<AddComponentCommand>(scene, id, reflection->name));
+    return true;
+}
+
+bool RemoveComponent(EditorScene& scene, UndoStack& undo, EditorEntityId id, std::string_view component)
+{
+    std::optional<ComponentSnapshot> snapshot = scene.ReadComponent(id, component);
+    if (!snapshot || component == scene::NameComponent::kComponentName ||
+        component == scene::ParentComponent::kComponentName ||
+        component == scene::LocalTransformComponent::kComponentName)
+    {
+        return false;
+    }
+    undo.Execute(std::make_unique<RemoveComponentCommand>(scene, id, std::move(*snapshot)));
+    return true;
+}
+
 std::vector<OutlinerRow> OutlinerRows(const EditorScene& scene)
 {
     std::vector<OutlinerRow> rows;
-    const World& world = scene.GetWorld();
-    for (const EditorEntityId id : scene.Ids())
+    const scene::HierarchyIndex& hierarchy = scene.Hierarchy();
+    std::map<EditorEntityId, std::uint32_t> depths;
+    for (const EditorEntityId id : hierarchy.PreOrder())
     {
-        const auto entity = scene.Find(id);
-        if (!entity)
-        {
-            continue;
-        }
-        OutlinerRow row{.id = id, .kind = scene.KindOf(id), .label = {}};
-        switch (row.kind)
-        {
-        case EntityKind::StaticBox:
-            row.label = std::format("Static box {}", id);
-            break;
-        case EntityKind::Destructible:
-            row.label =
-                std::format("Destructible {} ({})", id, world.Get<DestructiblePlacementComponent>(*entity)->asset);
-            break;
-        case EntityKind::SpawnPoint:
-            row.label = std::format("Spawn {} ({})", id, world.Get<SpawnPointComponent>(*entity)->name);
-            break;
-        case EntityKind::None:
-            row.label = std::format("Entity {}", id);
-            break;
-        }
-        rows.push_back(std::move(row));
+        const scene::HierarchyIndex::Node& node = hierarchy.nodes.at(id);
+        const std::uint32_t depth = node.parent == 0 ? 0 : depths.at(node.parent) + 1;
+        depths.emplace(id, depth);
+        const std::string_view name = scene.NameOf(id);
+        rows.push_back({.id = id,
+                        .depth = depth,
+                        .hasChildren = !node.children.empty(),
+                        .label = name.empty() ? std::format("Object {}", id) : std::string(name)});
     }
     return rows;
 }

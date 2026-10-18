@@ -17,21 +17,24 @@ TEST(Reflection, Component_FieldsEnumerated)
     ReflectionRegistry registry;
     RegisterEngineReflection(registry);
 
-    const TypeReflection* transform = registry.Find(ComponentInfoOf(ComponentId<Transform>()).name);
+    // The world Transform is derived from the hierarchy: only the local one is edited and saved.
+    EXPECT_EQ(registry.Find(ComponentId<Transform>()), nullptr);
+    const TypeReflection* transform = registry.Find(scene::LocalTransformComponent::kComponentName);
     ASSERT_NE(transform, nullptr);
-    EXPECT_EQ(transform->type, ComponentId<Transform>());
+    EXPECT_EQ(transform->type, ComponentId<scene::LocalTransformComponent>());
     ASSERT_EQ(transform->fields.size(), 3u);
     EXPECT_EQ(transform->fields[0].name, "position");
     EXPECT_EQ(transform->fields[0].type, FieldType::Vec3);
     EXPECT_EQ(transform->fields[1].name, "rotation");
     EXPECT_EQ(transform->fields[1].type, FieldType::Quat);
     EXPECT_EQ(transform->fields[2].name, "scale");
-    EXPECT_EQ(transform->fields[2].offset, offsetof(Transform, scale));
+    EXPECT_EQ(transform->fields[2].offset, offsetof(scene::LocalTransformComponent, scale));
 
-    const TypeReflection* box = registry.Find("interi.editor.StaticBox");
-    ASSERT_NE(box, nullptr);
-    ASSERT_EQ(box->fields.size(), 1u);
-    EXPECT_EQ(box->fields[0].name, "halfExtents");
+    const TypeReflection* primitive = registry.Find(scene::PrimitiveComponent::kComponentName);
+    ASSERT_NE(primitive, nullptr);
+    EXPECT_EQ(primitive->fields[0].name, "shape");
+    EXPECT_NE(registry.Find("interi.editor.Destructible"), nullptr);
+    EXPECT_NE(registry.Find(scene::MeshComponent::kComponentName), nullptr);
 
     const TypeReflection* vehicle = registry.Find(gameplay::VehicleComponent::kComponentName);
     ASSERT_NE(vehicle, nullptr);

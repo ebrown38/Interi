@@ -69,6 +69,9 @@ struct PrimitiveParams
     return shape != PrimitiveShape::Plane;
 }
 
+/// Half the extent of the shape's bounding box (centred on the origin; a plane's y is 0). Exact for every shape.
+[[nodiscard]] Vec3 PrimitiveHalfExtents(const PrimitiveParams& params) noexcept;
+
 /// Generates the mesh. InvalidArgument for a non-positive or non-finite dimension a shape reads, too few segments
 /// (3), rings (2 for spheres, 1 otherwise) or steps (1), more than 1024 segments, rings or steps, a capsule no
 /// taller than its diameter, or a torus tube not thinner than its radius.

@@ -11,6 +11,7 @@
 #include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
 #include <interi/editor/Reflection.h>

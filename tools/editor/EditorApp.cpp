@@ -11,6 +11,7 @@
 #include <interi/destruction/FractureMesh.h>
 #include <interi/destruction_cook/Cooker.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Replay.h>
 #include <interi/editor/StructureDebug.h>
 #include <interi/editor_ui/EditorPanels.h>
@@ -18,6 +19,8 @@
 #include <interi/jobs/JobSystem.h>
 #include <interi/physics/Queries.h>
 #include <interi/platform_sdl/SdlPlatform.h>
+#include <interi/scene/Mesh.h>
+#include <interi/scene/Primitives.h>
 #include <interi/sdk/Manifest.h>
 #include <interi/sdk/ModuleGraph.h>
 #include <interi/values/ProjectData.h>
@@ -242,6 +245,25 @@ AssetBoundsFn EditorApp::Bounds()
 {
     return [this](std::string_view path) -> std::optional<AABB>
     {
+        if (path.ends_with(".imesh"))
+        {
+            const std::string key = "mesh:" + std::string(path);
+            auto found = m_meshCache.find(key);
+            if (found == m_meshCache.end())
+            {
+                auto mesh = scene::LoadMeshAsset(m_files, path);
+                found =
+                    m_meshCache
+                        .emplace(key, mesh ? std::make_shared<const scene::TriangleMesh>(std::move(*mesh)) : nullptr)
+                        .first;
+            }
+            if (found->second == nullptr)
+            {
+                return std::nullopt;
+            }
+            const scene::MeshBounds bounds = scene::BoundsOf(*found->second);
+            return AABB{.min = bounds.min, .max = bounds.max};
+        }
         const auto asset = Asset(std::string(path));
         if (asset == nullptr)
         {
@@ -276,7 +298,7 @@ void EditorApp::DropAsset(const std::string& path, const Ray& ray)
     }
     Transform transform;
     transform.position = Snap(PlacementPoint(ray), m_tools.snap ? m_tools.moveSnap : 0.0f);
-    (void)m_document.Add([&](EditorScene& scene) { return scene.CreateDestructible(transform, asset); });
+    (void)m_document.Add([&](EditorScene& scene) { return CreateDestructible(scene, transform, asset); });
 }
 
 Result<std::string> EditorApp::CookSource(const std::string& path)
@@ -302,7 +324,7 @@ bool EditorApp::PreviewActive() const
 
 void EditorApp::StartPlay()
 {
-    auto session = PlaySession::Start(m_document.Scene().ToLevel(), m_files, m_jobs);
+    auto session = PlaySession::Start(ExportLevel(m_document.Scene()), m_files, m_jobs);
     if (!session)
     {
         INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
@@ -756,7 +778,7 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
     std::optional<Gizmo> gizmo;
     if (entity)
     {
-        const Vec3 origin = m_document.Scene().GetWorld().Get<Transform>(*entity)->position;
+        const Vec3 origin = m_document.Scene().WorldTransform(selection).position;
         gizmo = Gizmo{.mode = m_tools.mode, .origin = origin, .size = Gizmo::SizeFor(origin, m_camera.Eye())};
     }
     m_hoveredAxis = (hovered && gizmo && !m_drag) ? GizmoRayPick(*gizmo, ray) : GizmoAxis::None;
@@ -778,26 +800,30 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
     {
         return;
     }
-    // Scaling only resizes static boxes: the other kinds have no size in the level file.
-    const bool canDrag =
-        gizmo && (m_tools.mode != GizmoMode::Scale || m_document.Scene().KindOf(selection) == EntityKind::StaticBox);
-    if (canDrag && m_hoveredAxis != GizmoAxis::None)
+    if (gizmo && m_hoveredAxis != GizmoAxis::None)
     {
         m_drag = GizmoDrag::Begin(*gizmo, m_hoveredAxis, ray);
         if (m_drag)
         {
-            const World& world = m_document.Scene().GetWorld();
             m_dragTarget = selection;
-            m_dragStart = *world.Get<Transform>(*entity);
-            const auto* box = world.Get<StaticBoxComponent>(*entity);
-            m_dragStartHalfExtents = box != nullptr ? box->halfExtents : Vec3(1.0f);
+            m_dragStart = m_document.Scene().WorldTransform(selection);
             m_dragKey = (m_dragKey + 1) | 0x8000000000000000ull;
             m_document.Undo().Seal();
             return;
         }
     }
     const auto hit = PickEntity(m_document.Scene(), ray, Bounds());
-    m_document.Select(hit ? hit->id : 0);
+    if (ImGui::GetIO().KeyCtrl)
+    {
+        if (hit)
+        {
+            m_document.ToggleSelected(hit->id);
+        }
+    }
+    else
+    {
+        m_document.Select(hit ? hit->id : 0);
+    }
 }
 
 void EditorApp::ApplyDrag(const Ray& ray)
@@ -824,23 +850,68 @@ void EditorApp::ApplyDrag(const Ray& ray)
     }
     case GizmoMode::Scale:
     {
-        Vec3 halfExtents = m_dragStartHalfExtents;
+        Vec3 scale = m_dragStart.scale;
         const int index = axis == GizmoAxis::X ? 0 : (axis == GizmoAxis::Y ? 1 : 2);
         const float scaled =
-            std::max(Snap(halfExtents[index] * m_drag->Factor(ray), m_tools.snap ? m_tools.sizeSnap : 0.0f), 0.01f);
-        halfExtents = {index == 0 ? scaled : halfExtents.x, index == 1 ? scaled : halfExtents.y,
-                       index == 2 ? scaled : halfExtents.z};
-        (void)EditField(m_document.Scene(), m_document.Undo(), m_dragTarget, StaticBoxComponent::kComponentName,
-                        "halfExtents", halfExtents, m_dragKey);
+            std::max(Snap(scale[index] * m_drag->Factor(ray), m_tools.snap ? m_tools.sizeSnap : 0.0f), 0.01f);
+        transform.scale = {index == 0 ? scaled : scale.x, index == 1 ? scaled : scale.y, index == 2 ? scaled : scale.z};
+        (void)EditTransform(m_document.Scene(), m_document.Undo(), m_dragTarget, transform, m_dragKey);
         break;
     }
     }
+}
+
+std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(Entity entity)
+{
+    const World& world = m_document.Scene().GetWorld();
+    std::string key;
+    Result<scene::TriangleMesh> mesh = MakeError(ErrorCode::NotFound, "no mesh");
+    if (const auto* primitive = world.Get<scene::PrimitiveComponent>(entity))
+    {
+        key = std::format("primitive:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}", primitive->shape.name, primitive->size.x,
+                          primitive->size.y, primitive->size.z, primitive->radius, primitive->height, primitive->tube,
+                          primitive->segments, primitive->rings, primitive->steps);
+        if (const auto found = m_meshCache.find(key); found != m_meshCache.end())
+        {
+            return found->second;
+        }
+        auto params = scene::ParamsOf(*primitive);
+        mesh = params ? scene::GeneratePrimitive(*params) : std::unexpected(params.error());
+    }
+    else if (const auto* asset = world.Get<scene::MeshComponent>(entity))
+    {
+        key = "mesh:" + asset->asset.path;
+        if (const auto found = m_meshCache.find(key); found != m_meshCache.end())
+        {
+            return found->second;
+        }
+        mesh = scene::LoadMeshAsset(m_files, asset->asset.path);
+    }
+    else
+    {
+        return nullptr;
+    }
+    if (!mesh)
+    {
+        INTERI_LOG_WARN("Editor", "{}: {}", key, mesh.error().message);
+        m_meshCache.emplace(key, nullptr); // don't retry every frame
+        return nullptr;
+    }
+    if (m_meshCache.size() > 256)
+    {
+        m_meshCache.clear(); // parameter drags make many variants; the renderer drops what it no longer sees
+    }
+    auto shared = std::make_shared<const scene::TriangleMesh>(std::move(*mesh));
+    m_meshCache.emplace(key, shared);
+    return shared;
 }
 
 void EditorApp::BuildScene()
 {
     m_boxes.clear();
     m_chunks.clear();
+    m_meshes.clear();
+    m_meshColors.clear();
     if (PreviewActive())
     {
         BuildPreviewScene();
@@ -849,23 +920,42 @@ void EditorApp::BuildScene()
                            .occluder = true});
         return;
     }
-    const World& world = m_document.Scene().GetWorld();
-    const EditorEntityId selection = m_document.Selection();
-    for (const EditorEntityId id : m_document.Scene().Ids())
+    const EditorScene& scene = m_document.Scene();
+    const World& world = scene.GetWorld();
+    m_meshColors.reserve(scene.Size()); // m_meshes keeps spans into it
+    for (const EditorEntityId id : scene.Ids())
     {
-        const Entity entity = *m_document.Scene().Find(id);
-        const Transform& transform = *world.Get<Transform>(entity);
-        const bool selected = id == selection;
-        if (m_play != nullptr && !world.Has<StaticBoxComponent>(entity))
+        const Entity entity = *scene.Find(id);
+        const Transform transform = scene.WorldTransform(id);
+        const bool selected = m_document.IsSelected(id);
+        const bool isDestructible = world.Has<DestructiblePlacementComponent>(entity);
+        if (m_play != nullptr && (isDestructible || world.Has<SpawnPointComponent>(entity)))
         {
             continue; // playing: the simulation draws the destructibles; spawn points are not played
         }
-        if (const auto* box = world.Get<StaticBoxComponent>(entity))
+        if (const auto mesh = ObjectMesh(entity))
         {
-            m_boxes.push_back(
-                {.transform = Mat4::FromTRS(transform.position, transform.rotation, box->halfExtents * 2.0f),
-                 .color = selected ? kSelectedColor : Vec3(0.5f, 0.52f, 0.48f),
-                 .occluder = true});
+            if (m_renderer != nullptr)
+            {
+                if (auto added = m_renderer->AddMesh(mesh); !added)
+                {
+                    INTERI_LOG_WARN("Editor", "mesh of {}: {}", id, added.error().message);
+                }
+            }
+            const auto* primitive = world.Get<scene::PrimitiveComponent>(entity);
+            const auto* asset = world.Get<scene::MeshComponent>(entity);
+            const values::ValueList& colors = primitive != nullptr ? primitive->colors : asset->colors;
+            std::vector<Vec3>& slotColors = m_meshColors.emplace_back();
+            for (std::uint32_t slot = 0; slot < std::max<std::uint32_t>(mesh->SlotCount(), 1); ++slot)
+            {
+                const values::Color color = scene::SlotColor(colors, slot);
+                slotColors.emplace_back(color.r, color.g, color.b);
+            }
+            m_meshes.push_back({.mesh = mesh.get(),
+                                .transform = transform.ToMat4(),
+                                .slotColors = slotColors,
+                                .color = selected ? std::optional(kSelectedColor) : std::nullopt,
+                                .occluder = true});
         }
         else if (const auto* placement = world.Get<DestructiblePlacementComponent>(entity))
         {
@@ -941,8 +1031,7 @@ void EditorApp::DrawViewport()
         const EditorEntityId selection = (PreviewActive() || m_play != nullptr) ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
         {
-            const Vec3 origin =
-                m_document.Scene().GetWorld().Get<Transform>(*m_document.Scene().Find(selection))->position;
+            const Vec3 origin = m_document.Scene().WorldTransform(selection).position;
             const Gizmo gizmo{.mode = m_tools.mode, .origin = origin, .size = Gizmo::SizeFor(origin, m_camera.Eye())};
             DrawGizmo(*ImGui::GetWindowDrawList(), gizmo, m_camera, viewport, m_drag ? m_drag->Axis() : m_hoveredAxis);
         }
@@ -1011,24 +1100,27 @@ FrameResult EditorApp::Frame()
         (void)m_preview.Update(m_jobs);
     }
 
-    if (tools.addStaticBox || tools.addSpawnPoint)
+    if (tools.addPrimitive || tools.addSpawnPoint)
     {
         Transform transform;
         transform.position = Snap(m_camera.target, m_tools.snap ? m_tools.moveSnap : 0.0f);
-        if (tools.addStaticBox)
+        if (tools.addPrimitive)
         {
-            (void)m_document.Add([&](EditorScene& scene) { return scene.CreateStaticBox(transform, Vec3(1.0f)); });
+            scene::PrimitiveParams params;
+            params.shape = *tools.addPrimitive;
+            params.height = params.shape == scene::PrimitiveShape::Capsule ? 2.0f : 1.0f;
+            (void)m_document.Add([&](EditorScene& scene) { return scene.CreatePrimitive(params, transform); });
         }
         else
         {
             transform.position.y = 0.0f;
-            (void)m_document.Add([&](EditorScene& scene) { return scene.CreateSpawnPoint(transform, "spawn"); });
+            (void)m_document.Add([&](EditorScene& scene) { return CreateSpawnPoint(scene, transform, "spawn"); });
         }
     }
-    if (const auto entity = m_document.Scene().Find(m_document.Selection());
-        entity && (tools.focusSelection || (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))))
+    if (const EditorEntityId focused = m_document.Selection();
+        focused != 0 && (tools.focusSelection || (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))))
     {
-        m_camera.target = m_document.Scene().GetWorld().Get<Transform>(*entity)->position;
+        m_camera.target = m_document.Scene().WorldTransform(focused).position;
     }
     if (assets.refresh)
     {
@@ -1045,6 +1137,17 @@ FrameResult EditorApp::Frame()
     if (requests.newLevel)
     {
         m_document.New();
+    }
+    if (requests.exportLevel)
+    {
+        if (auto exported = m_document.ExportLevel(m_dataFiles); !exported)
+        {
+            INTERI_LOG_ERROR("Editor", "export: {}", exported.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "exported {}", m_document.ExportPath());
+        }
     }
     if (requests.save)
     {
@@ -1082,6 +1185,7 @@ FrameResult EditorApp::Frame()
     }
     result.presented = m_renderer->Render({.boxes = m_boxes,
                                            .chunks = m_chunks,
+                                           .meshes = m_meshes,
                                            .world = m_play != nullptr ? &m_play->GetWorld() : nullptr,
                                            .destruction = m_play != nullptr ? &m_play->Destruction() : nullptr,
                                            .view = view,

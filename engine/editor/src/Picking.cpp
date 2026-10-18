@@ -3,6 +3,7 @@
 #include <interi/destruction/DestructibleAsset.h>
 #include <interi/destruction/FractureMesh.h>
 #include <interi/editor/Gizmo.h>
+#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Picking.h>
 
 #include <cmath>
@@ -60,7 +61,7 @@ std::optional<float> RayMesh(const Ray& ray, const destruction::FractureMesh& me
     return best;
 }
 
-std::optional<PickBox> PickBoxOf(const EditorScene& scene, EditorEntityId id, const AssetBoundsFn& bounds)
+std::optional<AABB> LocalBounds(const EditorScene& scene, EditorEntityId id, const AssetBoundsFn& bounds)
 {
     const auto entity = scene.Find(id);
     if (!entity)
@@ -68,32 +69,48 @@ std::optional<PickBox> PickBoxOf(const EditorScene& scene, EditorEntityId id, co
         return std::nullopt;
     }
     const World& world = scene.GetWorld();
-    const Transform& transform = *world.Get<Transform>(*entity);
-    if (const auto* box = world.Get<StaticBoxComponent>(*entity))
+    const auto box = [](const Vec3& centre, const Vec3& half)
+    { return AABB{.min = centre - half, .max = centre + half}; };
+    if (const auto* primitive = world.Get<scene::PrimitiveComponent>(*entity))
     {
-        return PickBox{.centre = transform.position, .rotation = transform.rotation, .halfExtents = box->halfExtents};
+        const auto params = scene::ParamsOf(*primitive);
+        if (!params)
+        {
+            return std::nullopt;
+        }
+        // A plane has no thickness; give it a sliver so rays can hit it.
+        return box(Vec3(0.0f), Max(scene::PrimitiveHalfExtents(*params), Vec3(0.005f)));
+    }
+    if (const auto* mesh = world.Get<scene::MeshComponent>(*entity))
+    {
+        const std::optional<AABB> local = bounds ? bounds(mesh->asset.path) : std::nullopt;
+        return local && local->IsValid() ? local : box(Vec3(0.0f), kPlaceholderHalfExtents);
     }
     if (const auto* placement = world.Get<DestructiblePlacementComponent>(*entity))
     {
         const std::optional<AABB> local = bounds ? bounds(placement->asset) : std::nullopt;
-        if (!local || !local->IsValid())
-        {
-            return PickBox{.centre = transform.position + Vec3(0.0f, kPlaceholderHalfExtents.y, 0.0f),
-                           .rotation = transform.rotation,
-                           .halfExtents = kPlaceholderHalfExtents};
-        }
-        const Vec3 centre = (local->min + local->max) * 0.5f;
-        return PickBox{.centre = transform.position + Rotate(transform.rotation, centre),
-                       .rotation = transform.rotation,
-                       .halfExtents = (local->max - local->min) * 0.5f};
+        return local && local->IsValid() ? local
+                                         : box(Vec3(0.0f, kPlaceholderHalfExtents.y, 0.0f), kPlaceholderHalfExtents);
     }
     if (world.Has<SpawnPointComponent>(*entity))
     {
-        return PickBox{.centre = transform.position + Vec3(0.0f, kSpawnMarkerHalfExtents.y, 0.0f),
-                       .rotation = transform.rotation,
-                       .halfExtents = kSpawnMarkerHalfExtents};
+        return box(Vec3(0.0f, kSpawnMarkerHalfExtents.y, 0.0f), kSpawnMarkerHalfExtents);
     }
     return std::nullopt;
+}
+
+std::optional<PickBox> PickBoxOf(const EditorScene& scene, EditorEntityId id, const AssetBoundsFn& bounds)
+{
+    const std::optional<AABB> local = LocalBounds(scene, id, bounds);
+    if (!local)
+    {
+        return std::nullopt;
+    }
+    const Transform transform = scene.WorldTransform(id);
+    const Vec3 scale{std::abs(transform.scale.x), std::abs(transform.scale.y), std::abs(transform.scale.z)};
+    return PickBox{.centre = transform.TransformPoint((local->min + local->max) * 0.5f),
+                   .rotation = transform.rotation,
+                   .halfExtents = (local->max - local->min) * 0.5f * scale};
 }
 
 std::optional<PickHit> PickEntity(const EditorScene& scene, const Ray& ray, const AssetBoundsFn& bounds)

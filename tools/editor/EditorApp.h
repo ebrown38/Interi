@@ -123,6 +123,8 @@ private:
     [[nodiscard]] PlayStatus Status() const;
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
+    /// The mesh an object draws (its primitive's, cached by parameters, or its mesh asset's); nullptr if none.
+    [[nodiscard]] std::shared_ptr<const scene::TriangleMesh> ObjectMesh(Entity entity);
 
     SdlPlatform& m_platform;
     IWindow& m_window;
@@ -146,7 +148,6 @@ private:
     std::optional<GizmoDrag> m_drag;
     EditorEntityId m_dragTarget = 0;
     Transform m_dragStart;
-    Vec3 m_dragStartHalfExtents;
     std::uint64_t m_dragKey = 0;
     GizmoAxis m_hoveredAxis = GizmoAxis::None;
     FracturePreview m_preview;
@@ -163,6 +164,9 @@ private:
     std::set<std::string, std::less<>> m_missingAssets;
     std::vector<EditorBox> m_boxes;
     std::vector<EditorChunk> m_chunks;
+    std::vector<EditorMesh> m_meshes;
+    std::vector<std::vector<Vec3>> m_meshColors; ///< Storage for m_meshes' slot colours.
+    std::map<std::string, std::shared_ptr<const scene::TriangleMesh>, std::less<>> m_meshCache;
     float m_viewportWidth = 0.0f;
     float m_viewportHeight = 0.0f;
     bool m_buildLayout = false;

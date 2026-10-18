@@ -8,8 +8,13 @@
 #include <imgui_internal.h>
 #include <imgui_stdlib.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
+#include <format>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace interi::editor
 {
@@ -29,7 +34,7 @@ namespace
     const values::ValueSchema schema{
         .type = field.type,
         .element = TypeOf(value) == FieldType::List ? std::get<values::ValueList>(value).element : FieldType::Float,
-        .options = {},
+        .options = field.options,
         .meta = field.meta,
         .defaultValue = value};
     return ValueWidget(field.name.c_str(), schema, value);
@@ -88,6 +93,7 @@ MenuRequests DrawMainMenu(EditorDocument& document)
     {
         requests.newLevel = ImGui::MenuItem("New");
         requests.save = ImGui::MenuItem("Save", "Ctrl+S", false, !document.Path().empty());
+        requests.exportLevel = ImGui::MenuItem("Export level", nullptr, false, !document.ExportPath().empty());
         ImGui::Separator();
         requests.quit = ImGui::MenuItem("Quit");
         ImGui::EndMenu();
@@ -148,17 +154,60 @@ void HandleShortcuts(EditorDocument& document, MenuRequests& requests)
 
 void DrawOutliner(EditorDocument& document)
 {
+    constexpr const char* kRowPayload = "INTERI_OBJECT";
     if (ImGui::Begin(kOutlinerWindow))
     {
-        const EditorEntityId selection = document.Selection();
+        std::optional<std::pair<EditorEntityId, EditorEntityId>> reparent; // (object, new parent)
         for (const OutlinerRow& row : OutlinerRows(document.Scene()))
         {
             ImGui::PushID(static_cast<int>(row.id));
-            if (ImGui::Selectable(row.label.c_str(), row.id == selection))
+            ImGui::Indent(static_cast<float>(row.depth) * 14.0f);
+            const std::string label = (row.hasChildren ? "> " : "  ") + row.label;
+            if (ImGui::Selectable(label.c_str(), document.IsSelected(row.id)))
             {
-                document.Select(row.id);
+                if (ImGui::GetIO().KeyCtrl)
+                {
+                    document.ToggleSelected(row.id);
+                }
+                else
+                {
+                    document.Select(row.id);
+                }
             }
+            if (ImGui::BeginDragDropSource())
+            {
+                ImGui::SetDragDropPayload(kRowPayload, &row.id, sizeof(row.id));
+                ImGui::TextUnformatted(row.label.c_str());
+                ImGui::EndDragDropSource();
+            }
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kRowPayload))
+                {
+                    EditorEntityId dragged = 0;
+                    std::memcpy(&dragged, payload->Data, sizeof(dragged));
+                    reparent.emplace(dragged, row.id);
+                }
+                ImGui::EndDragDropTarget();
+            }
+            ImGui::Unindent(static_cast<float>(row.depth) * 14.0f);
             ImGui::PopID();
+        }
+        // The space below the rows takes a dropped row as a root.
+        ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, std::max(ImGui::GetContentRegionAvail().y, 20.0f)));
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kRowPayload))
+            {
+                EditorEntityId dragged = 0;
+                std::memcpy(&dragged, payload->Data, sizeof(dragged));
+                reparent.emplace(dragged, 0);
+            }
+            ImGui::EndDragDropTarget();
+        }
+        if (reparent)
+        {
+            (void)Reparent(document.Scene(), document.Undo(), reparent->first, reparent->second);
         }
     }
     ImGui::End();
@@ -183,8 +232,26 @@ ToolRequests DrawToolsPanel(ToolSettings& settings, const EditorDocument& docume
         ImGui::DragFloat("Size step", &settings.sizeSnap, 0.01f, 0.01f, 10.0f, "%.2f m");
         ImGui::EndDisabled();
         ImGui::Separator();
-        requests.addStaticBox = ImGui::Button("Add static box");
-        ImGui::SameLine();
+        ImGui::TextUnformatted("Add");
+        for (const std::string& name : scene::PrimitiveShapeNames())
+        {
+            if (name != "Box")
+            {
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize(name.c_str()).x + 16.0f)
+                {
+                    ImGui::NewLine();
+                }
+            }
+            else
+            {
+                ImGui::SameLine();
+            }
+            if (ImGui::SmallButton(name.c_str()))
+            {
+                requests.addPrimitive = scene::ParsePrimitiveShape(name);
+            }
+        }
         requests.addSpawnPoint = ImGui::Button("Add spawn point");
         ImGui::BeginDisabled(document.Selection() == 0);
         requests.focusSelection = ImGui::Button("Focus selection (F)");
@@ -201,20 +268,18 @@ AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets)
     {
         requests.refresh = ImGui::Button("Refresh");
         ImGui::SameLine();
-        ImGui::TextUnformatted("Drag destructibles into the viewport; double-click a level to open it.");
+        ImGui::TextUnformatted(
+            "Drag destructibles and meshes into the viewport; double-click a scene or level to open it.");
         for (const AssetEntry& asset : assets)
         {
-            const char* kind = asset.kind == AssetKind::Destructible ? "[destructible] "
-                               : asset.kind == AssetKind::Source     ? "[gltf]         "
-                                                                     : "[level]        ";
-            const std::string label = kind + asset.path;
+            const bool openable = asset.kind == AssetKind::Level || asset.kind == AssetKind::Scene;
+            const std::string label = std::format("[{}] {}", ToString(asset.kind), asset.path);
             ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
-            if (asset.kind == AssetKind::Level && ImGui::IsItemHovered() &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            if (openable && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
             {
                 requests.openLevel = asset.path;
             }
-            if (asset.kind != AssetKind::Level && ImGui::BeginDragDropSource())
+            if (!openable && ImGui::BeginDragDropSource())
             {
                 ImGui::SetDragDropPayload(kAssetPayload, asset.path.c_str(), asset.path.size() + 1);
                 ImGui::TextUnformatted(asset.path.c_str());
@@ -260,7 +325,34 @@ void DrawInspector(EditorDocument& document)
                         document.Undo().Seal();
                     }
                 }
+                if (component.component != scene::NameComponent::kComponentName &&
+                    component.component != scene::ParentComponent::kComponentName &&
+                    component.component != scene::LocalTransformComponent::kComponentName &&
+                    ImGui::SmallButton("Remove component"))
+                {
+                    ImGui::PopID();
+                    (void)RemoveComponent(document.Scene(), document.Undo(), id, component.component);
+                    break; // the snapshot is stale now
+                }
                 ImGui::PopID();
+            }
+            ImGui::Separator();
+            if (ImGui::BeginCombo("##add", "Add component"))
+            {
+                for (const TypeReflection* type : document.Reflection().Types())
+                {
+                    const bool present =
+                        std::ranges::contains(snapshot->components, type->name, &ComponentSnapshot::component);
+                    if (!present && ImGui::Selectable(type->name.c_str()))
+                    {
+                        (void)AddComponent(document.Scene(), document.Undo(), id, type->name);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            for (const scene::SceneComponent& kept : snapshot->kept)
+            {
+                ImGui::TextDisabled("%s (no loaded module reflects it; kept as written)", kept.name.c_str());
             }
         }
     }

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Editor logic without UI: component reflection, the level document (ECS entities), undo/redo commands, the
+# Editor logic without UI: component reflection, the scene document (ECS entities), the level bridge, undo/redo commands, the
 # inspector and outliner models, gizmo math, fracture authoring and structural debugging tools.
 set(_tests ${PROJECT_SOURCE_DIR}/tests/editor)
 
@@ -16,13 +16,14 @@ interi_add_module(editor
         src/Gizmo.cpp
         src/HeaderCheck.cpp
         src/Inspector.cpp
+        src/LevelBridge.cpp
         src/Picking.cpp
         src/PlaySession.cpp
         src/Reflection.cpp
         src/Replay.cpp
         src/StructureDebug.cpp
         src/UndoStack.cpp
-    DEPS interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    DEPS interi::scene interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
         ${_tests}/DataEditingTests.cpp

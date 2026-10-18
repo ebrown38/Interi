@@ -444,6 +444,28 @@ std::span<const std::string_view> PrimitiveSlots(PrimitiveShape shape) noexcept
     return kSurfaceSlots;
 }
 
+Vec3 PrimitiveHalfExtents(const PrimitiveParams& params) noexcept
+{
+    switch (params.shape)
+    {
+    case PrimitiveShape::Box:
+    case PrimitiveShape::Wedge:
+    case PrimitiveShape::Stairs:
+        return params.size * 0.5f;
+    case PrimitiveShape::Plane:
+        return {params.size.x * 0.5f, 0.0f, params.size.z * 0.5f};
+    case PrimitiveShape::Sphere:
+        return Vec3(params.radius);
+    case PrimitiveShape::Cylinder:
+    case PrimitiveShape::Cone:
+    case PrimitiveShape::Capsule:
+        return {params.radius, params.height * 0.5f, params.radius};
+    case PrimitiveShape::Torus:
+        return {params.radius + params.tube, params.tube, params.radius + params.tube};
+    }
+    return Vec3(0.0f);
+}
+
 Result<TriangleMesh> GeneratePrimitive(const PrimitiveParams& params)
 {
     const auto size = [&](bool needY) -> Result<void>

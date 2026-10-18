@@ -23,8 +23,9 @@ using values::TypeOf;
 using values::TypeReflection;
 using values::WriteField;
 
-/// Registers Transform, the editor's document kind components (EditorScene.h; EditorIdComponent is the scene's own) and
-/// the gameplay components with kComponentNames (VehicleComponent, WreckComponent).
+/// Registers what scene documents hold: the scene components (name, parent, local transform; the world Transform is
+/// derived and not reflected), primitives and meshes, the level bridge's components (LevelBridge.h) and the gameplay
+/// components with kComponentNames (VehicleComponent, WreckComponent).
 void RegisterEngineReflection(ReflectionRegistry& registry);
 
 } // namespace interi::editor

@@ -181,6 +181,7 @@ private:
     std::unique_ptr<ScenePlaySession> m_scenePlay;
     bool m_keepPlayValues = true;
     ScenePlayRequests m_playRequests; ///< From this frame's viewport.
+    std::size_t m_playUndoMark = 0;   ///< UndoStack::Applied() when play started.
     Preferences m_preferences;
     std::filesystem::path m_preferencesPath;
     AutosaveTimer m_autosave{std::chrono::seconds(120)};

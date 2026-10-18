@@ -26,7 +26,7 @@ struct Preferences
     std::vector<std::string> recentProjects; ///< Project folders, most recent first.
     bool autosave = true;
     std::uint32_t autosaveSeconds = 120;
-    bool keepPlayValues = true; ///< Keep Value changes chains made during play when it stops.
+    bool keepPlayValues = true; ///< Keep changes made during play (chain Values and edits) when it stops.
     bool profilerFrameMarks = false;
     bool snap = true;
     float moveSnap = 0.25f;

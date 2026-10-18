@@ -72,7 +72,8 @@ bool DrawPreferencesPanel(Preferences& preferences, bool profilerBuild, bool pro
             changed = true;
         }
         ImGui::SeparatorText("Play");
-        changed |= ImGui::Checkbox("Keep Values chains set during play", &preferences.keepPlayValues);
+        changed |= ImGui::Checkbox("Keep changes made during play", &preferences.keepPlayValues);
+        ImGui::SetItemTooltip("On: Values chains set and your edits stay when play stops. Off: both are undone.");
         ImGui::SeparatorText("Snapping defaults");
         changed |= ImGui::Checkbox("Snap", &preferences.snap);
         changed |= ImGui::DragFloat("Move step", &preferences.moveSnap, 0.01f, 0.01f, 10.0f, "%.2f m");

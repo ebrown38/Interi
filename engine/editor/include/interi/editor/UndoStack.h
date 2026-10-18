@@ -63,6 +63,8 @@ public:
 
     void Clear() noexcept;
     [[nodiscard]] std::size_t Size() const noexcept { return m_commands.size(); }
+    /// How many recorded commands are applied (Undo lowers it, Redo and Execute raise it).
+    [[nodiscard]] std::size_t Applied() const noexcept { return m_next; }
 
 private:
     static constexpr std::size_t kUnreachable = std::numeric_limits<std::size_t>::max();

@@ -122,8 +122,9 @@ Result<void> SavePreferences(const std::filesystem::path& path, const Preference
 std::filesystem::path DefaultPreferencesPath()
 {
 #if defined(_WIN32)
-    if (const char* appData = std::getenv("APPDATA");
-        appData != nullptr && *appData != '\0') // NOLINT(concurrency-mt-unsafe)
+#pragma warning(suppress : 4996)                  // getenv is fine here: read once, on the UI thread
+    const char* appData = std::getenv("APPDATA"); // NOLINT(concurrency-mt-unsafe)
+    if (appData != nullptr && *appData != '\0')
     {
         return std::filesystem::path(appData) / "Interi" / "editor.json";
     }

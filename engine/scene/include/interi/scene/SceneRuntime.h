@@ -69,6 +69,7 @@ public:
 
     [[nodiscard]] World& GetWorld() noexcept { return m_world; }
     [[nodiscard]] chain::ChainExecutor& Executor() noexcept { return m_executor; }
+    [[nodiscard]] const chain::ChainExecutor& Executor() const noexcept { return m_executor; }
     [[nodiscard]] std::uint64_t StepIndex() const noexcept { return m_executor.StepIndex(); }
     /// Problems so far: chains that couldn't be read or compiled, prefabs that couldn't be spawned.
     [[nodiscard]] const std::vector<std::string>& Warnings() const noexcept { return m_warnings; }

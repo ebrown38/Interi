@@ -82,6 +82,8 @@ class VirtualFileSystem final : public IFileSystem
 public:
     /// Mounts `fileSystem` at `prefix` ("" = root). The prefix is normalised.
     Result<void> Mount(std::string_view prefix, IFileSystem& fileSystem);
+    /// Removes every mount of `fileSystem` (before it is destroyed). False if it wasn't mounted.
+    bool Unmount(const IFileSystem& fileSystem);
 
     [[nodiscard]] bool Exists(std::string_view path) const override;
     [[nodiscard]] Result<std::vector<std::byte>> ReadFile(std::string_view path) const override;

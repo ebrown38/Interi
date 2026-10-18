@@ -150,6 +150,11 @@ Result<void> VirtualFileSystem::Mount(std::string_view prefix, IFileSystem& file
     return {};
 }
 
+bool VirtualFileSystem::Unmount(const IFileSystem& fileSystem)
+{
+    return std::erase_if(m_mounts, [&](const MountPoint& mount) { return mount.fileSystem == &fileSystem; }) > 0;
+}
+
 bool VirtualFileSystem::StripPrefix(const MountPoint& mount, std::string_view path, std::string_view& relative)
 {
     if (mount.prefix.empty())

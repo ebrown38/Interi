@@ -961,6 +961,8 @@ void EditorApp::UpdateServices(float seconds)
 
 void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
 {
+    // A running scene holds the current project's Value registry: stop it (keeping nothing) first.
+    m_scenePlay.reset();
     auto project = sdk::LoadProject(folder);
     if (!project)
     {
@@ -1002,6 +1004,10 @@ void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
         }
     }
     m_templates = ListTemplates(*manifests);
+    if (m_projectFiles != nullptr)
+    {
+        (void)m_files.Unmount(*m_projectFiles); // before the old project's file system goes away
+    }
     m_projectFiles = std::make_unique<NativeFileSystem>(folder);
     (void)m_files.Mount("", *m_projectFiles); // newest: the project's files shadow the data tree, writes go there
     m_dataDir = folder;
@@ -1055,6 +1061,7 @@ void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
             return;
         }
         m_scenePlay = std::move(*session);
+        m_playUndoMark = m_document.Undo().Applied();
         for (const std::string& warning : m_scenePlay->Runtime().Warnings())
         {
             INTERI_LOG_WARN("Editor", "play: {}", warning);
@@ -1067,14 +1074,12 @@ void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
     }
     if (requests.stop)
     {
-        if (m_keepPlayValues && m_project != nullptr)
+        const std::size_t kept =
+            EndPlay(*m_scenePlay, m_keepPlayValues, m_project != nullptr ? &m_project->Data() : nullptr,
+                    m_document.Undo(), m_playUndoMark);
+        if (kept > 0)
         {
-            const std::size_t kept =
-                KeepRuntimeValues(m_scenePlay->Runtime().Executor().Values(), m_project->Data(), m_document.Undo());
-            if (kept > 0)
-            {
-                INTERI_LOG_INFO("Editor", "kept {} Value(s) chains set during play", kept);
-            }
+            INTERI_LOG_INFO("Editor", "kept {} Value(s) chains set during play", kept);
         }
         m_scenePlay.reset();
         return;

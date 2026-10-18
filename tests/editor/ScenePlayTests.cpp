@@ -105,6 +105,27 @@ TEST_F(ScenePlayTest, PauseAndStep)
     EXPECT_EQ(session->StepIndex(), 2u);
 }
 
+TEST_F(ScenePlayTest, EndPlay_KeepsOrRevertsEditsMadeDuringPlay)
+{
+    for (const bool keep : {true, false})
+    {
+        auto session = Start();
+        ASSERT_NE(session, nullptr);
+        const std::size_t mark = m_document.Undo().Applied();
+        session->StepOnce();
+        ASSERT_TRUE(EditValue(m_project->Data(), m_document.Undo(), "com.test.a:JumpHeight", 3.0f).has_value());
+        (void)m_document.Add([](EditorScene& scene) { return scene.CreateObject("added during play"); });
+        const std::size_t objects = m_document.Scene().Size();
+        EXPECT_EQ(EndPlay(*session, keep, &m_project->Data(), m_document.Undo(), mark), keep ? 1u : 0u);
+        // Kept: the chain's 4 overrides the panel edit; reverted: back to the module default, object gone.
+        EXPECT_EQ(m_project->Data().Values().Get<float>(kJump), keep ? 4.0f : 2.5f);
+        EXPECT_EQ(m_document.Scene().Size(), keep ? objects : objects - 1);
+        while (m_document.Undo().Undo())
+        {
+        }
+    }
+}
+
 TEST_F(ScenePlayTest, KeepRuntimeValues_IsUndoable)
 {
     auto session = Start();

@@ -36,6 +36,19 @@ void ScenePlaySession::StepOnce()
     m_runtime->Step();
 }
 
+std::size_t EndPlay(const ScenePlaySession& session, bool keep, values::DataRegistry* data, UndoStack& undo,
+                    std::size_t undoMark)
+{
+    if (!keep)
+    {
+        while (undo.Applied() > undoMark && undo.Undo())
+        {
+        }
+        return 0;
+    }
+    return data == nullptr ? 0 : KeepRuntimeValues(session.Runtime().Executor().Values(), *data, undo);
+}
+
 std::size_t KeepRuntimeValues(const chain::RuntimeValues& runtime, values::DataRegistry& data, UndoStack& undo)
 {
     std::size_t kept = 0;

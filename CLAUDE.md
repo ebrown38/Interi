@@ -520,7 +520,8 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   clears undo).
 - **Play-in-editor** (`ScenePlay.h`): Play / Pause / Step / Stop (F5 / F6 / F10) run the scene in a `SceneRuntime`
   of its own (collapsed then re-expanded, so unsaved instance edits play), physics-free; the document is never
-  touched. On Stop, Values chains set can be kept (`KeepRuntimeValues`, undoable; a preference). Modules' native
+  touched. On Stop (`EndPlay`), the "keep changes made during play" preference either keeps the Values chains set
+  (`KeepRuntimeValues`, undoable) and your edits, or undoes the edits made during play. Modules' native
   events aren't available yet (no libraries load in the editor): chains use the core library.
 - **Services** (`EditorServices.h`, `editor_ui/ServicePanels.h`): preferences (`editor.json` in the user config
   folder: recent projects, autosave, play, snapping, Tracy frame marks), `AutosaveTimer` (writes

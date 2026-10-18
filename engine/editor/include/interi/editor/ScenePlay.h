@@ -41,6 +41,7 @@ public:
     [[nodiscard]] bool Paused() const noexcept { return m_paused; }
 
     [[nodiscard]] scene::SceneRuntime& Runtime() noexcept { return *m_runtime; }
+    [[nodiscard]] const scene::SceneRuntime& Runtime() const noexcept { return *m_runtime; }
     [[nodiscard]] std::uint64_t StepIndex() const noexcept { return m_runtime->StepIndex(); }
 
 private:
@@ -53,6 +54,13 @@ private:
     FixedStepClock m_clock;
     bool m_paused = false;
 };
+
+/// Ends a play session. Keeping, the Values chains set become project edits (KeepRuntimeValues; `data` may be
+/// nullptr) and every edit made during play stays. Not keeping, the edits made during play (Values panel, scene)
+/// are undone back to `undoMark` (UndoStack::Applied() when play started) and chain Values are dropped. Returns how
+/// many chain Values were kept.
+std::size_t EndPlay(const ScenePlaySession& session, bool keep, values::DataRegistry* data, UndoStack& undo,
+                    std::size_t undoMark);
 
 /// Keeps the Values chains set during play: each run-time override becomes a project Value edit (one undo step
 /// each, through DataEditing). Returns how many were kept; overrides that no longer fit are skipped.

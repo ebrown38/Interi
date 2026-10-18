@@ -65,6 +65,7 @@ struct ProgramNode
     std::size_t keyInput = 0;                        ///< Triggers: index of the "key" input, or triggerInputs.size().
     /// Per output: the [first, end) range of its links in ChainProgram::links, in asset order.
     std::vector<std::pair<std::uint32_t, std::uint32_t>> outputLinks;
+    std::vector<std::string> outputs; ///< Output names, by index.
 };
 
 struct ChainProgram

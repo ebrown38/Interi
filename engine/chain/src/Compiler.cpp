@@ -337,6 +337,10 @@ private:
             compiled.authority = definition.authority;
             compiled.implementation = definition.implementation;
             compiled.outputLinks.resize(definition.outputs.size());
+            for (const EventOutput& output : definition.outputs)
+            {
+                compiled.outputs.push_back(output.name);
+            }
             compiled.keyInput = definition.InputIndex(kTriggerKeyInput);
             if (definition.kind == EventKind::Trigger)
             {

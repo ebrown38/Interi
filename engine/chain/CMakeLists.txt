@@ -9,6 +9,7 @@ interi_add_module(chain SHARED
         src/Compiler.cpp
         src/CoreLibrary.cpp
         src/Event.cpp
+        src/Executor.cpp
         src/Expression.cpp
         src/Functions.cpp
         src/HeaderCheck.cpp
@@ -19,4 +20,11 @@ interi_add_module(chain SHARED
         ${_tests}/ChainAssetTests.cpp
         ${_tests}/CompilerTests.cpp
         ${_tests}/EventTests.cpp
+        ${_tests}/ExecutorTests.cpp
         ${_tests}/ExpressionTests.cpp)
+
+# Determinism across worker counts (run under the tsan preset too): label `stress`.
+interi_add_test_executable(interi_chain_stress_tests
+    SOURCES ${_tests}/stress/ChainDeterminismTests.cpp
+    DEPS interi::chain interi::testing
+    LABELS stress)

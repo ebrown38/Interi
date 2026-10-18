@@ -7,6 +7,7 @@
 #include <interi/chain/ChainAsset.h>
 #include <interi/chain/CoreLibrary.h>
 #include <interi/chain/Event.h>
+#include <interi/chain/Executor.h>
 #include <interi/sdk/ContributionRegistry.h>
 #include <interi/values/ValueRegistry.h>
 
@@ -92,7 +93,44 @@ struct TestProject
         AddValue("com.test.a:Score", values::ValueType::Int, std::int32_t{0});
         AddValue("com.test.a:Armed", values::ValueType::Bool, true);
         EXPECT_TRUE(chains->Events().Provide("com.test.a", "com.test.a:Shoot", ShootEvent()).has_value());
+
+        using values::ValueType;
+        // AddScore(delta: int = 1) -> Out: adds delta to com.test.a:Score at apply time.
+        EXPECT_TRUE(
+            chains->Events()
+                .Provide("com.test.a", "com.test.a:AddScore",
+                         Action({Param("delta", ValueType::Int, std::int32_t{1})}, {{.name = "Out", .payload = {}}},
+                                [](EventCall& call)
+                                {
+                                    const std::int32_t delta = call.Get<std::int32_t>(0);
+                                    call.Defer([delta](ApplyContext& context)
+                                               { context.ModifyValue("com.test.a:Score", delta); });
+                                    call.Fire(0);
+                                }))
+                .has_value());
+        // Record(tag: int) -> Out: appends (tag, entity) to `log` at apply time.
+        EXPECT_TRUE(
+            chains->Events()
+                .Provide("com.test.a", "com.test.a:Record",
+                         Action({Param("tag", ValueType::Int, std::int32_t{0})}, {{.name = "Out", .payload = {}}},
+                                [log = log](EventCall& call)
+                                {
+                                    const std::int32_t tag = call.Get<std::int32_t>(0);
+                                    const std::uint64_t entity = call.Entity();
+                                    call.Defer([log, tag, entity](ApplyContext&) { log->emplace_back(tag, entity); });
+                                    call.Fire(0);
+                                }))
+                .has_value());
+        // Echo -> Out.
+        EXPECT_TRUE(chains->Events()
+                        .Provide("com.test.a", "com.test.a:Echo",
+                                 Action({}, {{.name = "Out", .payload = {}}}, [](EventCall& call) { call.Fire(0); }))
+                        .has_value());
     }
+
+    /// What Record events appended, in apply order: (tag, entity).
+    std::shared_ptr<std::vector<std::pair<std::int32_t, std::uint64_t>>> log =
+        std::make_shared<std::vector<std::pair<std::int32_t, std::uint64_t>>>();
 
     void AddValue(std::string id, values::ValueType type, values::Value defaultValue)
     {

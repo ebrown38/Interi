@@ -4,5 +4,6 @@
 #include <interi/chain/Compiler.h>
 #include <interi/chain/CoreLibrary.h>
 #include <interi/chain/Event.h>
+#include <interi/chain/Executor.h>
 #include <interi/chain/Expression.h>
 #include <interi/chain/Functions.h>

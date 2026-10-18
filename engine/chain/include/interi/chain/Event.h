@@ -92,6 +92,10 @@ struct EventDefinition
     [[nodiscard]] std::size_t InputIndex(std::string_view name) const noexcept;
 };
 
+/// Seconds to nanoseconds, rounded up and saturating; NaN and negatives are 0 (exact double arithmetic, so the same
+/// on every platform).
+[[nodiscard]] std::int64_t SecondsToNanoseconds(float seconds) noexcept;
+
 class ApplyContext;
 
 /// Something an event does to shared state, applied serially at the end of the step.

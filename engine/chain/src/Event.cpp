@@ -3,6 +3,7 @@
 #include <interi/core/Assert.h>
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <ranges>
 
@@ -112,6 +113,18 @@ Result<void> CheckDefinition(std::string_view id, const EventDefinition& definit
 }
 
 } // namespace
+
+std::int64_t SecondsToNanoseconds(float seconds) noexcept
+{
+    const double nanoseconds = std::ceil(static_cast<double>(seconds) * 1e9);
+    if (!(nanoseconds > 0.0))
+    {
+        return 0;
+    }
+    // Far beyond any game's lifetime, and leaves room to add a step without overflow.
+    constexpr double kLimit = 4.0e18;
+    return nanoseconds >= kLimit ? static_cast<std::int64_t>(kLimit) : static_cast<std::int64_t>(nanoseconds);
+}
 
 const EventOutput* EventDefinition::FindOutput(std::string_view name) const noexcept
 {

@@ -13,10 +13,18 @@
 //   trigger.ValueChanged  key: a Value id; the step after a chain changed it       -> Fired
 //   trigger.Spawned       an entity was spawned (raised by the host)               -> Fired {entity: entity}
 //   trigger.Destroyed     an entity was destroyed (world.Destroy, or the host)     -> Fired {entity: entity}
+//
+// Flow:
+//   flow.Delay     seconds                       latent -> Finished (after seconds, rounded up to whole steps)
+//   flow.Timer     interval (s), count           latent -> Fired {count: int} (count times, every interval)
+//   flow.Branch    condition                            -> True | False
+//   flow.Sequence                                       -> Then0, Then1, Then2, Then3 (fired in that order)
+//   flow.Random    min, max (int, inclusive)            -> Out {value: int} (seeded per activation: deterministic)
 
 #include <interi/chain/Event.h>
 #include <interi/core/Result.h>
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,6 +39,15 @@ inline constexpr std::string_view kTriggerTimer = "trigger.Timer";
 inline constexpr std::string_view kTriggerValueChanged = "trigger.ValueChanged";
 inline constexpr std::string_view kTriggerSpawned = "trigger.Spawned";
 inline constexpr std::string_view kTriggerDestroyed = "trigger.Destroyed";
+
+inline constexpr std::string_view kFlowDelay = "flow.Delay";
+inline constexpr std::string_view kFlowTimer = "flow.Timer";
+inline constexpr std::string_view kFlowBranch = "flow.Branch";
+inline constexpr std::string_view kFlowSequence = "flow.Sequence";
+inline constexpr std::string_view kFlowRandom = "flow.Random";
+
+/// flow.Timer fires at most this many times.
+inline constexpr std::int32_t kMaxTimerCount = 1000;
 
 /// The input a trigger node matches raised keys with.
 inline constexpr std::string_view kTriggerKeyInput = "key";

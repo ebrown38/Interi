@@ -13,6 +13,7 @@
 #include <interi/editor/Inspector.h>
 #include <interi/editor/LevelBridge.h>
 #include <interi/editor/Modeling.h>
+#include <interi/editor/Prefabs.h>
 #include <interi/editor/Replay.h>
 #include <interi/editor/StructureDebug.h>
 #include <interi/editor_ui/EditorPanels.h>
@@ -29,6 +30,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -286,6 +288,32 @@ Vec3 EditorApp::PlacementPoint(const Ray& ray) const
 
 void EditorApp::DropAsset(const std::string& path, const Ray& ray)
 {
+    Transform placement;
+    placement.position = Snap(PlacementPoint(ray), m_tools.snap ? m_tools.moveSnap : 0.0f);
+    if (path.ends_with(".prefab.json"))
+    {
+        if (auto instance = InstantiatePrefab(m_document, m_files, path, placement); !instance)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", path, instance.error().message);
+        }
+        return;
+    }
+    if (path.ends_with(".imesh"))
+    {
+        (void)m_document.Add(
+            [&](EditorScene& scene)
+            {
+                const EditorEntityId id = scene.CreateObject(std::filesystem::path(path).stem().string(), placement);
+                (void)scene.AddComponent(id, scene::MeshComponent::kComponentName);
+                const auto entity = scene.Find(id);
+                if (auto* mesh = entity ? scene.GetWorld().GetMut<scene::MeshComponent>(*entity) : nullptr)
+                {
+                    mesh->asset.path = path;
+                }
+                return id;
+            });
+        return;
+    }
     std::string asset = path;
     if (!path.ends_with(".idest"))
     {
@@ -903,6 +931,33 @@ void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
         {
             (void)SetPivot(m_document, id, *tools.pivot, bounds);
         }
+    }
+    if (tools.createPrefab)
+    {
+        const EditorEntityId root = m_document.Selection();
+        std::string name(m_document.Scene().NameOf(root));
+        std::ranges::replace_if(name, [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
+        const std::string path = std::format("prefabs/{}.prefab.json", name.empty() ? "prefab" : name);
+        if (auto created = CreatePrefabFromSelection(m_document, m_dataFiles, path); !created)
+        {
+            INTERI_LOG_ERROR("Editor", "create prefab: {}", created.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "wrote {}", path);
+            m_assetList = ListAssets(m_dataDir);
+        }
+    }
+    if (tools.revertPrefab || tools.applyPrefab)
+    {
+        const EditorEntityId root = InstanceRootOf(m_document.Scene(), m_document.Selection());
+        auto done = tools.revertPrefab ? RevertInstance(m_document, m_files, root)
+                                       : ApplyInstance(m_document, m_dataFiles, root);
+        if (!done)
+        {
+            INTERI_LOG_ERROR("Editor", "prefab: {}", done.error().message);
+        }
+        m_meshCache.clear();
     }
     if (tools.csg)
     {

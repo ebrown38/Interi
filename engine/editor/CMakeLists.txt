@@ -19,6 +19,7 @@ interi_add_module(editor
         src/LevelBridge.cpp
         src/Modeling.cpp
         src/Picking.cpp
+        src/Prefabs.cpp
         src/PlaySession.cpp
         src/Reflection.cpp
         src/Replay.cpp
@@ -36,6 +37,7 @@ interi_add_module(editor
         ${_tests}/InspectorTests.cpp
         ${_tests}/ModelingTests.cpp
         ${_tests}/PickingTests.cpp
+        ${_tests}/PrefabsTests.cpp
         ${_tests}/PlaySessionTests.cpp
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
         ${_tests}/ReflectionTests.cpp

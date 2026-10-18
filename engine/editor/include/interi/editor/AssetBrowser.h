@@ -17,6 +17,7 @@ enum class AssetKind : std::uint8_t
     Level,        ///< A legacy level `.json` under `levels/` (opened through the level importer).
     Scene,        ///< A `.scene.json`.
     Mesh,         ///< A `.imesh` mesh asset: placed into scenes.
+    Prefab,       ///< A `.prefab.json`: instanced into scenes.
 };
 
 [[nodiscard]] std::string_view ToString(AssetKind kind) noexcept;

@@ -15,6 +15,7 @@
 #include <interi/editor/Modeling.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
+#include <interi/editor/Prefabs.h>
 #include <interi/editor/Reflection.h>
 #include <interi/editor/Replay.h>
 #include <interi/editor/StructureDebug.h>

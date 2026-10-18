@@ -288,6 +288,24 @@ Result<void> RegisterWorld(EventRegistry& events)
                                                    { context.PlaySound(request); });
                                         call.Fire(0);
                                     })));
+    INTERI_TRY(events.Provide(
+        engine, kWorldSpawnPrefab,
+        World({Input("prefab", ValueType::AssetRef, values::AssetRef{}), Input("position", ValueType::Vec3, Vec3{}),
+               Input("rotation", ValueType::Quat, Quat{})},
+              "Spawns a prefab at a world position (after the step; trigger.Spawned fires for it next step).",
+              [](EventCall& call)
+              {
+                  Transform transform;
+                  transform.position = call.Get<Vec3>(1);
+                  transform.rotation = call.Get<Quat>(2);
+                  std::string prefab = call.Get<values::AssetRef>(0).path;
+                  if (!prefab.empty())
+                  {
+                      call.Defer([prefab = std::move(prefab), transform](ApplyContext& context)
+                                 { (void)context.SpawnPrefab(prefab, transform); });
+                  }
+                  call.Fire(0);
+              })));
     return {};
 }
 
@@ -295,13 +313,13 @@ Result<void> RegisterWorld(EventRegistry& events)
 
 std::vector<std::string> CoreContracts()
 {
-    return {std::string(kWorldSetValue),      std::string(kWorldModifyValue), std::string(kWorldDestroy),
-            std::string(kWorldMove),          std::string(kWorldRotate),      std::string(kWorldShow),
-            std::string(kWorldHide),          std::string(kWorldPlaySound),   std::string(kFlowDelay),
-            std::string(kFlowTimer),          std::string(kFlowBranch),       std::string(kFlowSequence),
-            std::string(kFlowRandom),         std::string(kTriggerStart),     std::string(kTriggerTick),
-            std::string(kTriggerInputAction), std::string(kTriggerTimer),     std::string(kTriggerValueChanged),
-            std::string(kTriggerSpawned),     std::string(kTriggerDestroyed)};
+    return {std::string(kWorldSetValue),       std::string(kWorldModifyValue),   std::string(kWorldDestroy),
+            std::string(kWorldMove),           std::string(kWorldRotate),        std::string(kWorldShow),
+            std::string(kWorldHide),           std::string(kWorldPlaySound),     std::string(kWorldSpawnPrefab),
+            std::string(kFlowDelay),           std::string(kFlowTimer),          std::string(kFlowBranch),
+            std::string(kFlowSequence),        std::string(kFlowRandom),         std::string(kTriggerStart),
+            std::string(kTriggerTick),         std::string(kTriggerInputAction), std::string(kTriggerTimer),
+            std::string(kTriggerValueChanged), std::string(kTriggerSpawned),     std::string(kTriggerDestroyed)};
 }
 
 Result<void> RegisterCoreLibrary(ChainRegistry& registry)

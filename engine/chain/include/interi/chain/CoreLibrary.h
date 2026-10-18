@@ -30,6 +30,8 @@
 //   world.Rotate       target, axis (vec3), degrees        -> Out   uses sin/cos: not bit-identical across platforms
 //   world.Show/Hide    target                              -> Out   removes/adds HiddenComponent
 //   world.PlaySound    cue, target, volume                 -> Out   ChainExecutor::Sounds() for the host
+//   world.SpawnPrefab  prefab (asset), position, rotation  -> Out   ChainExecutor::Spawns() for the host, which
+//                                                                   raises trigger.Spawned for the new root
 // Spawning prefabs arrives with prefabs (M16).
 
 #include <interi/chain/Event.h>
@@ -65,6 +67,7 @@ inline constexpr std::string_view kWorldRotate = "world.Rotate";
 inline constexpr std::string_view kWorldShow = "world.Show";
 inline constexpr std::string_view kWorldHide = "world.Hide";
 inline constexpr std::string_view kWorldPlaySound = "world.PlaySound";
+inline constexpr std::string_view kWorldSpawnPrefab = "world.SpawnPrefab";
 
 /// flow.Timer fires at most this many times.
 inline constexpr std::int32_t kMaxTimerCount = 1000;

@@ -199,6 +199,13 @@ void ApplyContext::PlaySound(SoundRequest request)
     m_executor->m_sounds.push_back(std::move(request));
 }
 
+std::uint64_t ApplyContext::SpawnPrefab(std::string prefab, const Transform& transform)
+{
+    const std::uint64_t id = m_executor->m_nextSpawnId++;
+    m_executor->m_spawns.push_back({.prefab = std::move(prefab), .id = id, .transform = transform});
+    return id;
+}
+
 // --- ChainExecutor -----------------------------------------------------------------------------------------------
 
 struct ChainExecutor::Instance
@@ -246,6 +253,7 @@ ChainExecutor::ChainExecutor(ChainRegistry& registry, values::ValueRegistry* val
     , m_valueRegistry(values)
     , m_desc(std::move(desc))
     , m_values(values)
+    , m_nextSpawnId(m_desc.firstSpawnId)
 {
     INTERI_ASSERT(m_desc.stepNanoseconds > 0, "the fixed step must be positive");
     m_desc.stepNanoseconds = std::max<std::int64_t>(m_desc.stepNanoseconds, 1);
@@ -562,6 +570,7 @@ void ChainExecutor::Step(World& world, JobSystem& jobs, CommandBuffers& commands
 {
     m_trace.clear();
     m_sounds.clear();
+    m_spawns.clear();
     m_stats = {};
     if (m_dirty)
     {

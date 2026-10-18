@@ -92,6 +92,9 @@ struct ToolRequests
     bool snapSelection = false;
     std::optional<PivotPlacement> pivot;
     std::optional<modeling::CsgOperation> csg;
+    bool createPrefab = false; ///< From the selected object (prefabs/<name>.prefab.json).
+    bool revertPrefab = false; ///< The selected object's instance.
+    bool applyPrefab = false;
     bool focusSelection = false;
 };
 

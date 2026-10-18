@@ -98,6 +98,7 @@ TEST(AssetBrowser, ListsAssetsByKind)
     touch("levels/a.json");
     touch("levels/a.scene.json");
     touch("meshes/csg.imesh");
+    touch("prefabs/crate.prefab.json");
     touch("destruction/samples/building.gltf");
     touch("destruction/samples/building.fracture.json");
     touch("destruction/samples/building.idest");
@@ -105,7 +106,7 @@ TEST(AssetBrowser, ListsAssetsByKind)
     touch("audio/clip.wav");
 
     const auto assets = ListAssets(dir.Path());
-    ASSERT_EQ(assets.size(), 5u);
+    ASSERT_EQ(assets.size(), 6u);
     EXPECT_EQ(assets[0].path, "destruction/samples/building.gltf");
     EXPECT_EQ(assets[0].kind, AssetKind::Source);
     EXPECT_EQ(assets[1].path, "destruction/samples/building.idest");
@@ -116,6 +117,7 @@ TEST(AssetBrowser, ListsAssetsByKind)
     EXPECT_EQ(assets[3].kind, AssetKind::Scene);
     EXPECT_EQ(assets[4].kind, AssetKind::Mesh);
     EXPECT_EQ(ToString(AssetKind::Mesh), "mesh");
+    EXPECT_EQ(assets[5].kind, AssetKind::Prefab);
     EXPECT_TRUE(ListAssets(dir.Path() / "missing").empty());
 }
 

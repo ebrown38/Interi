@@ -3,6 +3,7 @@
 #include <interi/editor/Commands.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/LevelBridge.h>
+#include <interi/editor/Prefabs.h>
 #include <interi/platform/FileSystem.h>
 
 #include <algorithm>
@@ -51,6 +52,7 @@ Result<void> EditorDocument::Open(const IFileSystem& files, std::string_view pat
     if (IsScenePath(path))
     {
         INTERI_TRY_ASSIGN(document, scene::LoadScene(files, path));
+        scene::ExpandPrefabs(document, PrefabLoaderFor(files), document.warnings);
         INTERI_TRY_ASSIGN(warnings, m_scene.Load(document));
         for (const std::string& warning : document.warnings)
         {
@@ -82,7 +84,10 @@ Result<void> EditorDocument::Save(IFileSystem& files)
     {
         return MakeError(ErrorCode::InvalidArgument, "the scene has no file name yet");
     }
-    const std::string json = scene::WriteScene(m_scene.ToDocument());
+    scene::SceneDocument document = m_scene.ToDocument();
+    // Instances save as their root and overrides.
+    scene::CollapsePrefabs(document, PrefabLoaderFor(files), m_reflection);
+    const std::string json = scene::WriteScene(document);
     INTERI_TRY(files.WriteFile(m_path, std::as_bytes(std::span(json))));
     m_undo.MarkClean();
     m_undo.Seal();

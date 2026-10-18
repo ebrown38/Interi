@@ -8,6 +8,7 @@ interi_add_module(scene SHARED
         src/HeaderCheck.cpp
         src/Hierarchy.cpp
         src/Mesh.cpp
+        src/Prefab.cpp
         src/Primitives.cpp
         src/SceneComponents.cpp
         src/SceneFile.cpp
@@ -16,5 +17,6 @@ interi_add_module(scene SHARED
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/HierarchyTests.cpp
+        ${_tests}/PrefabTests.cpp
         ${_tests}/PrimitivesTests.cpp
         ${_tests}/SceneFileTests.cpp)

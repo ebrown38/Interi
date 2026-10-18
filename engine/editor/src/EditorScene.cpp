@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/math/Quat.h>
 #include <interi/editor/EditorScene.h>
+#include <interi/scene/Prefab.h>
 
 #include <algorithm>
 #include <cmath>
@@ -44,7 +45,14 @@ Result<std::vector<std::string>> EditorScene::Load(const scene::SceneDocument& d
     INTERI_TRY_ASSIGN(loaded, scene::InstantiateScene(document, m_world, *m_reflection));
     m_entities = std::move(loaded.entities);
     m_kept = std::move(loaded.kept);
-    m_nextId = m_entities.empty() ? 1 : m_entities.rbegin()->first + 1;
+    m_nextId = 1;
+    for (const auto& [id, entity] : m_entities)
+    {
+        if (!scene::IsPrefabObjectId(id)) // derived ids (prefab instances) are not allocated from the counter
+        {
+            m_nextId = std::max(m_nextId, id + 1);
+        }
+    }
     Refresh();
     return std::move(loaded.warnings);
 }
@@ -270,7 +278,10 @@ bool EditorScene::Restore(const EntitySnapshot& snapshot)
     {
         m_kept[snapshot.id] = snapshot.kept;
     }
-    m_nextId = std::max(m_nextId, snapshot.id + 1);
+    if (!scene::IsPrefabObjectId(snapshot.id))
+    {
+        m_nextId = std::max(m_nextId, snapshot.id + 1);
+    }
     Refresh();
     return true;
 }

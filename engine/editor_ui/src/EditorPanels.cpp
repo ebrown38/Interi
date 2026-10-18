@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/Inspector.h>
+#include <interi/editor/Prefabs.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ValueWidgets.h>
@@ -329,6 +330,17 @@ ToolRequests DrawToolsPanel(ToolSettings& settings, const EditorDocument& docume
                 requests.csg = operation;
             }
         }
+        ImGui::EndDisabled();
+        ImGui::TextUnformatted("Prefab");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(selected != 1);
+        requests.createPrefab = ImGui::SmallButton("Create from selection");
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(InstanceRootOf(document.Scene(), document.Selection()) == 0);
+        ImGui::SameLine();
+        requests.revertPrefab = ImGui::SmallButton("Revert");
+        ImGui::SameLine();
+        requests.applyPrefab = ImGui::SmallButton("Apply to prefab");
         ImGui::EndDisabled();
         ImGui::EndDisabled();
     }

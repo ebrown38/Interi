@@ -181,6 +181,24 @@ TEST(WorldEvents, PlaySound_RequestForHost)
     EXPECT_TRUE(f.executor->Sounds().empty());
 }
 
+TEST(WorldEvents, SpawnPrefab_RequestsWithIdsInEffectOrder)
+{
+    WorldFixture f;
+    f.Add(OnStart({R"json("event": "world.SpawnPrefab",
+                          "params": {"prefab": {"const": "prefabs/a.prefab.json"}, "position": {"const": [1, 2, 3]}})json",
+                   R"json("event": "world.SpawnPrefab", "params": {"prefab": {"const": "prefabs/b.prefab.json"}})json",
+                   R"json("event": "world.SpawnPrefab", "params": {"prefab": {"const": ""}})json"}));
+    f.Step();
+    ASSERT_EQ(f.executor->Spawns().size(), 2u); // an empty prefab spawns nothing
+    const std::uint64_t first = ExecutorDesc{}.firstSpawnId;
+    EXPECT_EQ(f.executor->Spawns()[0].prefab, "prefabs/a.prefab.json");
+    EXPECT_EQ(f.executor->Spawns()[0].id, first);
+    EXPECT_EQ(f.executor->Spawns()[0].transform.position, Vec3(1, 2, 3));
+    EXPECT_EQ(f.executor->Spawns()[1].id, first + 1);
+    f.Step();
+    EXPECT_TRUE(f.executor->Spawns().empty());
+}
+
 TEST(WorldEvents, MissingTarget_Skipped)
 {
     WorldFixture f;

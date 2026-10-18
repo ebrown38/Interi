@@ -21,6 +21,8 @@ std::string_view ToString(AssetKind kind) noexcept
         return "scene";
     case AssetKind::Mesh:
         return "mesh";
+    case AssetKind::Prefab:
+        return "prefab";
     }
     return "?";
 }
@@ -50,6 +52,10 @@ std::vector<AssetEntry> ListAssets(const std::filesystem::path& root)
         else if (extension == ".imesh")
         {
             assets.push_back({.path = std::move(path), .kind = AssetKind::Mesh});
+        }
+        else if (path.ends_with(".prefab.json"))
+        {
+            assets.push_back({.path = std::move(path), .kind = AssetKind::Prefab});
         }
         else if (path.ends_with(".scene.json"))
         {

@@ -12,6 +12,7 @@
 #include <interi/destruction_cook/Cooker.h>
 #include <interi/editor/Inspector.h>
 #include <interi/editor/LevelBridge.h>
+#include <interi/editor/Modeling.h>
 #include <interi/editor/Replay.h>
 #include <interi/editor/StructureDebug.h>
 #include <interi/editor_ui/EditorPanels.h>
@@ -861,6 +862,68 @@ void EditorApp::ApplyDrag(const Ray& ray)
     }
 }
 
+void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
+{
+    const AssetBoundsFn bounds = Bounds();
+    if (tools.group || groupShortcut)
+    {
+        (void)GroupSelection(m_document, bounds);
+    }
+    if (tools.ungroup)
+    {
+        (void)UngroupSelection(m_document);
+    }
+    if (tools.duplicate)
+    {
+        (void)DuplicateSelection(m_document);
+    }
+    if (tools.array)
+    {
+        (void)DuplicateSelection(m_document, static_cast<std::uint32_t>(m_tools.arrayCount), m_tools.arrayOffset);
+    }
+    if (tools.align)
+    {
+        (void)AlignSelection(m_document, m_tools.axis, *tools.align, bounds);
+    }
+    if (tools.distribute)
+    {
+        (void)DistributeSelection(m_document, m_tools.axis, bounds);
+    }
+    if (tools.mirror)
+    {
+        (void)MirrorSelection(m_document, m_tools.axis, bounds);
+    }
+    if (tools.snapSelection)
+    {
+        (void)SnapSelection(m_document, m_tools.moveSnap);
+    }
+    if (tools.pivot)
+    {
+        for (const EditorEntityId id : m_document.SelectedRoots())
+        {
+            (void)SetPivot(m_document, id, *tools.pivot, bounds);
+        }
+    }
+    if (tools.csg)
+    {
+        // A fresh asset per operation: earlier results stay valid for undo.
+        std::string path;
+        for (std::uint32_t n = 1; path.empty() || m_files.Exists(path); ++n)
+        {
+            path = std::format("meshes/csg_{}.imesh", n);
+        }
+        if (auto created = CsgSelection(m_document, m_dataFiles, *tools.csg, path); !created)
+        {
+            INTERI_LOG_ERROR("Editor", "csg: {}", created.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "csg: wrote {}", path);
+            m_assetList = ListAssets(m_dataDir);
+        }
+    }
+}
+
 std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(Entity entity)
 {
     const World& world = m_document.Scene().GetWorld();
@@ -945,6 +1008,7 @@ void EditorApp::BuildScene()
             const auto* primitive = world.Get<scene::PrimitiveComponent>(entity);
             const auto* asset = world.Get<scene::MeshComponent>(entity);
             const values::ValueList& colors = primitive != nullptr ? primitive->colors : asset->colors;
+            const Vec3 offset = primitive != nullptr ? primitive->offset : asset->offset;
             std::vector<Vec3>& slotColors = m_meshColors.emplace_back();
             for (std::uint32_t slot = 0; slot < std::max<std::uint32_t>(mesh->SlotCount(), 1); ++slot)
             {
@@ -952,7 +1016,7 @@ void EditorApp::BuildScene()
                 slotColors.emplace_back(color.r, color.g, color.b);
             }
             m_meshes.push_back({.mesh = mesh.get(),
-                                .transform = transform.ToMat4(),
+                                .transform = transform.ToMat4() * Mat4::Translation(offset),
                                 .slotColors = slotColors,
                                 .color = selected ? std::optional(kSelectedColor) : std::nullopt,
                                 .occluder = true});
@@ -1117,6 +1181,7 @@ FrameResult EditorApp::Frame()
             (void)m_document.Add([&](EditorScene& scene) { return CreateSpawnPoint(scene, transform, "spawn"); });
         }
     }
+    HandleModeling(tools, requests.group);
     if (const EditorEntityId focused = m_document.Selection();
         focused != 0 && (tools.focusSelection || (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))))
     {

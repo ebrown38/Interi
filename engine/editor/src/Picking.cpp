@@ -79,12 +79,13 @@ std::optional<AABB> LocalBounds(const EditorScene& scene, EditorEntityId id, con
             return std::nullopt;
         }
         // A plane has no thickness; give it a sliver so rays can hit it.
-        return box(Vec3(0.0f), Max(scene::PrimitiveHalfExtents(*params), Vec3(0.005f)));
+        return box(primitive->offset, Max(scene::PrimitiveHalfExtents(*params), Vec3(0.005f)));
     }
     if (const auto* mesh = world.Get<scene::MeshComponent>(*entity))
     {
         const std::optional<AABB> local = bounds ? bounds(mesh->asset.path) : std::nullopt;
-        return local && local->IsValid() ? local : box(Vec3(0.0f), kPlaceholderHalfExtents);
+        return local && local->IsValid() ? AABB{.min = local->min + mesh->offset, .max = local->max + mesh->offset}
+                                         : box(mesh->offset, kPlaceholderHalfExtents);
     }
     if (const auto* placement = world.Get<DestructiblePlacementComponent>(*entity))
     {

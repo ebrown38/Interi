@@ -24,6 +24,7 @@
         "rtti"
       ]
     },
+    "manifold",
     "meshoptimizer",
     "miniaudio",
     "nlohmann-json",

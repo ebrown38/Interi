@@ -17,13 +17,14 @@ interi_add_module(editor
         src/HeaderCheck.cpp
         src/Inspector.cpp
         src/LevelBridge.cpp
+        src/Modeling.cpp
         src/Picking.cpp
         src/PlaySession.cpp
         src/Reflection.cpp
         src/Replay.cpp
         src/StructureDebug.cpp
         src/UndoStack.cpp
-    DEPS interi::scene interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    DEPS interi::modeling interi::scene interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
         ${_tests}/DataEditingTests.cpp
@@ -33,6 +34,7 @@ interi_add_module(editor
         ${_tests}/FracturePreviewTests.cpp
         ${_tests}/GizmoTests.cpp
         ${_tests}/InspectorTests.cpp
+        ${_tests}/ModelingTests.cpp
         ${_tests}/PickingTests.cpp
         ${_tests}/PlaySessionTests.cpp
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp

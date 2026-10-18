@@ -580,6 +580,7 @@ void RegisterPrimitiveReflection(values::ReflectionRegistry& registry)
         Field("rings", &PrimitiveComponent::rings, divisions),
         Field("steps", &PrimitiveComponent::steps, divisions),
         Field("colors", &PrimitiveComponent::colors),
+        Field("offset", &PrimitiveComponent::offset),
     });
 }
 

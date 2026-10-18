@@ -79,6 +79,7 @@ gameplay::LevelDef ExportLevel(const EditorScene& scene, std::vector<std::string
         if (const auto* primitive = world.Get<scene::PrimitiveComponent>(entity);
             primitive != nullptr && primitive->shape.name == scene::ToString(scene::PrimitiveShape::Box))
         {
+            placement.position = transform.TransformPoint(primitive->offset);
             level.staticBoxes.push_back(
                 {.transform = placement, .halfExtents = primitive->size * transform.scale * 0.5f});
         }

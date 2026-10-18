@@ -150,6 +150,14 @@ void HandleShortcuts(EditorDocument& document, MenuRequests& requests)
     {
         (void)document.DeleteSelection();
     }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D))
+    {
+        (void)DuplicateSelection(document);
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_G))
+    {
+        requests.group = true;
+    }
 }
 
 void DrawOutliner(EditorDocument& document)
@@ -253,8 +261,75 @@ ToolRequests DrawToolsPanel(ToolSettings& settings, const EditorDocument& docume
             }
         }
         requests.addSpawnPoint = ImGui::Button("Add spawn point");
-        ImGui::BeginDisabled(document.Selection() == 0);
+        const std::size_t selected = document.SelectedRoots().size();
+        ImGui::BeginDisabled(selected == 0);
         requests.focusSelection = ImGui::Button("Focus selection (F)");
+        ImGui::Separator();
+        ImGui::TextUnformatted("Selection");
+        requests.group = ImGui::Button("Group");
+        ImGui::SameLine();
+        requests.ungroup = ImGui::Button("Ungroup");
+        ImGui::SameLine();
+        requests.duplicate = ImGui::Button("Duplicate");
+        ImGui::SameLine();
+        requests.snapSelection = ImGui::Button("Snap to grid");
+        ImGui::SetNextItemWidth(80.0f);
+        ImGui::InputInt("##count", &settings.arrayCount);
+        settings.arrayCount = std::clamp(settings.arrayCount, 1, 1000);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(160.0f);
+        ImGui::DragFloat3("##offset", &settings.arrayOffset.x, 0.05f);
+        ImGui::SameLine();
+        requests.array = ImGui::Button("Array");
+        ImGui::TextUnformatted("Axis");
+        ImGui::SameLine();
+        ImGui::RadioButton("X", &settings.axis, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("Y", &settings.axis, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("Z", &settings.axis, 2);
+        ImGui::BeginDisabled(selected < 2);
+        if (ImGui::Button("Align min"))
+        {
+            requests.align = AlignMode::Min;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Align centre"))
+        {
+            requests.align = AlignMode::Centre;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Align max"))
+        {
+            requests.align = AlignMode::Max;
+        }
+        ImGui::EndDisabled();
+        ImGui::BeginDisabled(selected < 3);
+        requests.distribute = ImGui::Button("Distribute");
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        requests.mirror = ImGui::Button("Mirror");
+        if (ImGui::Button("Pivot to centre"))
+        {
+            requests.pivot = PivotPlacement::BoundsCentre;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Pivot to bottom"))
+        {
+            requests.pivot = PivotPlacement::BoundsBottom;
+        }
+        ImGui::BeginDisabled(selected < 2);
+        ImGui::TextUnformatted("CSG (first selected is the base)");
+        for (const modeling::CsgOperation operation :
+             {modeling::CsgOperation::Union, modeling::CsgOperation::Subtract, modeling::CsgOperation::Intersect})
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton(std::string(modeling::ToString(operation)).c_str()))
+            {
+                requests.csg = operation;
+            }
+        }
+        ImGui::EndDisabled();
         ImGui::EndDisabled();
     }
     ImGui::End();

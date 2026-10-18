@@ -4,6 +4,7 @@
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/Gizmo.h>
+#include <interi/editor/Modeling.h>
 #include <interi/scene/Primitives.h>
 
 #include <optional>
@@ -33,6 +34,7 @@ struct MenuRequests
     bool newLevel = false;
     bool save = false;
     bool exportLevel = false; ///< Write the scene as a level to the document's export path.
+    bool group = false;       ///< Ctrl+G (the app groups: it knows asset bounds).
     bool quit = false;
 };
 
@@ -54,8 +56,8 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout);
 /// File and Edit menus (Undo/Redo and Delete carried out directly).
 [[nodiscard]] MenuRequests DrawMainMenu(EditorDocument& document);
 
-/// Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+S save, Delete removes the selection. Ignored while a text field
-/// has the keyboard.
+/// Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+S save, Ctrl+D duplicates and Delete removes the selection, Ctrl+G
+/// requests a group. Ignored while a text field has the keyboard.
 void HandleShortcuts(EditorDocument& document, MenuRequests& requests);
 
 /// The scene's object tree: click selects, ctrl-click adds to the selection, dragging a row onto another reparents
@@ -70,12 +72,26 @@ struct ToolSettings
     float moveSnap = 0.25f;          ///< Metres.
     float rotateSnapDegrees = 15.0f; ///< Degrees.
     float sizeSnap = 0.1f;           ///< Scale factor step.
+    int axis = 0;                    ///< Align, distribute and mirror axis (0 = x, 1 = y, 2 = z).
+    int arrayCount = 3;
+    Vec3 arrayOffset{2.0f, 0.0f, 0.0f};
 };
 
 struct ToolRequests
 {
     std::optional<scene::PrimitiveShape> addPrimitive;
     bool addSpawnPoint = false;
+    // Modeling on the selection (Modeling.h), carried out by the app (it knows asset bounds and files).
+    bool group = false;
+    bool ungroup = false;
+    bool duplicate = false;
+    bool array = false;
+    std::optional<AlignMode> align;
+    bool distribute = false;
+    bool mirror = false;
+    bool snapSelection = false;
+    std::optional<PivotPlacement> pivot;
+    std::optional<modeling::CsgOperation> csg;
     bool focusSelection = false;
 };
 

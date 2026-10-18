@@ -62,12 +62,14 @@ inline constexpr std::uint32_t kMeshVersion = 1;
 [[nodiscard]] Result<TriangleMesh> ReadMeshAsset(std::span<const std::byte> data);
 [[nodiscard]] Result<TriangleMesh> LoadMeshAsset(const IFileSystem& files, std::string_view path);
 
-/// An object drawn with a mesh asset. Slot i is drawn with colors[min(i, size - 1)] (grey if empty).
+/// An object drawn with a mesh asset, placed at `offset` in the object's space. Slot i is drawn with
+/// colors[min(i, size - 1)] (grey if empty).
 struct MeshComponent
 {
     static constexpr const char* kComponentName = "interi.Mesh";
     values::AssetRef asset;
     values::ValueList colors{.element = values::ValueType::Color, .items = {}};
+    Vec3 offset;
 };
 
 void RegisterMeshReflection(values::ReflectionRegistry& registry);

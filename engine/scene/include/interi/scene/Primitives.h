@@ -77,7 +77,8 @@ struct PrimitiveParams
 /// taller than its diameter, or a torus tube not thinner than its radius.
 [[nodiscard]] Result<TriangleMesh> GeneratePrimitive(const PrimitiveParams& params);
 
-/// A primitive object's shape. Slot i is drawn with colors[min(i, size - 1)] (grey if empty).
+/// A primitive object's shape, placed at `offset` in the object's space (pivot editing moves the object's origin
+/// without moving its geometry). Slot i is drawn with colors[min(i, size - 1)] (grey if empty).
 struct PrimitiveComponent
 {
     static constexpr const char* kComponentName = "interi.Primitive";
@@ -90,6 +91,7 @@ struct PrimitiveComponent
     std::uint32_t rings = 12;
     std::uint32_t steps = 4;
     values::ValueList colors{.element = values::ValueType::Color, .items = {}};
+    Vec3 offset;
 };
 
 /// The component's parameters (InvalidArgument for an unknown shape name).

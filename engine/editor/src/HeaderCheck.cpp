@@ -12,6 +12,7 @@
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Inspector.h>
 #include <interi/editor/LevelBridge.h>
+#include <interi/editor/Modeling.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
 #include <interi/editor/Reflection.h>

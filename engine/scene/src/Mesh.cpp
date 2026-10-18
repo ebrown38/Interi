@@ -166,6 +166,7 @@ void RegisterMeshReflection(values::ReflectionRegistry& registry)
     registry.Register<MeshComponent>({
         values::Field("asset", &MeshComponent::asset),
         values::Field("colors", &MeshComponent::colors),
+        values::Field("offset", &MeshComponent::offset),
     });
 }
 

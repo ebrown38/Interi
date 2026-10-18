@@ -123,6 +123,8 @@ private:
     [[nodiscard]] PlayStatus Status() const;
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
+    /// Carries out the Tools panel's modeling requests on the selection.
+    void HandleModeling(const ToolRequests& tools, bool groupShortcut);
     /// The mesh an object draws (its primitive's, cached by parameters, or its mesh asset's); nullptr if none.
     [[nodiscard]] std::shared_ptr<const scene::TriangleMesh> ObjectMesh(Entity entity);
 

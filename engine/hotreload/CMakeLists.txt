@@ -13,7 +13,7 @@ interi_add_module(hotreload SHARED
         src/FileWatcher.cpp
         src/HeaderCheck.cpp
         src/ModuleHost.cpp
-    DEPS interi::ecs interi::platform interi::sdk
+    DEPS interi::values interi::ecs interi::platform interi::sdk
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/FileWatcherTests.cpp
@@ -21,7 +21,7 @@ interi_add_module(hotreload SHARED
 
 if(NOT INTERI_BUILD_SHARED)
     # The sandbox still builds its module (it fails to load with Unsupported), so a static engine must be PIC.
-    set_target_properties(interi_core interi_jobs interi_ecs interi_platform interi_sdk interi_hotreload
+    set_target_properties(interi_core interi_jobs interi_ecs interi_platform interi_sdk interi_values interi_hotreload
         PROPERTIES POSITION_INDEPENDENT_CODE ON)
     return()
 endif()

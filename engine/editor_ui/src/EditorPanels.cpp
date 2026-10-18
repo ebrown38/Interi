@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-#include <interi/editor/EditorMath.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
+#include <interi/editor_ui/ValueWidgets.h>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -25,67 +26,13 @@ namespace
 /// Draws one field's widget; returns the edited value when it changed this frame.
 [[nodiscard]] std::optional<FieldValue> FieldWidget(const FieldInfo& field, const FieldValue& value)
 {
-    const char* label = field.name.c_str();
-    switch (field.type)
-    {
-    case FieldType::Bool:
-    {
-        bool edited = std::get<bool>(value);
-        if (ImGui::Checkbox(label, &edited))
-        {
-            return edited;
-        }
-        break;
-    }
-    case FieldType::U32:
-    {
-        std::uint32_t edited = std::get<std::uint32_t>(value);
-        if (ImGui::DragScalar(label, ImGuiDataType_U32, &edited, 1.0f))
-        {
-            return edited;
-        }
-        break;
-    }
-    case FieldType::Float:
-    {
-        float edited = std::get<float>(value);
-        if (ImGui::DragFloat(label, &edited, 0.05f))
-        {
-            return edited;
-        }
-        break;
-    }
-    case FieldType::Vec3:
-    {
-        Vec3 edited = std::get<Vec3>(value);
-        if (ImGui::DragFloat3(label, &edited.x, 0.05f))
-        {
-            return edited;
-        }
-        break;
-    }
-    case FieldType::Quat:
-    {
-        Vec3 degrees = EulerDegrees(std::get<Quat>(value));
-        if (ImGui::DragFloat3(label, &degrees.x, 0.5f))
-        {
-            return FromEulerDegrees(degrees);
-        }
-        break;
-    }
-    case FieldType::String:
-    {
-        // ImGui keeps its own buffer while the field is active; the edit is recorded once, when it is left.
-        std::string edited = std::get<std::string>(value);
-        (void)ImGui::InputText(label, &edited);
-        if (ImGui::IsItemDeactivatedAfterEdit())
-        {
-            return edited;
-        }
-        break;
-    }
-    }
-    return std::nullopt;
+    const values::ValueSchema schema{
+        .type = field.type,
+        .element = TypeOf(value) == FieldType::List ? std::get<values::ValueList>(value).element : FieldType::Float,
+        .options = {},
+        .meta = field.meta,
+        .defaultValue = value};
+    return ValueWidget(field.name.c_str(), schema, value);
 }
 
 } // namespace
@@ -107,6 +54,9 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout)
         ImGui::DockBuilderDockWindow(kToolsWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kFractureWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kStructureWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kValuesWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kCharactersWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kDataTablesWindow, bottom);
         ImGui::DockBuilderDockWindow(kAssetsWindow, bottom);
         ImGui::DockBuilderDockWindow(kViewportWindow, centre);
         ImGui::DockBuilderFinish(dockspace);

@@ -7,10 +7,13 @@
 //
 //   level_editor [--level <path under data/>] [--fracture <glTF under data/>] [--video-driver <name>]
 //                [--frames <count>] [--screenshot <file.ppm>] [--demo 1] [--validation 1]
+//                [--modules <dir> [--project <id>,<id>...] [--project-data <file.json>]]
 //
 // --frames exits after that many frames (smoke runs; --video-driver offscreen renders without a display, dummy has
 // no Vulkan so the UI runs without drawing). --demo plays the level, blows up the middle wall, then saves and verifies
-// a replay of it (the Structure panel's tools).
+// a replay of it (the Structure panel's tools). --modules edits the data of the module folders in <dir> (the project
+// order from --project, top first; default every module by id) in the Values, Characters and Data Tables panels;
+// --project-data is loaded at startup and saved with the level.
 #include <interi/core/Log.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/physics/JoltRuntime.h>
@@ -21,8 +24,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -36,6 +41,9 @@ struct Options
     std::string videoDriver;
     std::uint64_t maxFrames = 0; ///< 0 = run until quit.
     bool validation = false;
+    std::string modules;
+    std::vector<std::string> project;
+    std::string projectData;
 };
 
 Options ParseOptions(int argc, char** argv)
@@ -72,6 +80,21 @@ Options ParseOptions(int argc, char** argv)
         {
             options.validation = std::string_view(argv[i + 1]) == "1";
         }
+        else if (flag == "--modules")
+        {
+            options.modules = argv[i + 1];
+        }
+        else if (flag == "--project")
+        {
+            for (const auto part : std::views::split(std::string_view(argv[i + 1]), ','))
+            {
+                options.project.emplace_back(std::string_view(part.begin(), part.end()));
+            }
+        }
+        else if (flag == "--project-data")
+        {
+            options.projectData = argv[i + 1];
+        }
     }
     return options;
 }
@@ -107,7 +130,11 @@ int main(int argc, char** argv)
         interi::physics::JoltRuntime jolt; // play-in-editor and replays simulate with Jolt
         interi::JobSystem jobs;
         interi::editor::EditorApp app(**platform, **window, jobs,
-                                      {.dataDir = INTERI_EDITOR_DATA_DIR, .validation = options.validation});
+                                      {.dataDir = INTERI_EDITOR_DATA_DIR,
+                                       .validation = options.validation,
+                                       .modulesDir = options.modules,
+                                       .project = options.project,
+                                       .projectDataPath = options.projectData});
         if (auto opened = app.OpenLevel(options.level); !opened)
         {
             INTERI_LOG_ERROR("Editor", "{}: {}", options.level, opened.error().message);

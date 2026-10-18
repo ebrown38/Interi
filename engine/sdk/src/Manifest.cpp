@@ -51,9 +51,11 @@ constexpr MetadataField kQuietFields[] = {
     {"toolchain", &ModuleManifest::toolchain},
 };
 
+// The data sections ("values" to "dataTables") are parsed by interi::values (ParseModuleContent).
 constexpr std::string_view kKnownKeys[] = {
-    "id",       "name",   "version", "kind",      "author",       "license",   "copyright", "description", "icon",
-    "homepage", "engine", "library", "toolchain", "dependencies", "conflicts", "contracts", "overrides",
+    "id",        "name",     "version",    "kind",          "author",     "license",      "copyright", "description",
+    "icon",      "homepage", "engine",     "library",       "toolchain",  "dependencies", "conflicts", "contracts",
+    "overrides", "values",   "attributes", "attributeSets", "archetypes", "dataTables",
 };
 
 Result<std::string> GetString(const nlohmann::json& object, std::string_view key, std::string_view where)

@@ -2,5 +2,7 @@
   "id": "com.test.ext", "name": "Test Extension", "version": "1.0.0", "kind": "Extension",
   "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Declares shared ids",
   "engine": "*", "library": "interi_sdk_test_ext",
-  "contracts": ["service.Greeter", "input.Jump", "attr.Health"]
+  "contracts": ["service.Greeter", "input.Jump", "attr.Health", "value.Gravity"],
+  "values": [{ "id": "value.Gravity", "shared": true, "type": "float", "default": -9.81 }],
+  "attributes": [{ "id": "attr.Health", "shared": true, "type": "float", "default": 100, "min": 0, "max": 1000 }]
 }

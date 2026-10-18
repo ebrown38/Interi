@@ -32,6 +32,21 @@ struct ModuleHost::Loaded
     std::vector<std::string> systemNames; ///< By Scheduler::SystemId.
     std::vector<std::pair<ComponentTypeId, ComponentMigrator>> components;
     StateSaver saver;
+    void* stateObject = nullptr; ///< DeclareState: module memory, valid while the module is loaded.
+    std::vector<values::FieldInfo> stateFields;
+    values::ModuleContent content; ///< module.json data sections.
+
+    /// The declared state's fields by name (read before the module is unloaded for a reload).
+    [[nodiscard]] std::vector<std::pair<std::string, values::Value>> ReadState() const
+    {
+        std::vector<std::pair<std::string, values::Value>> state;
+        state.reserve(stateFields.size());
+        for (const values::FieldInfo& field : stateFields)
+        {
+            state.emplace_back(field.name, values::ReadField(field, stateObject));
+        }
+        return state;
+    }
 
     Loaded() = default;
     Loaded(const Loaded&) = delete;
@@ -64,15 +79,21 @@ namespace
 class Registrar final : public ModuleRegistrar
 {
 public:
-    Registrar(const sdk::ModuleScope& scope, std::span<const std::byte> savedState,
+    Registrar(const sdk::ModuleScope& scope, const values::DataRegistry& data, std::span<const std::byte> savedState,
               std::vector<std::string>& systemNames, Scheduler& scheduler,
-              std::vector<std::pair<ComponentTypeId, ComponentMigrator>>& components, StateSaver& saver)
+              std::vector<std::pair<ComponentTypeId, ComponentMigrator>>& components, StateSaver& saver,
+              std::span<const std::pair<std::string, values::Value>> savedFields, void*& stateObject,
+              std::vector<values::FieldInfo>& stateFields)
         : m_scope(&scope)
+        , m_data(&data)
         , m_savedState(savedState)
         , m_systemNames(&systemNames)
         , m_scheduler(&scheduler)
         , m_components(&components)
         , m_saver(&saver)
+        , m_savedFields(savedFields)
+        , m_stateObject(&stateObject)
+        , m_stateFields(&stateFields)
     {
     }
     Registrar(const Registrar&) = delete;
@@ -103,8 +124,29 @@ public:
     }
 
     [[nodiscard]] const sdk::ModuleScope& Scope() const override { return *m_scope; }
+    [[nodiscard]] const values::DataRegistry& Data() const override { return *m_data; }
     [[nodiscard]] std::span<const std::byte> SavedState() const override { return m_savedState; }
     void SetStateSaver(StateSaver saver) override { *m_saver = std::move(saver); }
+
+    void DeclareState(void* object, std::vector<values::FieldInfo> fields) override
+    {
+        if (object == nullptr || *m_stateObject != nullptr)
+        {
+            Fail("DeclareState needs an object and may be called once");
+            return;
+        }
+        for (const values::FieldInfo& field : fields)
+        {
+            const auto saved =
+                std::ranges::find(m_savedFields, field.name, &std::pair<std::string, values::Value>::first);
+            if (saved != m_savedFields.end())
+            {
+                (void)values::WriteField(field, object, saved->second); // false (kept) if the type changed
+            }
+        }
+        *m_stateObject = object;
+        *m_stateFields = std::move(fields);
+    }
 
     /// Applies the RunAfter orders (systems may be named before they are added) and builds the scheduler.
     Result<void> Finish()
@@ -147,12 +189,16 @@ private:
     }
 
     const sdk::ModuleScope* m_scope;
+    const values::DataRegistry* m_data;
     std::span<const std::byte> m_savedState;
     std::vector<std::string>* m_systemNames;
     Scheduler* m_scheduler;
     std::vector<std::pair<ComponentTypeId, ComponentMigrator>>* m_components;
     StateSaver* m_saver;
     std::vector<std::pair<std::string, std::string>> m_orders;
+    std::span<const std::pair<std::string, values::Value>> m_savedFields;
+    void** m_stateObject;
+    std::vector<values::FieldInfo>* m_stateFields;
     std::string m_error;
 };
 
@@ -239,6 +285,14 @@ Result<std::uint32_t> MigrateComponents(World& world,
     return static_cast<std::uint32_t>(migrations.size());
 }
 
+void LogContentWarnings(const values::ModuleContent& content)
+{
+    for (const std::string& warning : content.warnings)
+    {
+        INTERI_LOG_WARN("HotReload", "module '{}': {}", content.module, warning);
+    }
+}
+
 std::vector<std::filesystem::path> LibraryFileNames(std::string_view base)
 {
 #if defined(_WIN32)
@@ -268,6 +322,7 @@ struct ModuleHost::Plan
     std::vector<std::string> outgoing;
     std::vector<std::unique_ptr<Loaded>> incoming;
     std::map<std::string, std::vector<std::byte>, std::less<>> savedStates;
+    std::map<std::string, std::vector<std::pair<std::string, values::Value>>, std::less<>> savedFields;
     std::optional<sdk::ModuleSet> moduleSet; ///< Replaces the providers (a new project).
     std::optional<sdk::ModuleGraph> graph;
 };
@@ -277,6 +332,7 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     , m_desc(std::move(desc))
     , m_moduleSet(std::make_unique<sdk::ModuleSet>())
     , m_hooks(std::make_unique<sdk::HookRegistry>(*m_moduleSet))
+    , m_data(std::make_unique<values::DataRegistry>(*m_moduleSet))
 {
     if (m_desc.shadowDirectory.empty())
     {
@@ -291,6 +347,7 @@ ModuleHost::~ModuleHost()
     while (!m_modules.empty())
     {
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
+        m_data->RemoveProvider(m_modules.back()->id);
         m_modules.pop_back();
     }
 }
@@ -361,14 +418,15 @@ Result<std::unique_ptr<ModuleHost::Loaded>> ModuleHost::Open(const std::string& 
     return module;
 }
 
-Result<void> ModuleHost::Register(Loaded& module, std::span<const std::byte> savedState)
+Result<void> ModuleHost::Register(Loaded& module, std::span<const std::byte> savedState,
+                                  std::span<const std::pair<std::string, values::Value>> savedFields)
 {
     if (module.api == nullptr)
     {
         return {};
     }
-    Registrar registrar(*module.scope, savedState, module.systemNames, *module.scheduler, module.components,
-                        module.saver);
+    Registrar registrar(*module.scope, *m_data, savedState, module.systemNames, *module.scheduler, module.components,
+                        module.saver, savedFields, module.stateObject, module.stateFields);
     const ModuleContext context{.abiVersion = kModuleAbiVersion, .registrar = &registrar};
     module.attached = true;
     if (!module.api->load(context))
@@ -410,10 +468,12 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     // Take the outgoing modules' hooks out (kept for a rollback), switch providers if this is a new project, then
     // register the incoming modules in load order.
     std::vector<HookEntries> extracted;
+    std::vector<values::ExtractedData> extractedData;
     extracted.reserve(plan.outgoing.size());
     for (const std::string& id : plan.outgoing)
     {
         extracted.push_back(m_hooks->Registry().ExtractProvider(id));
+        extractedData.push_back(m_data->ExtractProvider(id));
     }
     std::optional<sdk::ModuleSet> previousSet;
     if (plan.moduleSet)
@@ -427,6 +487,7 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
         for (const auto& module : plan.incoming)
         {
             m_hooks->Registry().RemoveProvider(module->id);
+            m_data->RemoveProvider(module->id);
         }
         if (previousSet)
         {
@@ -435,6 +496,10 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
         for (HookEntries& entries : extracted)
         {
             m_hooks->Registry().Restore(std::move(entries));
+        }
+        for (values::ExtractedData& data : extractedData)
+        {
+            m_data->Restore(std::move(data));
         }
         // Dependents first, like any unload.
         while (!plan.incoming.empty())
@@ -451,7 +516,15 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
         const auto saved = plan.savedStates.find(module->id);
         const std::span<const std::byte> state =
             saved != plan.savedStates.end() ? std::span<const std::byte>(saved->second) : std::span<const std::byte>{};
-        if (auto registered = Register(*module, state); !registered)
+        if (auto added = m_data->AddModule(module->content); !added)
+        {
+            return rollback(std::move(added.error()));
+        }
+        const auto fields = plan.savedFields.find(module->id);
+        const std::span<const std::pair<std::string, values::Value>> savedFields =
+            fields != plan.savedFields.end() ? std::span<const std::pair<std::string, values::Value>>(fields->second)
+                                             : std::span<const std::pair<std::string, values::Value>>{};
+        if (auto registered = Register(*module, state, savedFields); !registered)
         {
             return rollback(std::move(registered.error()));
         }
@@ -467,7 +540,14 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     stats.reloadedModules = static_cast<std::uint32_t>(plan.incoming.size());
 
     // Commit: the old hook entries go first (their code is still loaded), then the old instances, dependents first.
+    // Character blocks follow their archetypes' new layouts; project data that no longer fits is reported.
     extracted.clear();
+    extractedData.clear();
+    stats.migratedAttributeBlocks = m_data->Characters().MigrateBlocks(*m_world);
+    for (const std::string& warning : m_data->Revalidate())
+    {
+        INTERI_LOG_WARN("HotReload", "{}", warning);
+    }
     std::vector<std::unique_ptr<Loaded>> leaving;
     for (const std::string& id : plan.outgoing)
     {
@@ -525,12 +605,16 @@ Result<ModuleLoadStats> ModuleHost::LoadProject(std::span<const std::string> pro
         {
             plan.savedStates[module->id] = module->saver();
         }
+        plan.savedFields[module->id] = module->ReadState();
     }
     for (const std::size_t index : graph.loadOrder)
     {
         const sdk::ModuleManifest& manifest = graph.modules[index].manifest;
         INTERI_TRY_ASSIGN(library, FindLibrary(manifest));
         INTERI_TRY_ASSIGN(module, Open(manifest.id, library));
+        INTERI_TRY_ASSIGN(content, values::LoadModuleContent(manifest));
+        LogContentWarnings(content);
+        module->content = std::move(content);
         plan.incoming.push_back(std::move(module));
     }
     // The outgoing modules may be the same ids; their order matters for the saved states only.
@@ -568,6 +652,7 @@ Result<ModuleLoadStats> ModuleHost::Load(const std::filesystem::path& path)
         {
             plan.savedStates[std::string(kLocalModuleId)] = m_modules.front()->saver();
         }
+        plan.savedFields[std::string(kLocalModuleId)] = m_modules.front()->ReadState();
     }
     else
     {
@@ -632,11 +717,18 @@ Result<ModuleLoadStats> ModuleHost::Reload(std::string_view id)
     {
         const auto it = std::ranges::find_if(m_modules, [&](const auto& module) { return module->id == name; });
         INTERI_TRY_ASSIGN(module, Open(name, (*it)->libraryPath));
+        if (const sdk::ResolvedModule* resolved = m_graph.Get(name))
+        {
+            INTERI_TRY_ASSIGN(content, values::LoadModuleContent(resolved->manifest));
+            LogContentWarnings(content);
+            module->content = std::move(content);
+        }
         plan.incoming.push_back(std::move(module));
         if ((*it)->saver)
         {
             plan.savedStates[name] = (*it)->saver();
         }
+        plan.savedFields[name] = (*it)->ReadState();
     }
     plan.outgoing.assign(affected.rbegin(), affected.rend()); // dependents leave first
     INTERI_TRY_ASSIGN(stats, Execute(std::move(plan)));
@@ -651,6 +743,7 @@ void ModuleHost::Unload()
     while (!m_modules.empty())
     {
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
+        m_data->RemoveProvider(m_modules.back()->id);
         LogUnload(*m_modules.back());
         m_modules.pop_back();
     }

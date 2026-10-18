@@ -3,12 +3,14 @@
 
 #include <interi/core/Result.h>
 #include <interi/editor/AssetBrowser.h>
+#include <interi/editor/DataEditing.h>
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
+#include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/FracturePanel.h>
 #include <interi/editor_ui/ImGuiInput.h>
@@ -35,6 +37,13 @@ struct EditorAppDesc
 {
     std::filesystem::path dataDir; ///< The data/ tree: levels, assets.
     bool validation = false;       ///< Vulkan validation layers.
+    /// A folder of module folders (each with a module.json): their data sections are edited in the Values,
+    /// Characters and Data Tables panels. Empty: no project data.
+    std::filesystem::path modulesDir;
+    /// The project's module order (top = highest priority); empty: every module found, by id.
+    std::vector<std::string> project;
+    /// The project data file (ProjectData.h), loaded at startup if it exists and written with the level.
+    std::filesystem::path projectDataPath;
 };
 
 struct FrameResult
@@ -76,6 +85,8 @@ public:
     }
 
     [[nodiscard]] EditorDocument& Document() noexcept { return m_document; }
+    /// The project's module data, or nullptr without --modules.
+    [[nodiscard]] ProjectData* Project() noexcept { return m_project.get(); }
 
 private:
     void DrawViewport();
@@ -87,6 +98,9 @@ private:
     [[nodiscard]] Vec3 PlacementPoint(const Ray& ray) const;
     [[nodiscard]] AssetBoundsFn Bounds();
     void BuildScene();
+    /// Resolves the modules of `desc` and loads the project data file (errors are logged; no project then).
+    void OpenProject(const EditorAppDesc& desc);
+    void SaveProjectData();
 
     // Fracture authoring.
     [[nodiscard]] bool PreviewActive() const;
@@ -122,6 +136,9 @@ private:
     ImGuiInput m_input;
     std::unique_ptr<EditorRenderer> m_renderer;
     EditorDocument m_document;
+    std::unique_ptr<ProjectData> m_project;
+    std::filesystem::path m_projectDataPath;
+    DataPanelState m_dataPanels;
     OrbitCamera m_camera;
     ToolSettings m_tools;
     std::vector<AssetEntry> m_assetList;

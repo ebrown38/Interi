@@ -9,12 +9,15 @@
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Manifest.h>
 #include <interi/testing/ScopedTempDir.h>
+#include <interi/values/Characters.h>
 
 #include "../sdk/SdkTestModules.h"
 #include "modules/TestComponents.h"
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -56,6 +59,17 @@ public:
 private:
     std::shared_ptr<std::vector<std::string>> m_unloaded;
 };
+
+std::string ReadText(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+void WriteText(const std::filesystem::path& path, const std::string& text)
+{
+    std::ofstream(path, std::ios::binary | std::ios::trunc) << text;
+}
 
 interi::JobSystemDesc Workers(std::uint32_t count)
 {
@@ -211,6 +225,69 @@ TEST_F(ModuleProjectTest, Reload_Failure_KeepsOldModules)
     EXPECT_EQ(host.Reload("com.test.unknown").error().code, ErrorCode::NotFound);
 }
 
+TEST_F(ModuleProjectTest, Data_RegisteredBeforeCode_ProjectValuesSurviveReload)
+{
+    ModuleHost host(world, Desc());
+    ASSERT_TRUE(host.LoadProject(kProject, manifests).has_value());
+    EXPECT_EQ(host.Data().Values().Get<float>("com.test.a:JumpHeight"), 2.5f); // B's override
+    const auto jump = host.Hooks().Find<Fire>("com.test.a:Jump");
+    ASSERT_TRUE(jump.IsValid());
+    EXPECT_EQ(jump(0), 25); // module code reads the host's data
+
+    ASSERT_TRUE(host.Data().Values().SetProjectValue("com.test.a:JumpHeight", 4.0f).has_value());
+    EXPECT_EQ(jump(0), 40);
+    ASSERT_TRUE(host.Reload("com.test.ext").has_value()); // reloads everything
+    EXPECT_EQ(host.Data().Values().Get<float>("com.test.a:JumpHeight"), 4.0f);
+    EXPECT_EQ(host.Hooks().Find<Fire>("com.test.a:Jump")(0), 40);
+}
+
+TEST_F(ModuleProjectTest, Reload_RereadsData_MigratesAttributeBlocks)
+{
+    // A private copy of the manifests, so one can be edited.
+    const std::filesystem::path modules = m_temp.Path() / "modules";
+    std::vector<interi::sdk::ModuleManifest> copied;
+    for (const char* name : {"ext", "a", "b", "plugin"})
+    {
+        std::filesystem::create_directories(modules / name);
+        std::filesystem::copy_file(interi::testing::kSdkTestModulesDir / name / "module.json",
+                                   modules / name / "module.json");
+        copied.push_back(interi::sdk::LoadManifest(modules / name).value());
+    }
+    ModuleHost host(world, Desc());
+    ASSERT_TRUE(host.LoadProject(kProject, copied).has_value());
+    const auto layout = host.Data().Characters().Layout("com.test.a:Soldier");
+    ASSERT_TRUE(layout.has_value()) << layout.error().message;
+    const interi::Entity soldier = world.CreateEntity();
+    (void)world.Add(soldier, interi::values::MakeAttributeBlock(*layout).value());
+
+    const auto rewrite = [&](std::string_view from, std::string_view to)
+    {
+        const std::filesystem::path path = modules / "b" / "module.json";
+        std::string text = ReadText(path);
+        const std::size_t at = text.find(from);
+        ASSERT_NE(at, std::string::npos) << from;
+        text.replace(at, from.size(), to);
+        WriteText(path, text);
+    };
+
+    // Invalid data fails the reload and keeps what was loaded.
+    rewrite(R"("default": 2.5, "min": 0, "max": 20)", R"("default": 25, "min": 0, "max": 20)");
+    const auto failed = host.Reload("com.test.b");
+    ASSERT_FALSE(failed.has_value());
+    EXPECT_EQ(host.Data().Values().Get<float>("com.test.a:JumpHeight"), 2.5f);
+    EXPECT_EQ(host.LoadedModules().size(), 4u);
+
+    // Armor becomes a float attribute: the block is migrated by attribute id.
+    rewrite(R"("default": 25, "min": 0, "max": 20)", R"("default": 2.5, "min": 0, "max": 20)");
+    rewrite(R"({ "id": "Armor", "type": "int", "default": 10)", R"({ "id": "Armor", "type": "float", "default": 10)");
+    const auto stats = host.Reload("com.test.b");
+    ASSERT_TRUE(stats.has_value()) << stats.error().message;
+    EXPECT_EQ(stats->migratedAttributeBlocks, 1u);
+    EXPECT_EQ(
+        interi::values::GetAttribute<float>(*world.Get<interi::values::AttributeBlock>(soldier), "com.test.b:Armor"),
+        25.0f);
+}
+
 TEST_F(ModuleProjectTest, Unload_RemovesEverything)
 {
     ModuleHost host(world, Desc());
@@ -218,6 +295,7 @@ TEST_F(ModuleProjectTest, Unload_RemovesEverything)
     host.Unload();
     EXPECT_FALSE(host.IsLoaded());
     EXPECT_TRUE(host.Hooks().Registry().Ids().empty());
+    EXPECT_TRUE(host.Data().Values().Ids().empty());
     EXPECT_FALSE(host.Hooks().Find<Fire>("com.test.a:Fire").IsValid());
 }
 

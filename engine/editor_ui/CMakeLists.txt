@@ -7,20 +7,25 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/editor_ui)
 
 interi_add_module(editor_ui
     SOURCES
+        src/DataPanels.cpp
         src/EditorPanels.cpp
         src/FracturePanel.cpp
         src/HeaderCheck.cpp
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
         src/StructurePanel.cpp
+        src/ValueWidgets.cpp
         src/ViewportOverlay.cpp
     DEPS interi::editor interi::render interi::rhi interi::platform imgui::imgui
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/DataPanelsTests.cpp
         ${_tests}/EditorPanelsTests.cpp
         ${_tests}/FracturePanelTests.cpp
         ${_tests}/ImGuiInputTests.cpp
         ${_tests}/StructurePanelTests.cpp)
+target_compile_definitions(interi_editor_ui_tests PRIVATE
+    INTERI_SDK_TEST_MODULES_DIR="${PROJECT_SOURCE_DIR}/tests/sdk/modules")
 interi_add_shaders(interi_editor_ui
     SOURCES
         shaders/ImGui.ps.hlsl

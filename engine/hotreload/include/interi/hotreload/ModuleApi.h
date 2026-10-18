@@ -16,6 +16,9 @@
 //     pointers, std::functions. Systems, hooks and the state saver are destroyed before the module is unloaded.
 //   - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking against
 //     its library (a shadow-copied DLL wouldn't satisfy a link-time import on Windows).
+// Module data (Values, attributes, data tables) is declared in module.json, not in code; the host registers it
+// before the module's Register runs, and module code reads it through Data() (owned by the host, so a system may
+// keep the reference).
 //
 // Write a module like this:
 //
@@ -23,6 +26,7 @@
 //   {
 //       interi::hotreload::DeclareComponent<Health>(registrar);
 //       registrar.AddSystem("Regenerate", interi::SystemAccess{}.Write<Health>(), [](interi::SystemContext& c) {...});
+//       interi::hotreload::DeclareState(registrar, g_state, {interi::values::Field("kills", &State::kills)});
 //       const auto& scope = registrar.Scope(); // hooks: DeclareHook, DeclareFactory, INTERI_OVERRIDE
 //       return scope.DeclareHook<int(int)>(scope.Local("Damage"), ...).has_value();
 //   }
@@ -33,6 +37,8 @@
 #include <interi/ecs/Scheduler.h>
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Toolchain.h>
+#include <interi/values/DataRegistry.h>
+#include <interi/values/Reflection.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -45,7 +51,8 @@
 namespace interi::hotreload
 {
 
-/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar or the hook types change (part of the fingerprint).
+/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar, the hook types or DataRegistry change (part of the
+/// fingerprint).
 inline constexpr std::uint32_t kModuleAbiVersion = INTERI_MODULE_ABI_VERSION;
 
 /// Converts one component from an older layout version to the declared one: reads `fromSize` bytes at `from`
@@ -75,6 +82,14 @@ public:
 
     /// The module's provider id and the project's hooks (declare hooks and factories, override other modules').
     [[nodiscard]] virtual const sdk::ModuleScope& Scope() const = 0;
+    /// The project's data: every loaded module's Values, attributes and tables with the project's overrides. Valid
+    /// until the host is destroyed.
+    [[nodiscard]] virtual const values::DataRegistry& Data() const = 0;
+    /// Declares module-global state as reflected fields of the object at `object` (use DeclareState). The host
+    /// writes the previous instance's values of fields with the same name and type into it now, and reads them
+    /// again before this instance is unloaded for a reload; fields that are new or changed type keep what the module
+    /// initialised them to. `object` must stay valid while the module is loaded (a global).
+    virtual void DeclareState(void* object, std::vector<values::FieldInfo> fields) = 0;
     /// What the previous instance's StateSaver returned (empty on the first load).
     [[nodiscard]] virtual std::span<const std::byte> SavedState() const = 0;
     /// Called before this instance is unloaded for a reload.
@@ -91,6 +106,14 @@ void DeclareComponent(ModuleRegistrar& registrar, ComponentMigrator migrator = n
     static_assert(std::is_trivially_copyable_v<T>, "hot-reloadable components must be trivially copyable");
     static_assert(detail::HasComponentName<T>, "hot-reloadable components need a kComponentName");
     registrar.DeclareComponent(ComponentId<T>(), migrator);
+}
+
+/// Declares `state` (a module global) as the module's reflected state: its `fields` (values::Field(&T::member))
+/// survive reloads by name.
+template <typename T>
+void DeclareState(ModuleRegistrar& registrar, T& state, std::vector<values::FieldInfo> fields)
+{
+    registrar.DeclareState(&state, std::move(fields));
 }
 
 /// Handed to the module when it is loaded.

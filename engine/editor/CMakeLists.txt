@@ -7,6 +7,7 @@ interi_add_module(editor
     SOURCES
         src/AssetBrowser.cpp
         src/Commands.cpp
+        src/DataEditing.cpp
         src/EditorCamera.cpp
         src/EditorDocument.cpp
         src/EditorMath.cpp
@@ -21,9 +22,10 @@ interi_add_module(editor
         src/Replay.cpp
         src/StructureDebug.cpp
         src/UndoStack.cpp
-    DEPS interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    DEPS interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
+        ${_tests}/DataEditingTests.cpp
         ${_tests}/EditorCameraTests.cpp
         ${_tests}/EditorDocumentTests.cpp
         ${_tests}/EditorSceneTests.cpp
@@ -36,7 +38,8 @@ interi_add_module(editor
         ${_tests}/ReflectionTests.cpp
         ${_tests}/UndoStackTests.cpp)
 target_compile_definitions(interi_editor_tests PRIVATE
-    INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json")
+    INTERI_TEST_MATERIALS_FILE="${PROJECT_SOURCE_DIR}/data/destruction/materials.json"
+    INTERI_SDK_TEST_MODULES_DIR="${PROJECT_SOURCE_DIR}/tests/sdk/modules")
 
 # Replays at 1 / 4 / 32 workers (label stress).
 interi_add_test_executable(interi_editor_stress_tests

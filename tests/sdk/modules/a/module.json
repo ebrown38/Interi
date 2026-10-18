@@ -2,5 +2,21 @@
   "id": "com.test.a", "name": "Test Module A", "version": "1.2.0", "kind": "Module",
   "author": "Interi", "license": "MIT", "copyright": "Interi contributors", "description": "Lower module",
   "engine": "*", "library": "interi_sdk_test_a",
-  "dependencies": [{ "id": "com.test.ext", "version": "^1" }]
+  "dependencies": [{ "id": "com.test.ext", "version": "^1" }],
+  "values": [
+    { "id": "JumpHeight", "type": "float", "default": 1.2, "min": 0, "max": 10, "unit": "m", "category": "Movement" },
+    { "id": "FireMode", "type": "enum", "options": ["Single", "Auto"], "default": "Single", "category": "Weapons" },
+    { "id": "value.Gravity", "shared": true, "type": "float", "default": -20 }
+  ],
+  "attributes": [
+    { "id": "attr.Health", "shared": true, "type": "float", "default": 80, "min": 0, "max": 200 },
+    { "id": "Stamina", "type": "float", "default": 50, "min": 0, "max": 100 }
+  ],
+  "attributeSets": [{ "id": "Vitals", "attributes": ["attr.Health", "com.test.a:Stamina"] }],
+  "archetypes": [{ "id": "Soldier", "sets": ["com.test.a:Vitals"], "defaults": { "attr.Health": 120 } }],
+  "dataTables": [{ "id": "Guns", "version": 2, "columns": [
+    { "name": "range", "type": "float", "default": 50, "min": 0, "max": 100, "unit": "m", "renamedFrom": ["reach"] },
+    { "name": "power", "type": "int", "default": 5, "min": 1, "max": 10 },
+    { "name": "mode", "type": "enum", "options": ["Single", "Auto"] }
+  ] }]
 }

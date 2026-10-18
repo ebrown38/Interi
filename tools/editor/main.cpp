@@ -25,6 +25,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <ranges>
 #include <string>
@@ -47,6 +48,7 @@ struct Options
     std::vector<std::string> project;
     std::string projectData;
     std::string projectFolder;
+    std::vector<std::filesystem::path> moduleLibraries;
     bool play = false;
 };
 
@@ -99,6 +101,13 @@ Options ParseOptions(int argc, char** argv)
         {
             options.play = std::string_view(argv[i + 1]) == "1";
         }
+        else if (flag == "--module-libs")
+        {
+            for (const auto part : std::views::split(std::string_view(argv[i + 1]), ','))
+            {
+                options.moduleLibraries.emplace_back(std::string_view(part.begin(), part.end()));
+            }
+        }
         else if (flag == "--project-file")
         {
             options.projectFolder = argv[i + 1];
@@ -147,7 +156,8 @@ int main(int argc, char** argv)
                                        .modulesDir = options.modules,
                                        .project = options.project,
                                        .projectDataPath = options.projectData,
-                                       .preferencesPath = {}});
+                                       .preferencesPath = {},
+                                       .moduleLibraries = options.moduleLibraries});
         if (!options.projectFolder.empty())
         {
             app.OpenProject(options.projectFolder);

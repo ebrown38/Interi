@@ -55,6 +55,9 @@ add_subdirectory(tests)
 add_subdirectory(benchmarks)
 add_subdirectory(tools)
 add_subdirectory(game)
+if(INTERI_BUILD_SHARED)
+    add_subdirectory(samples/modules/starter) # a sample Module, built like any out-of-tree one
+endif()
 
 include(InteriPackage) # after the libraries and tools/module_check
 include(InteriCoverage) # after all test executables are declared

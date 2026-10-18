@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "tables": {
+    "com.interi.starter:CoinKinds": {
+      "copper": { "value": 1, "label": "Copper" },
+      "gold": { "value": 10, "label": "Gold" },
+      "silver": { "value": 5, "label": "Silver" }
+    }
+  },
+  "schemas": { "tables": { "com.interi.starter:CoinKinds": 1 } }
+}

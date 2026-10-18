@@ -22,5 +22,8 @@ set_tests_properties(InteriModule_MissingTestSources_FailsConfigure PROPERTIES
     LABELS unit
     PASS_REGULAR_EXPRESSION "TEST_SOURCES is required")
 
+# --- The committed starter sample, played headless ----------------------------------------
+add_subdirectory(samples)
+
 # --- Engine package: install, then build gameplay modules out of tree ----------------------
 add_subdirectory(package)

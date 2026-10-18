@@ -7,3 +7,5 @@
 #include <interi/scene/SceneComponents.h>
 #include <interi/scene/SceneFile.h>
 #include <interi/scene/SceneRuntime.h>
+#include <interi/scene/SceneSave.h>
+#include <interi/scene/Triggers.h>

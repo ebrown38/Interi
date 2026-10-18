@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "hud",
+  "referenceSize": [1280, 720],
+  "widgets": [
+    { "id": "coins", "type": "text", "anchor": "topLeft", "offset": [16, 16], "size": [260, 28],
+      "text": "Coins {com.interi.starter:coins}/{com.interi.starter:total}" },
+    { "id": "score", "type": "text", "anchor": "topRight", "offset": [-276, 16], "size": [260, 28],
+      "text": "Score {com.interi.starter:score}" },
+    { "id": "progress", "type": "bar", "anchor": "bottom", "offset": [0, -24], "size": [400, 14],
+      "bind": "com.interi.starter:coins", "min": 0, "max": 5, "color": [0.95, 0.8, 0.2, 1] },
+    { "id": "win", "type": "text", "anchor": "center", "size": [300, 40], "text": "You collected every coin!",
+      "visibleIf": "com.interi.starter:won", "color": [0.4, 1, 0.5, 1] }
+  ]
+}

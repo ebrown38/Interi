@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "pause",
+  "widgets": [
+    { "id": "title", "type": "text", "anchor": "top", "offset": [0, 120], "size": [400, 48], "text": "Paused" },
+    { "id": "resume", "type": "button", "anchor": "center", "offset": [0, -60], "size": [240, 44], "text": "Resume", "action": "game.resume" },
+    { "id": "save", "type": "button", "anchor": "center", "offset": [0, 0], "size": [240, 44], "text": "Save", "action": "game.save:0" },
+    { "id": "load", "type": "button", "anchor": "center", "offset": [0, 60], "size": [240, 44], "text": "Load", "action": "game.load:0" },
+    { "id": "settings", "type": "button", "anchor": "center", "offset": [0, 120], "size": [240, 44], "text": "Settings", "action": "menu.push:settings" },
+    { "id": "quit", "type": "button", "anchor": "center", "offset": [0, 180], "size": [240, 44], "text": "Quit", "action": "app.quit" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "main_menu",
+  "widgets": [
+    { "id": "title", "type": "text", "anchor": "top", "offset": [0, 120], "size": [400, 48], "text": "Coin Run" },
+    { "id": "play", "type": "button", "anchor": "center", "offset": [0, -30], "size": [240, 44], "text": "Play", "action": "game.start" },
+    { "id": "settings", "type": "button", "anchor": "center", "offset": [0, 30], "size": [240, 44], "text": "Settings", "action": "menu.push:settings" },
+    { "id": "quit", "type": "button", "anchor": "center", "offset": [0, 90], "size": [240, 44], "text": "Quit", "action": "app.quit" }
+  ]
+}

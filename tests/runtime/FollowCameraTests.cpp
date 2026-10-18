@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-#include <interi/gameplay/FollowCamera.h>
+#include <interi/runtime/FollowCamera.h>
 #include <interi/testing/ExpectNear.h>
 
 #include <gtest/gtest.h>
 
 #include <numbers>
 
+using interi::FollowCamera;
 using interi::Vec3;
-using interi::gameplay::FollowCamera;
 
 TEST(FollowCamera, YawZero_LooksAlongMinusZ)
 {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/Projects.h>
+#include <interi/game/ProjectModules.h>
 #include <interi/scene/SceneFile.h>
 
 #include <algorithm>
@@ -83,22 +84,7 @@ Result<sdk::Project> CreateProject(const std::filesystem::path& directory, std::
 
 Result<std::vector<sdk::ModuleManifest>> LoadProjectModules(const sdk::Project& project)
 {
-    std::vector<sdk::ModuleManifest> manifests;
-    for (const std::string& folder : project.moduleDirs)
-    {
-        std::error_code error;
-        for (const auto& entry : std::filesystem::directory_iterator(project.directory / folder, error))
-        {
-            if (!std::filesystem::exists(entry.path() / "module.json"))
-            {
-                continue;
-            }
-            INTERI_TRY_ASSIGN(manifest, sdk::LoadManifest(entry.path()));
-            manifests.push_back(std::move(manifest));
-        }
-    }
-    std::ranges::sort(manifests, {}, &sdk::ModuleManifest::id);
-    return manifests;
+    return game::LoadProjectManifests(project);
 }
 
 PhysicsEngineStatus DescribePhysicsEngine(const sdk::ModuleGraph& graph, const sdk::Project& project,

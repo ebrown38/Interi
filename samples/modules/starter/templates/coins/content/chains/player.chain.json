@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "nodes": [
+    { "id": "left", "event": "trigger.InputAction", "params": { "key": { "const": "moveLeft" } } },
+    { "id": "right", "event": "trigger.InputAction", "params": { "key": { "const": "moveRight" } } },
+    { "id": "up", "event": "trigger.InputAction", "params": { "key": { "const": "moveUp" } } },
+    { "id": "down", "event": "trigger.InputAction", "params": { "key": { "const": "moveDown" } } },
+    { "id": "stepLeft", "event": "world.Move", "params": { "delta": { "const": [-1, 0, 0] } } },
+    { "id": "stepRight", "event": "world.Move", "params": { "delta": { "const": [1, 0, 0] } } },
+    { "id": "stepUp", "event": "world.Move", "params": { "delta": { "const": [0, 0, -1] } } },
+    { "id": "stepDown", "event": "world.Move", "params": { "delta": { "const": [0, 0, 1] } } }
+  ],
+  "links": [
+    { "from": "left", "to": "stepLeft" },
+    { "from": "right", "to": "stepRight" },
+    { "from": "up", "to": "stepUp" },
+    { "from": "down", "to": "stepDown" }
+  ]
+}

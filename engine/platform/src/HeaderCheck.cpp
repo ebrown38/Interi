@@ -4,6 +4,7 @@
 #include <interi/platform/AsyncFileReader.h>
 #include <interi/platform/DynamicLibrary.h>
 #include <interi/platform/FileSystem.h>
+#include <interi/platform/InputConfig.h>
 #include <interi/platform/InputEvents.h>
 #include <interi/platform/InputMapper.h>
 #include <interi/platform/Window.h>

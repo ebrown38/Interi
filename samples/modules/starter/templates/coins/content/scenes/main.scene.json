@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "objects": [
+    { "id": 1, "components": {
+        "interi.Name": { "name": "Player" },
+        "interi.Chains": { "chains": ["content/chains/player.chain.json"] },
+        "interi.TriggerActor": { "radius": 0.1 } } },
+    { "id": 2, "components": {
+        "interi.Name": { "name": "Rules" },
+        "interi.Chains": { "chains": ["content/chains/coins.chain.json", "content/chains/rules.chain.json"], "global": true } } },
+    { "id": 10, "components": { "interi.Name": { "name": "Copper coin" },
+        "interi.LocalTransform": { "position": [1, 0, 0] },
+        "interi.TriggerVolume": { "shape": "Box", "halfExtents": [0.4, 0.4, 0.4], "tag": "copper" } } },
+    { "id": 11, "components": { "interi.Name": { "name": "Silver coin" },
+        "interi.LocalTransform": { "position": [2, 0, 0] },
+        "interi.TriggerVolume": { "shape": "Box", "halfExtents": [0.4, 0.4, 0.4], "tag": "silver" } } },
+    { "id": 12, "components": { "interi.Name": { "name": "Gold coin" },
+        "interi.LocalTransform": { "position": [3, 0, 0] },
+        "interi.TriggerVolume": { "shape": "Box", "halfExtents": [0.4, 0.4, 0.4], "tag": "gold" } } },
+    { "id": 13, "components": { "interi.Name": { "name": "Copper coin" },
+        "interi.LocalTransform": { "position": [3, 0, 1] },
+        "interi.TriggerVolume": { "shape": "Box", "halfExtents": [0.4, 0.4, 0.4], "tag": "copper" } } },
+    { "id": 14, "components": { "interi.Name": { "name": "Silver coin" },
+        "interi.LocalTransform": { "position": [2, 0, 1] },
+        "interi.TriggerVolume": { "shape": "Box", "halfExtents": [0.4, 0.4, 0.4], "tag": "silver" } } }
+  ]
+}

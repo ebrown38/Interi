@@ -10,12 +10,14 @@ interi_add_module(editor
         src/DataEditing.cpp
         src/EditorCamera.cpp
         src/EditorDocument.cpp
+        src/EditorModules.cpp
         src/EditorMath.cpp
         src/EditorScene.cpp
         src/EditorServices.cpp
         src/FracturePreview.cpp
         src/Gizmo.cpp
         src/HeaderCheck.cpp
+        src/HudEditing.cpp
         src/Inspector.cpp
         src/LevelBridge.cpp
         src/Modeling.cpp
@@ -28,17 +30,19 @@ interi_add_module(editor
         src/ScenePlay.cpp
         src/StructureDebug.cpp
         src/UndoStack.cpp
-    DEPS interi::modeling interi::scene interi::runtime interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
+    DEPS interi::modeling interi::scene interi::hud interi::game interi::runtime interi::values interi::gameplay interi::destruction_cook interi::render interi::ecs interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing interi::physics_testing
     TEST_SOURCES
         ${_tests}/DataEditingTests.cpp
         ${_tests}/EditorCameraTests.cpp
         ${_tests}/EditorDocumentTests.cpp
+        ${_tests}/EditorModulesTests.cpp
         ${_tests}/EditorSceneTests.cpp
         ${_tests}/EditorServicesTests.cpp
         ${_tests}/FracturePreviewTests.cpp
         ${_tests}/GizmoTests.cpp
+        ${_tests}/HudEditingTests.cpp
         ${_tests}/InspectorTests.cpp
         ${_tests}/ModelingTests.cpp
         ${_tests}/PickingTests.cpp
@@ -59,3 +63,10 @@ interi_add_test_executable(interi_editor_stress_tests
         ${PROJECT_SOURCE_DIR}/tests/physics/PhysicsTestEnvironment.cpp
     DEPS interi::editor interi::testing interi::physics_testing
     LABELS stress)
+if(INTERI_BUILD_SHARED)
+    # The starter sample's module is what the editor hosts in EditorModulesTests.
+    add_dependencies(interi_editor_tests com_interi_starter)
+    target_compile_definitions(interi_editor_tests PRIVATE
+        INTERI_STARTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/samples/modules/starter"
+        INTERI_STARTER_LIBRARY_DIR="$<TARGET_FILE_DIR:com_interi_starter>")
+endif()

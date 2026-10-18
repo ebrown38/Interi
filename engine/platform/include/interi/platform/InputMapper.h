@@ -5,7 +5,9 @@
 
 #include <array>
 #include <bitset>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -25,6 +27,30 @@ public:
     using ActionId = std::uint32_t;
     using AxisId = std::uint32_t;
 
+    enum class Source : std::uint8_t
+    {
+        Key,
+        MouseButton,
+        GamepadButton
+    };
+
+    /// A digital input an action is bound to: `code` is the Key, MouseButton or GamepadButton enumerator.
+    struct DigitalBinding
+    {
+        Source source;
+        std::uint16_t code;
+    };
+
+    /// One entry of an axis: a gamepad axis times `scale`, or a [negative, positive] key pair.
+    struct AxisBinding
+    {
+        bool fromKeys;
+        GamepadAxis gamepadAxis;
+        float scale;
+        Key negative;
+        Key positive;
+    };
+
     /// Registers an action, or returns the existing id for `name`.
     ActionId AddAction(std::string_view name);
     /// Registers an axis, or returns the existing id for `name`.
@@ -37,6 +63,20 @@ public:
     void BindGamepadAxis(AxisId axis, GamepadAxis gamepadAxis, float scale = 1.0f);
     /// Adds -1 while `negative` is held and +1 while `positive` is held.
     void BindKeys(AxisId axis, Key negative, Key positive);
+
+    /// Introspection and rebinding (settings menus, saved bindings). Ids are dense, in registration order.
+    [[nodiscard]] std::size_t ActionCount() const noexcept { return m_actions.size(); }
+    [[nodiscard]] std::size_t AxisCount() const noexcept { return m_axes.size(); }
+    [[nodiscard]] std::optional<ActionId> FindAction(std::string_view name) const;
+    [[nodiscard]] std::optional<AxisId> FindAxis(std::string_view name) const;
+    [[nodiscard]] std::string_view ActionName(ActionId action) const;
+    [[nodiscard]] std::string_view AxisName(AxisId axis) const;
+    [[nodiscard]] std::span<const DigitalBinding> ActionBindings(ActionId action) const;
+    [[nodiscard]] std::span<const AxisBinding> AxisBindings(AxisId axis) const;
+    [[nodiscard]] float DeadZone() const noexcept { return m_deadZone; }
+    /// Removes every binding of the action (axis), keeping its id.
+    void ClearAction(ActionId action);
+    void ClearAxis(AxisId axis);
 
     /// Stick and trigger values with magnitude below this read as 0; above it they are rescaled to keep the full
     /// range. Default 0.15.
@@ -58,19 +98,6 @@ public:
     [[nodiscard]] bool QuitRequested() const noexcept { return m_quitRequested; }
 
 private:
-    enum class Source : std::uint8_t
-    {
-        Key,
-        MouseButton,
-        GamepadButton
-    };
-
-    struct DigitalBinding
-    {
-        Source source;
-        std::uint16_t code;
-    };
-
     struct Action
     {
         std::string name;
@@ -78,15 +105,6 @@ private:
         bool down = false;
         bool pressed = false;
         bool released = false;
-    };
-
-    struct AxisBinding
-    {
-        bool fromKeys;
-        GamepadAxis gamepadAxis;
-        float scale;
-        Key negative;
-        Key positive;
     };
 
     struct Axis

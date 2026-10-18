@@ -13,7 +13,7 @@ interi_add_module(hotreload SHARED
         src/FileWatcher.cpp
         src/HeaderCheck.cpp
         src/ModuleHost.cpp
-    DEPS interi::chain interi::values interi::ecs interi::platform interi::sdk
+    DEPS interi::chain interi::runtime interi::values interi::ecs interi::platform interi::sdk
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/FileWatcherTests.cpp

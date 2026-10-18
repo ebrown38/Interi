@@ -35,8 +35,6 @@
 #include <interi/destruction_runtime/DestructionWorld.h>
 #include <interi/gameplay/Character.h>
 #include <interi/gameplay/DestructionState.h>
-#include <interi/gameplay/FollowCamera.h>
-#include <interi/gameplay/InputConfig.h>
 #include <interi/gameplay/Level.h>
 #include <interi/gameplay/Vehicle.h>
 #include <interi/gameplay/VehicleDef.h>
@@ -50,10 +48,12 @@
 #include <interi/physics/PhysicsSync.h>
 #include <interi/physics/PhysicsWorld.h>
 #include <interi/platform/FileSystem.h>
+#include <interi/platform/InputConfig.h>
 #include <interi/platform/InputMapper.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/render/Decals.h>
 #include <interi/runtime/FixedStepClock.h>
+#include <interi/runtime/FollowCamera.h>
 
 #include "SandboxComponents.h"
 #include "SandboxRenderer.h"
@@ -288,7 +288,7 @@ int main(int argc, char** argv)
     (void)files.Mount("generated", generatedFiles);
 
     interi::InputMapper input;
-    if (auto bound = gameplay::ApplyInputConfig(ReadText(files, "gameplay/input.json"), input); !bound)
+    if (auto bound = ApplyInputConfig(ReadText(files, "gameplay/input.json"), input); !bound)
     {
         std::fprintf(stderr, "input config: %s\n", bound.error().message.c_str());
         return EXIT_FAILURE;
@@ -410,7 +410,7 @@ int main(int argc, char** argv)
     }
     const gameplay::SpawnPoint spawn = *level.loaded.FindSpawnPoint("player");
     gameplay::CharacterController player(physics, gameplay::CharacterSettings{}, spawn.position);
-    gameplay::FollowCamera camera;
+    interi::FollowCamera camera;
     camera.yaw = spawn.yaw;
 
     // The truck: rams walls, takes damage from hard hits and blasts, and turns into wreck debris.

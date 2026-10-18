@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "settings",
+  "widgets": [
+    { "id": "title", "type": "text", "anchor": "top", "offset": [0, 120], "size": [400, 48], "text": "Settings" },
+    { "id": "rebindRight", "type": "button", "anchor": "center", "offset": [0, -60], "size": [320, 44], "text": "Rebind: move right", "action": "input.rebind:moveRight" },
+    { "id": "rebindLeft", "type": "button", "anchor": "center", "offset": [0, 0], "size": [320, 44], "text": "Rebind: move left", "action": "input.rebind:moveLeft" },
+    { "id": "back", "type": "button", "anchor": "center", "offset": [0, 60], "size": [320, 44], "text": "Back", "action": "menu.pop" }
+  ]
+}

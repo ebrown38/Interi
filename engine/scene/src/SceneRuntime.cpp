@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: MIT
 #include <interi/chain/ChainAsset.h>
+#include <interi/chain/CoreLibrary.h>
 #include <interi/ecs/Query.h>
 #include <interi/scene/Hierarchy.h>
+#include <interi/scene/Mesh.h>
+#include <interi/scene/Prefab.h>
+#include <interi/scene/Primitives.h>
 #include <interi/scene/SceneRuntime.h>
+#include <interi/scene/Triggers.h>
 
+#include <algorithm>
 #include <format>
 #include <map>
 
@@ -18,11 +24,22 @@ void RegisterChainsReflection(values::ReflectionRegistry& registry)
     });
 }
 
+void RegisterSceneRuntimeReflection(values::ReflectionRegistry& registry)
+{
+    RegisterSceneReflection(registry);
+    RegisterPrimitiveReflection(registry);
+    RegisterMeshReflection(registry);
+    RegisterPrefabReflection(registry);
+    RegisterChainsReflection(registry);
+    RegisterTriggerReflection(registry);
+}
+
 SceneRuntime::SceneRuntime(const values::ReflectionRegistry& reflection, chain::ChainRegistry& chains,
                            values::ValueRegistry* values, const IFileSystem& files, JobSystem& jobs,
                            const SceneRuntimeDesc& desc)
     : m_reflection(&reflection)
     , m_jobs(&jobs)
+    , m_world(desc.world != nullptr ? *desc.world : m_ownedWorld)
     , m_commands(jobs)
     , m_executor(chains, values, desc.executor)
     , m_prefabs(files)
@@ -120,6 +137,20 @@ void SceneRuntime::Step()
         {
             m_executor.RaiseSpawned(root);
         }
+    }
+
+    // Overlaps, from the final transforms. Raised for the next step.
+    const TriggerScan scan = ScanTriggers(m_world);
+    for (const OverlapEvent& event : m_overlaps.Update(scan.volumes, scan.actors))
+    {
+        const auto volume = std::ranges::lower_bound(scan.volumes, event.volume, {}, &TriggerVolume::id);
+        std::string tag;
+        if (volume != scan.volumes.end() && volume->id == event.volume)
+        {
+            tag = scan.tags[static_cast<std::size_t>(volume - scan.volumes.begin())];
+        }
+        m_executor.RaiseTrigger(event.begin ? chain::kTriggerOverlap : chain::kTriggerOverlapEnd, event.volume,
+                                std::move(tag), {values::EntityRef{.id = event.actor}});
     }
 }
 

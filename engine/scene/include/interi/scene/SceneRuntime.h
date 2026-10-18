@@ -9,6 +9,7 @@
 //   2. World transforms chains changed (world.Move, world.Rotate) are adopted into the objects' local transforms,
 //      relative to the parent's transform before the step, so a moved parent still carries its children.
 //   3. Transforms propagate; prefabs chains spawned are expanded (their roots raise trigger.Spawned next step).
+//   4. Trigger volumes (Triggers.h) are tested against the actors; changes raise trigger.Overlap / OverlapEnd.
 
 #include <interi/chain/ChainAsset.h>
 #include <interi/chain/Event.h>
@@ -18,6 +19,7 @@
 #include <interi/ecs/World.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/platform/FileSystem.h>
+#include <interi/runtime/TriggerVolumes.h>
 #include <interi/scene/Prefab.h>
 #include <interi/scene/SceneFile.h>
 #include <interi/values/Reflection.h>
@@ -42,9 +44,16 @@ struct ChainsComponent
 
 void RegisterChainsReflection(values::ReflectionRegistry& registry);
 
+/// Everything a running game needs reflected to load scenes: scene objects, primitives, meshes, prefab instances,
+/// chains and trigger volumes. (The editor adds its own on top.)
+void RegisterSceneRuntimeReflection(values::ReflectionRegistry& registry);
+
 struct SceneRuntimeDesc
 {
     chain::ExecutorDesc executor;
+    /// Instantiate the scene into this World instead of a private one (a game whose module systems run on the same
+    /// World; see game/GameSession.h). It must outlive the runtime.
+    World* world = nullptr;
 };
 
 class SceneRuntime
@@ -68,6 +77,9 @@ public:
     void Step();
 
     [[nodiscard]] World& GetWorld() noexcept { return m_world; }
+    /// The command buffers Step plays back; module systems run with them (ModuleHost::RunSystems) so structural
+    /// changes land at the same sync point.
+    [[nodiscard]] CommandBuffers& Commands() noexcept { return m_commands; }
     [[nodiscard]] chain::ChainExecutor& Executor() noexcept { return m_executor; }
     [[nodiscard]] const chain::ChainExecutor& Executor() const noexcept { return m_executor; }
     [[nodiscard]] std::uint64_t StepIndex() const noexcept { return m_executor.StepIndex(); }
@@ -81,10 +93,12 @@ private:
 
     const values::ReflectionRegistry* m_reflection;
     JobSystem* m_jobs;
-    World m_world;
+    World m_ownedWorld;
+    World& m_world;
     CommandBuffers m_commands;
     chain::ChainExecutor m_executor;
     PrefabLibrary m_prefabs;
+    OverlapTracker m_overlaps;
     std::vector<std::string> m_warnings;
 };
 

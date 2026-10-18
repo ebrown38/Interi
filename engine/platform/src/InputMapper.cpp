@@ -42,6 +42,66 @@ InputMapper::AxisId InputMapper::AddAxis(std::string_view name)
     return FindOrAdd(m_axes, name);
 }
 
+std::optional<InputMapper::ActionId> InputMapper::FindAction(std::string_view name) const
+{
+    for (std::size_t i = 0; i < m_actions.size(); ++i)
+    {
+        if (m_actions[i].name == name)
+        {
+            return static_cast<ActionId>(i);
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<InputMapper::AxisId> InputMapper::FindAxis(std::string_view name) const
+{
+    for (std::size_t i = 0; i < m_axes.size(); ++i)
+    {
+        if (m_axes[i].name == name)
+        {
+            return static_cast<AxisId>(i);
+        }
+    }
+    return std::nullopt;
+}
+
+std::string_view InputMapper::ActionName(ActionId action) const
+{
+    INTERI_ASSERT(action < m_actions.size());
+    return m_actions[action].name;
+}
+
+std::string_view InputMapper::AxisName(AxisId axis) const
+{
+    INTERI_ASSERT(axis < m_axes.size());
+    return m_axes[axis].name;
+}
+
+std::span<const InputMapper::DigitalBinding> InputMapper::ActionBindings(ActionId action) const
+{
+    INTERI_ASSERT(action < m_actions.size());
+    return m_actions[action].bindings;
+}
+
+std::span<const InputMapper::AxisBinding> InputMapper::AxisBindings(AxisId axis) const
+{
+    INTERI_ASSERT(axis < m_axes.size());
+    return m_axes[axis].bindings;
+}
+
+void InputMapper::ClearAction(ActionId action)
+{
+    INTERI_ASSERT(action < m_actions.size());
+    m_actions[action].bindings.clear();
+}
+
+void InputMapper::ClearAxis(AxisId axis)
+{
+    INTERI_ASSERT(axis < m_axes.size());
+    m_axes[axis].bindings.clear();
+}
+
 void InputMapper::BindKey(ActionId action, Key key)
 {
     INTERI_ASSERT(action < m_actions.size());

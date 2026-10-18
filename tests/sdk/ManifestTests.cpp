@@ -179,7 +179,7 @@ TEST(Manifest, CurrentHost_UsesEngineFingerprint)
     EXPECT_EQ(host.toolchain, interi::sdk::EngineToolchainFingerprint());
     // This test is compiled with the same toolchain as the engine.
     EXPECT_EQ(host.toolchain, interi::sdk::kToolchainFingerprint);
-    EXPECT_EQ(host.toolchain.rfind("abi6;", 0), 0u);
+    EXPECT_EQ(host.toolchain.rfind("abi7;", 0), 0u);
 }
 
 TEST(Manifest, LoadManifest_ReadsDirectory)

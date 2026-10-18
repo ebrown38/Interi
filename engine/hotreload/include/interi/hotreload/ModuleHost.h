@@ -9,6 +9,7 @@
 #include <interi/hotreload/ModuleApi.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/platform/DynamicLibrary.h>
+#include <interi/runtime/SaveGame.h>
 #include <interi/sdk/ContributionRegistry.h>
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Manifest.h>
@@ -17,6 +18,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -40,6 +42,8 @@ struct ModuleHostDesc
     /// Shared contract ids the engine declares (Extensions add their own). The Chain Reaction core library's
     /// (chain::CoreContracts) are always added.
     std::vector<std::string> engineContracts;
+    /// Services offered to modules by name (ModuleRegistrar::Service); they must outlive the host.
+    std::map<std::string, IModuleService*, std::less<>> services;
 };
 
 /// Per-load counters.
@@ -123,6 +127,10 @@ public:
     /// provide (removed before a module unloads; executors on it recompile). Valid while the host lives.
     [[nodiscard]] chain::ChainRegistry& Chains() noexcept { return *m_chains; }
     [[nodiscard]] const chain::ChainRegistry& Chains() const noexcept { return *m_chains; }
+    /// The save sections the loaded modules registered (and the game's own): Capture/Apply them for save slots.
+    /// A module's sections leave before its library unloads; a failed reload restores them.
+    [[nodiscard]] SaveRegistry& Saves() noexcept { return m_saves; }
+    [[nodiscard]] const SaveRegistry& Saves() const noexcept { return m_saves; }
 
     /// Runs every module's systems once, in load order (each module's then plays back `commands`).
     void RunSystems(JobSystem& jobs, CommandBuffers& commands);
@@ -141,6 +149,9 @@ private:
                                                             std::string_view library) const;
     Result<ModuleLoadStats> Execute(Plan plan);
     static void LogUnload(const Loaded& module);
+    [[nodiscard]] std::vector<std::pair<IModuleService*, std::shared_ptr<void>>>
+    ExtractServiceEntries(std::string_view id);
+    void DropServiceEntries(std::string_view id);
 
     World* m_world;
     ModuleHostDesc m_desc;
@@ -148,6 +159,7 @@ private:
     std::unique_ptr<sdk::HookRegistry> m_hooks;
     std::unique_ptr<values::DataRegistry> m_data;
     std::unique_ptr<chain::ChainRegistry> m_chains;
+    SaveRegistry m_saves;
     sdk::ModuleGraph m_graph;
     std::vector<std::unique_ptr<Loaded>> m_modules; ///< In load order.
     std::uint32_t m_generation = 0;

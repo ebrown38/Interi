@@ -9,6 +9,7 @@ interi_add_module(sdk SHARED
         src/HeaderCheck.cpp
         src/Manifest.cpp
         src/ModuleGraph.cpp
+        src/Project.cpp
         src/SemVer.cpp
         src/Toolchain.cpp
     DEPS interi::core
@@ -19,6 +20,7 @@ interi_add_module(sdk SHARED
         ${_tests}/HooksTests.cpp
         ${_tests}/ManifestTests.cpp
         ${_tests}/ModuleGraphTests.cpp
+        ${_tests}/ProjectTests.cpp
         ${_tests}/SemVerTests.cpp)
 
 # The shared test project's manifests (tests/sdk/modules); the hotreload tests build their libraries.

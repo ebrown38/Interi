@@ -13,6 +13,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace interi::values
@@ -24,6 +25,7 @@ struct FieldInfo
     ValueType type = ValueType::Float;
     std::size_t offset = 0; ///< Bytes from the start of the component.
     ValueMeta meta;
+    std::vector<std::string> options; ///< Enum option names (Enum fields; see EnumField).
 };
 
 /// The reflected fields of one component type, plus what the editor needs to add it to an entity.
@@ -55,7 +57,18 @@ template <typename T, typename M>
     return FieldInfo{.name = std::string(name),
                      .type = ValueTypeOf<M>(),
                      .offset = static_cast<std::size_t>(at - base),
-                     .meta = meta};
+                     .meta = meta,
+                     .options = {}};
+}
+
+/// An Enum field with its option names, in display order.
+template <typename T>
+[[nodiscard]] FieldInfo EnumField(std::string_view name, EnumValue T::* member, std::vector<std::string> options,
+                                  const ValueMeta& meta = {})
+{
+    FieldInfo field = Field(name, member, meta);
+    field.options = std::move(options);
+    return field;
 }
 
 /// Component reflection by registry name. Not thread-safe (one owner thread).

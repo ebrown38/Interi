@@ -21,6 +21,7 @@ interi_add_module(sdk SHARED
         ${_tests}/ManifestTests.cpp
         ${_tests}/ModuleGraphTests.cpp
         ${_tests}/PhysicsEngineTests.cpp
+        ${_tests}/PhysicsQueriesTests.cpp
         ${_tests}/ProjectTests.cpp
         ${_tests}/SemVerTests.cpp)
 

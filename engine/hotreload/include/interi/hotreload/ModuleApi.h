@@ -4,11 +4,12 @@
 // The boundary between the engine (host) and a gameplay module: a Module, Extension or Plugin built as a shared
 // library (.so / .dll) from game code, described by a module.json manifest (see interi/sdk/Manifest.h).
 //
-// ABI v2: the engine is a set of shared libraries (INTERI_BUILD_SHARED) and every module links them, so the host and
-// all modules share one component registry, logger, assert handler and job thread state. Modules are distributed as
-// source and built against the engine; the loader rejects a module whose toolchain fingerprint (compiler, standard
-// library, debug level, ABI version, build switches; see interi/sdk/Toolchain.h) differs from the engine's, which is
-// what makes C++ types (std containers, std::function, vtables) safe across the boundary. The rules that remain:
+// ABI v4 (v2 made the engine shared; v3 added module data; v4 Chain Reaction events): the engine is a set of shared
+// libraries (INTERI_BUILD_SHARED) and every module links them, so the host and all modules share one component
+// registry, logger, assert handler and job thread state. Modules are distributed as source and built against the
+// engine; the loader rejects a module whose toolchain fingerprint (compiler, standard library, debug level, ABI
+// version, build switches; see interi/sdk/Toolchain.h) differs from the engine's, which is what makes C++ types (std
+// containers, std::function, vtables) safe across the boundary. The rules that remain:
 //   - Components a module owns are trivially copyable and have an explicit kComponentName (DeclareComponent checks
 //     both): the World keeps them across a reload with no pointers into module code, and the reloaded module finds
 //     the same ids. Bump kComponentVersion when the layout changes and pass a migrator.
@@ -28,10 +29,12 @@
 //       registrar.AddSystem("Regenerate", interi::SystemAccess{}.Write<Health>(), [](interi::SystemContext& c) {...});
 //       interi::hotreload::DeclareState(registrar, g_state, {interi::values::Field("kills", &State::kills)});
 //       const auto& scope = registrar.Scope(); // hooks: DeclareHook, DeclareFactory, INTERI_OVERRIDE
+//       registrar.Chains().Events().Provide(scope.Provider(), scope.Local("FireGun"), ...); // chain events
 //       return scope.DeclareHook<int(int)>(scope.Local("Damage"), ...).has_value();
 //   }
 //   INTERI_GAMEPLAY_MODULE(Register)
 
+#include <interi/chain/Event.h>
 #include <interi/ecs/Component.h>
 #include <interi/ecs/Query.h>
 #include <interi/ecs/Scheduler.h>
@@ -51,8 +54,8 @@
 namespace interi::hotreload
 {
 
-/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar, the hook types or DataRegistry change (part of the
-/// fingerprint).
+/// Bumped whenever ModuleContext, ModuleApi, ModuleRegistrar, the hook types, DataRegistry or the chain registry
+/// change (part of the fingerprint).
 inline constexpr std::uint32_t kModuleAbiVersion = INTERI_MODULE_ABI_VERSION;
 
 /// Converts one component from an older layout version to the declared one: reads `fromSize` bytes at `from`
@@ -85,6 +88,10 @@ public:
     /// The project's data: every loaded module's Values, attributes and tables with the project's overrides. Valid
     /// until the host is destroyed.
     [[nodiscard]] virtual const values::DataRegistry& Data() const = 0;
+    /// The project's Chain Reaction events and functions: provide the module's own (its provider id is
+    /// Scope().Provider()), or override a lower module's. Implementations must stay pure and thread-safe (see
+    /// interi/chain/Event.h); the host removes them before the module is unloaded, and chain executors recompile.
+    [[nodiscard]] virtual chain::ChainRegistry& Chains() const = 0;
     /// Declares module-global state as reflected fields of the object at `object` (use DeclareState). The host
     /// writes the previous instance's values of fields with the same name and type into it now, and reads them
     /// again before this instance is unloaded for a reload; fields that are new or changed type keep what the module

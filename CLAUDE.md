@@ -49,7 +49,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 ## Build-system conventions
 
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
-- **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk, values and hotreload: everything the host and a gameplay module both link. The rest stay static.
+- **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk, values, chain and hotreload: everything the host and a gameplay module both link. The rest stay static.
   - Windows exports every function (`WINDOWS_EXPORT_ALL_SYMBOLS`) but no data. **Keep globals out of public headers**: put them in a `.cpp` behind a function.
   - Each library also gets `<interi/<name>/Export.h>` (`INTERI_<NAME>_API`) for a symbol that needs explicit export.
   - MSVC C4251/C4275 don't arise, because there is no class-level `dllexport`. STL members in exported classes are fine because the toolchain fingerprint guarantees one compiler and standard library.
@@ -154,7 +154,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 - **Manifests** (`Manifest.h`): `module.json` holds metadata (id `com.author.name`, semver version, author, SPDX license, engine range), `kind` (Module, Extension, Plugin), `library`, `toolchain`, `dependencies`, `conflicts`, `contracts` (Extensions only) and `overrides`. `ParseManifest` follows `ParseMaterials`: missing metadata and unknown sections are warnings, anything malformed is an error.
   - `SemVer`/`VersionRange` follow semver 2.0 and npm range syntax (`^`, `~`, comparators, `||`, `*`). A pre-release matches only a range that names one on the same major.minor.patch.
-  - `Toolchain.h` builds the fingerprint in the preprocessor: compiler, standard library, debug mode, C++ standard, `INTERI_MODULE_ABI_VERSION`, CPU baseline, shipping, profiling and shared/static engine. Bump the ABI version when `ModuleApi.h`, the registrar or the hook types change.
+  - `Toolchain.h` builds the fingerprint in the preprocessor: compiler, standard library, debug mode, C++ standard, `INTERI_MODULE_ABI_VERSION`, CPU baseline, shipping, profiling and shared/static engine. Bump the ABI version when `ModuleApi.h`, the registrar, the hook types or the chain registry change.
 - **`ResolveModuleGraph`** turns the project's ordered list (top = highest priority) into a `ModuleGraph`.
   - Required dependencies are pulled in, and each implicit Extension goes directly below its lowest dependent. Optional dependencies are used only when the project includes them.
   - Load order puts dependencies first, otherwise lowest priority first.
@@ -172,14 +172,14 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Hot reload and module host (`engine/hotreload`, namespace `interi::hotreload`)
 
-- **Module ABI v3** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
+- **Module ABI v4** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
   - The loader rejects a library whose `ModuleApi::toolchain` differs from `sdk::EngineToolchainFingerprint()`. Modules are built from source against the engine, which is what makes C++ types safe across the boundary.
   - Rules that keep this safe:
     - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. Nothing else enforces it (there is no registry "module mode" any more).
     - Never leave the host anything from module code that outlives the module. Systems, hooks and the state saver are destroyed before the library closes.
     - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking its library: a shadow-copied DLL can't satisfy a link-time import.
     - Modules never call Jolt.
-  - `registrar.Scope()` registers hooks. `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `DeclareState(registrar, g_state, {values::Field(...)})` carries a module global's reflected fields across a reload by name (a field whose type changed keeps its new initial value); `SetStateSaver`/`SavedState` carry raw bytes.
+  - `registrar.Scope()` registers hooks. `registrar.Chains()` is the host's `chain::ChainRegistry` (provide events and functions as `Scope().Provider()`). `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `DeclareState(registrar, g_state, {values::Field(...)})` carries a module global's reflected fields across a reload by name (a field whose type changed keeps its new initial value); `SetStateSaver`/`SavedState` carry raw bytes.
 - **`ModuleHost`**:
   - `LoadProject(order, manifests)` resolves the graph, finds each `library` in the manifest's folder and then `librarySearchPaths`, and registers in load order.
   - `Reload(id)` reopens the module and every loaded module that depends on it.
@@ -212,6 +212,22 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Project data** (`ProjectData.h`): JSON with sorted keys and a `schemas` object (per section: values, characters, tables) of the version each item was written against. Same version + invalid data fails the load (all or nothing); another version migrates with warnings. Unknown ids are kept and written back. Items that don't fit are written with their old version so they migrate next time.
 - **Cooked data** (`IVAL`: payload hash + versioned Archive): `CookData` resolves values, archetype layouts and table rows for a shipped game; `ReadCookedData` rejects corrupt files.
 - **Tests** use the shared SDK test project's data (`tests/sdk/modules`; `tests/values/*` headers describe it). `Values_RoundTrip_BitExact` pins JSON and binary round trips.
+
+## Chain Reaction (`engine/chain`, namespace `interi::chain`)
+
+- **Chains are data** (`ChainAsset.h`): `.chain.json` = event nodes plus links from `<node>.<output>` to a node, with an optional bool `condition` (the "if"). Input bindings are `{"const"|"payload"|"value"|"expr": ...}`; an unbound input takes its schema default. `ParseChain`/`LoadChain`/`WriteChain` (sorted keys).
+- **Expressions** (`Expression.h`): lexer + Pratt parser with byte-span errors, typed once at compile. int/u32 wrap, int/u32 mixed with float promote, `x / 0` and `x % 0` are 0, `int()` saturates (NaN → 0). Built-ins min/max/abs/clamp/sqrt/floor/int/float/vec3/length/dot; other calls resolve in the `FunctionRegistry`. **No trigonometry**: chain results must be bit-identical across standard libraries. Watch raw strings in tests: `value(\"id\")"` contains `)"`, so use `R"json(...)json"`.
+- **Events** (`Event.h`): `EventDefinition` = kind (Action/Trigger), inputs (`EventParam`; `typeFrom` types an input by the Value another constant input names), outputs with payloads, latent, `Authority`. `EventRegistry`/`FunctionRegistry` are `ContributionRegistry`s; an override must keep the signature. `ChainRegistry` holds both (`ExtractProvider`/`Restore`/`Subscribe`).
+  - A native implementation runs during a wave (possibly on a worker) against the pre-step state. It reads inputs, the World and Values, and records outputs (`Fire`, `FireAfter(ns)`) and effects (`Defer`). It must not write shared state, throw, or depend on anything but its inputs and `Seed()`.
+- **Core library** (`CoreLibrary.h`): triggers (Start, Tick, InputAction, Timer, ValueChanged, Spawned, Destroyed; a trigger's `key` input matches the raised key), flow (Delay, Timer, Branch, Sequence, Random) and world (SetValue, ModifyValue, Destroy, Move, Rotate, Show, Hide, PlaySound). All are engine shared contract ids (`CoreContracts()`); `ModuleHost` declares them and registers the library.
+- **Compiler** (`Compiler.h`): resolves ids through the registries (overrides apply), type-checks every binding per incoming link (payload fields come from the upstream output), validates constants with the input schema, promotes int to float inputs, drops unreachable nodes with a warning. `Diagnostic`s locate node, link, input and span.
+- **`ChainExecutor`** (`Executor.h`), a sync point called once per fixed step:
+  - Wave 0 is the raised triggers, Start for new chains, Timer/Tick and due continuations, sorted by (chain priority, entity id, sequence). Each wave's link activations are truncated to the step's budget by queue index, then evaluated in parallel (`ParallelFor`, fixed grain) and merged in activation order. A depth limit caps waves; overruns log, drop and set `LastStats()`.
+  - Nothing shared is written during waves. Effects run serially at step end, in activation order. Deltas (ModifyValue, Move, Rotate) resolve then, so two hits in one step both land; SetValue is last writer wins. Writes that fail `ValidateValue` are dropped and traced. Structural changes go through `CommandBuffers` (ordered keys), transforms through an overlay flushed as commands.
+  - `RuntimeValues` is the run-time layer (run time > project > module). Triggers raised by effects (ValueChanged, Destroyed) fire next step. Random is `HashCombine(seed, step, sequence, link)` per activation.
+  - Entities are named by `StableIdComponent` (u64); a chain is bound to an entity or global (0). `HiddenComponent` is the hide tag; `Sounds()` are requests for the host.
+  - Programs hold module code, so the executor drops them on any event/function/Value registry change and recompiles at the next step. Continuations survive by node id; a chain that no longer compiles is inactive with diagnostics.
+- **Tests:** `tests/chain/ChainTestUtil.h` (a small project with Values and test actions), `ChainHash.h` (binary hashing of trace, Values and world). `interi_chain_stress_tests` (label `stress`) compares 1/4/32 threads and pins `ChainDeterminism.MatchesCrossPlatformGoldenHash`; any change to evaluation, ordering, the library, Random or the scenario changes it. Rotate (sin/cos) stays out of it.
 
 ## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
 

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // ModuleHost::LoadProject / Reload over the shared SDK test project (tests/sdk/modules; libraries built from
 // modules/SdkTestModule.cpp).
+#include <interi/chain/ChainAsset.h>
+#include <interi/chain/CoreLibrary.h>
+#include <interi/chain/Executor.h>
 #include <interi/core/Log.h>
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/World.h>
@@ -320,4 +323,38 @@ TEST_F(ModuleProjectTest, Reload_UnloadsOldInstancesDependentsFirst)
     logger.Flush();
     EXPECT_EQ(*unloaded, (std::vector<std::string>{"com.test.plugin", "com.test.b", "com.test.a", "com.test.ext"}));
     (void)interi::SetGlobalLogger(previous);
+}
+
+TEST_F(ModuleProjectTest, Chains_UseModuleEventsAndRecompileOnReload)
+{
+    ModuleHost host(world, Desc());
+    ASSERT_TRUE(host.LoadProject(kProject, manifests).has_value());
+    ASSERT_NE(host.Chains().Events().Resolve("com.test.a:Hit"), nullptr);
+    ASSERT_NE(host.Chains().Events().Resolve(interi::chain::kWorldSetValue), nullptr);
+
+    // Tick -> com.test.a:Hit(amount 1) -> JumpHeight = total (b's override caps it at 20).
+    auto asset = interi::chain::ParseChain(R"json({"version": 1, "nodes": [
+        {"id": "tick", "event": "trigger.Tick"},
+        {"id": "hit", "event": "com.test.a:Hit", "params": {"amount": {"const": 1}}},
+        {"id": "set", "event": "world.SetValue",
+         "params": {"id": {"const": "com.test.a:JumpHeight"}, "value": {"expr": "float(payload.total)"}}}],
+        "links": [{"from": "tick", "to": "hit"}, {"from": "hit", "to": "set"}]})json");
+    ASSERT_TRUE(asset.has_value()) << asset.error().message;
+    interi::chain::ChainExecutor executor(host.Chains(), &host.Data().Values());
+    const auto chain = executor.AddChain(*asset);
+    ASSERT_TRUE(executor.IsActive(chain))
+        << (executor.Diagnostics(chain).empty() ? "" : executor.Diagnostics(chain).front().Text());
+    executor.Step(world, jobs, commands);
+    EXPECT_EQ(*executor.Values().Read("com.test.a:JumpHeight"), interi::values::Value(11.0f)); // 10 * 1 + 1 load
+
+    // The reloaded module registers a new implementation (its second load); the old one's code is gone, and the
+    // executor recompiles against the new one.
+    ASSERT_TRUE(host.Reload("com.test.a").has_value());
+    executor.Step(world, jobs, commands);
+    EXPECT_EQ(*executor.Values().Read("com.test.a:JumpHeight"), interi::values::Value(12.0f));
+
+    // Unloading removes the event: the chain no longer compiles and stays inactive.
+    host.Unload();
+    executor.Step(world, jobs, commands);
+    EXPECT_FALSE(executor.IsActive(chain));
 }

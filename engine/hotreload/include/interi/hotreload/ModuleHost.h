@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <interi/chain/Event.h>
 #include <interi/core/Result.h>
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/Scheduler.h>
@@ -34,7 +35,8 @@ struct ModuleHostDesc
     std::filesystem::path shadowDirectory;
     /// Searched for a manifest's library after the manifest's own directory (e.g. a build output directory).
     std::vector<std::filesystem::path> librarySearchPaths;
-    /// Shared contract ids the engine declares (Extensions add their own).
+    /// Shared contract ids the engine declares (Extensions add their own). The Chain Reaction core library's
+    /// (chain::CoreContracts) are always added.
     std::vector<std::string> engineContracts;
 };
 
@@ -110,6 +112,10 @@ public:
     /// across loads and reloads; after each, it is re-checked (items that no longer fit are logged and unused).
     [[nodiscard]] values::DataRegistry& Data() noexcept { return *m_data; }
     [[nodiscard]] const values::DataRegistry& Data() const noexcept { return *m_data; }
+    /// The project's Chain Reaction events and functions: the engine's core library plus what the loaded modules
+    /// provide (removed before a module unloads; executors on it recompile). Valid while the host lives.
+    [[nodiscard]] chain::ChainRegistry& Chains() noexcept { return *m_chains; }
+    [[nodiscard]] const chain::ChainRegistry& Chains() const noexcept { return *m_chains; }
 
     /// Runs every module's systems once, in load order (each module's then plays back `commands`).
     void RunSystems(JobSystem& jobs, CommandBuffers& commands);
@@ -130,6 +136,7 @@ private:
     std::unique_ptr<sdk::ModuleSet> m_moduleSet;
     std::unique_ptr<sdk::HookRegistry> m_hooks;
     std::unique_ptr<values::DataRegistry> m_data;
+    std::unique_ptr<chain::ChainRegistry> m_chains;
     sdk::ModuleGraph m_graph;
     std::vector<std::unique_ptr<Loaded>> m_modules; ///< In load order.
     std::uint32_t m_generation = 0;

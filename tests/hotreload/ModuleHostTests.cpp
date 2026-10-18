@@ -8,6 +8,7 @@
 #include <interi/testing/ScopedTempDir.h>
 
 #include "modules/TestComponents.h"
+#include "modules/TestService.h"
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -203,6 +204,64 @@ TEST_F(ModuleHostTest, LoadFailure_KeepsOldModule)
     EXPECT_EQ(host.Generation(), 1u);
     Run(host);
     EXPECT_EQ(world.Get<HrCounter>(entities[0])->value, 1);
+}
+
+TEST_F(ModuleHostTest, SaveSections_FollowTheModule_ThroughReloadFailureAndUnload)
+{
+    ModuleHost host(world, Desc());
+    ASSERT_TRUE(host.Load(kModuleV1).has_value());
+    const std::string id = host.Saves().Ids().at(0);
+    EXPECT_NE(id.find(":Saved"), std::string::npos);
+    const interi::SaveGame first = host.Saves().Capture("one");
+    ASSERT_NE(first.Find(id), nullptr);
+    EXPECT_EQ(first.Find(id)->version, 1u);
+
+    // A reload swaps the section for the new instance's (version 2).
+    ASSERT_TRUE(host.Load(kModuleV2).has_value());
+    EXPECT_EQ(host.Saves().Ids().size(), 1u);
+    EXPECT_EQ(host.Saves().Capture("two").Find(id)->version, 2u);
+    // ...and applying the older save hands the section its old version.
+    const auto applied = host.Saves().Apply(first);
+    ASSERT_TRUE(applied.has_value());
+    EXPECT_EQ(applied->restored.size(), 1u);
+
+    // A failed reload leaves the running instance's section alone.
+    world.CreateEntity(HrHealthV1{.hp = 5.0f}, HrCounter{});
+    ASSERT_FALSE(host.Load(kModuleV3NoMigrator).has_value());
+    EXPECT_EQ(host.Saves().Capture("three").Find(id)->version, 2u);
+    ASSERT_FALSE(host.Load(kModuleRefuses).has_value());
+    EXPECT_EQ(host.Saves().Capture("four").Find(id)->version, 2u);
+
+    host.Unload();
+    EXPECT_TRUE(host.Saves().Ids().empty());
+}
+
+TEST_F(ModuleHostTest, HostService_EntriesFollowTheModule_ThroughReloadFailureAndUnload)
+{
+    interi::testing::TestService service;
+    auto desc = Desc();
+    desc.services["test.service"] = &service;
+    ModuleHost host(world, std::move(desc));
+    ASSERT_TRUE(host.Load(kModuleV1).has_value());
+    EXPECT_EQ(service.Call(), std::vector<int>{1});
+
+    ASSERT_TRUE(host.Load(kModuleV2).has_value()); // the new instance's entry replaces the old one's
+    EXPECT_EQ(service.Call(), std::vector<int>{2});
+
+    world.CreateEntity(HrHealthV1{.hp = 5.0f}, HrCounter{});
+    ASSERT_FALSE(host.Load(kModuleV3NoMigrator).has_value()); // rolled back: the running instance's entry is back
+    EXPECT_EQ(service.Call(), std::vector<int>{2});
+    ASSERT_FALSE(host.Load(kModuleRefuses).has_value());
+    EXPECT_EQ(service.Call(), std::vector<int>{2});
+
+    host.Unload();
+    EXPECT_EQ(service.Count(), 0u);
+}
+
+TEST_F(ModuleHostTest, HostService_Unknown_IsNull)
+{
+    ModuleHost host(world, Desc());
+    ASSERT_TRUE(host.Load(kModuleV1).has_value()); // the module asks for "test.service" and copes with nothing
 }
 
 TEST_F(ModuleHostTest, Unload_ComponentsStayReadable)

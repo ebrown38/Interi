@@ -7,10 +7,12 @@
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorMath.h>
+#include <interi/editor/EditorModules.h>
 #include <interi/editor/EditorScene.h>
 #include <interi/editor/EditorServices.h>
 #include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
+#include <interi/editor/HudEditing.h>
 #include <interi/editor/Inspector.h>
 #include <interi/editor/LevelBridge.h>
 #include <interi/editor/Modeling.h>

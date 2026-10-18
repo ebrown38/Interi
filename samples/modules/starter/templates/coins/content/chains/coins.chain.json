@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "nodes": [
+    { "id": "copper", "event": "trigger.Overlap", "params": { "key": { "const": "copper" } } },
+    { "id": "silver", "event": "trigger.Overlap", "params": { "key": { "const": "silver" } } },
+    { "id": "gold", "event": "trigger.Overlap", "params": { "key": { "const": "gold" } } },
+    { "id": "scoreCopper", "event": "world.ModifyValue", "params": {
+        "id": { "const": "com.interi.starter:score" },
+        "delta": { "expr": "com.interi.starter:CoinValue(\"copper\")" } } },
+    { "id": "scoreSilver", "event": "world.ModifyValue", "params": {
+        "id": { "const": "com.interi.starter:score" },
+        "delta": { "expr": "com.interi.starter:CoinValue(\"silver\")" } } },
+    { "id": "scoreGold", "event": "world.ModifyValue", "params": {
+        "id": { "const": "com.interi.starter:score" },
+        "delta": { "expr": "com.interi.starter:CoinValue(\"gold\")" } } },
+    { "id": "count", "event": "world.ModifyValue", "params": {
+        "id": { "const": "com.interi.starter:coins" }, "delta": { "const": 1 } } },
+    { "id": "pickup", "event": "world.Destroy" }
+  ],
+  "links": [
+    { "from": "copper", "to": "scoreCopper" },
+    { "from": "silver", "to": "scoreSilver" },
+    { "from": "gold", "to": "scoreGold" },
+    { "from": "scoreCopper", "to": "count" },
+    { "from": "scoreSilver", "to": "count" },
+    { "from": "scoreGold", "to": "count" },
+    { "from": "count", "to": "pickup" }
+  ]
+}

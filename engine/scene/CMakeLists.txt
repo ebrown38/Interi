@@ -13,7 +13,9 @@ interi_add_module(scene SHARED
         src/SceneComponents.cpp
         src/SceneFile.cpp
         src/SceneRuntime.cpp
-    DEPS interi::chain interi::values interi::ecs interi::jobs interi::platform interi::core
+        src/SceneSave.cpp
+        src/Triggers.cpp
+    DEPS interi::chain interi::values interi::ecs interi::jobs interi::platform interi::core interi::runtime
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
@@ -21,4 +23,6 @@ interi_add_module(scene SHARED
         ${_tests}/PrefabTests.cpp
         ${_tests}/PrimitivesTests.cpp
         ${_tests}/SceneFileTests.cpp
-        ${_tests}/SceneRuntimeTests.cpp)
+        ${_tests}/SceneRuntimeTests.cpp
+        ${_tests}/SceneSaveTests.cpp
+        ${_tests}/TriggerTests.cpp)

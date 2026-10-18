@@ -22,3 +22,28 @@
 - **Task:** Milestone 17, 17.3 selection
 - **Context:** Dependencies are resolved before the engine is selected, so an engine's dependencies would be skipped.
 - **Assumption made:** Rejected at parse time for M17 (a PhysicsEngine declares no dependencies); revisit with M19.
+
+## Where does the HUD (and the engine's other new modules) live: one `interi::hud` module, and is `game` (GameSession) in scope?
+- **Task:** Milestone 18, 18.4 HUD / UI and 18.6/18.7 (starter sample, editor hosting modules)
+- **Context:** The plan names no module for the HUD and no "game loop" owner. engine/hud and engine/game are new; GameSession is the glue the starter sample's headless validation and 18.7 both need (`SceneRuntimeDesc::world` lets module systems share the scene's World).
+- **Assumption made:** `interi::hud` (SHARED, no rendering) and `interi::game` (static) are new engine modules; the HUD draws through ImGui in the editor only, a game brings its own renderer for the draw list.
+
+## What is an editor "render feature" (18.7.2)?
+- **Task:** Milestone 18, 18.7.2 editor_ui registration hooks
+- **Context:** The plan lists panels, viewport overlays, tools and render features. Modules cannot reach the forward renderer's passes from the editor (no stable interface), and nothing defined "render feature".
+- **Assumption made:** a render feature contributes world-space debug geometry (`DebugDraw` lines and boxes) the viewport draws each frame. Real renderer passes can follow when a module needs them.
+
+## How do modules contribute shared `input.*` actions (18.1.1)?
+- **Task:** Milestone 18, 18.1 Input
+- **Context:** The plan says "shared `input.*` actions contributed by modules" but no manifest section or registry exists for input.
+- **Assumption made:** modules ship input config files (`ApplyInputConfig` with `InputMerge::Add`) and the project's or player's config applies on top with `Replace`; no new manifest section. A `module.json` "input" section can follow if wanted.
+
+## Is the volume test for triggers O(volumes x actors) acceptable?
+- **Task:** Milestone 18, 18.3 Triggers
+- **Context:** `OverlapTracker` compares every volume with every actor each step; fine for the simple games this targets, quadratic for thousands of both.
+- **Assumption made:** acceptable for M18; a sort-and-sweep or grid can replace the inner loop later without changing the event order.
+
+## How do editor extension modules get ImGui?
+- **Task:** Milestone 18, 18.7.2 editor_ui registration hooks
+- **Context:** The extension API is abstract so a module links no editor symbols, but a panel draws with ImGui and a module library has its own ImGui copy; it must adopt the editor's context (`PanelContext`). The installed `Interi` package does not export imgui, and the editor's vcpkg imgui is not a shared library.
+- **Assumption made:** M18 ships the API, the context hand-off and a test module that uses only the ImGui-free parts (overlays, tools, render features, and a panel that never calls ImGui). How a third-party module obtains imgui (package export, or editor_ui becoming shared) is left for M20 when the first real editor extension module needs it.

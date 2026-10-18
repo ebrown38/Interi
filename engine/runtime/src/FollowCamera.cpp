@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-#include <interi/gameplay/FollowCamera.h>
+#include <interi/runtime/FollowCamera.h>
 
 #include <algorithm>
 #include <cmath>
 
-namespace interi::gameplay
+namespace interi
 {
 
 void FollowCamera::Rotate(float deltaX, float deltaY) noexcept
@@ -39,4 +39,4 @@ Vec3 FollowCamera::MoveDirection(float right, float forward) const noexcept
     return Right() * right + FlatForward() * forward;
 }
 
-} // namespace interi::gameplay
+} // namespace interi

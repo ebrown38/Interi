@@ -6,8 +6,23 @@
   "author": "Interi contributors",
   "license": "MIT",
   "copyright": "Copyright (c) 2026 Interi contributors",
-  "description": "Starter module: the smallest Module that builds against an installed engine.",
+  "description": "Starter module: a top-down \"collect the coins\" game. It shows Values, a data table, trigger volumes, chains, a HUD and a save section.",
   "engine": "^0.1",
   "library": "com_interi_starter",
-  "dependencies": []
+  "dependencies": [],
+  "templates": [
+    { "name": "Coin Run", "path": "templates/coins", "description": "Collect every coin: move with WASD, pause with Escape." }
+  ],
+  "values": [
+    { "id": "coins", "type": "int", "default": 0, "min": 0, "category": "Coin Run", "tooltip": "Coins collected this run." },
+    { "id": "total", "type": "int", "default": 5, "min": 0, "category": "Coin Run", "tooltip": "Coins in the level." },
+    { "id": "score", "type": "int", "default": 0, "min": 0, "category": "Coin Run", "tooltip": "Sum of the coins' values." },
+    { "id": "won", "type": "bool", "default": false, "category": "Coin Run", "tooltip": "Every coin collected." }
+  ],
+  "dataTables": [
+    { "id": "CoinKinds", "columns": [
+      { "name": "value", "type": "int", "default": 1, "min": 0, "max": 1000 },
+      { "name": "label", "type": "string" }
+    ] }
+  ]
 }

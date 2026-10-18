@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/Log.h>
-#include <interi/gameplay/InputConfig.h>
+#include <interi/platform/InputConfig.h>
 
 #include <nlohmann/json.hpp>
 
 #include <array>
 #include <format>
+#include <utility>
 #include <variant>
 
-namespace interi::gameplay
+namespace interi
 {
 
 namespace
@@ -204,7 +205,7 @@ std::optional<GamepadAxis> GamepadAxisFromName(std::string_view name) noexcept
     return FromName<GamepadAxis>(kGamepadAxisNames, name);
 }
 
-Result<std::vector<std::string>> ApplyInputConfig(std::string_view json, InputMapper& mapper)
+Result<std::vector<std::string>> ApplyInputConfig(std::string_view json, InputMapper& mapper, InputMerge merge)
 {
     const Json root = Json::parse(json, nullptr, false);
     if (root.is_discarded() || !root.is_object())
@@ -272,6 +273,10 @@ Result<std::vector<std::string>> ApplyInputConfig(std::string_view json, InputMa
     for (const auto& [name, inputs] : actions)
     {
         const InputMapper::ActionId action = mapper.AddAction(name);
+        if (merge == InputMerge::Replace)
+        {
+            mapper.ClearAction(action);
+        }
         for (const DigitalInput& input : inputs)
         {
             if (const auto* key = std::get_if<Key>(&input))
@@ -291,6 +296,10 @@ Result<std::vector<std::string>> ApplyInputConfig(std::string_view json, InputMa
     for (const AxisConfig& config : axes)
     {
         const InputMapper::AxisId axis = mapper.AddAxis(config.name);
+        if (merge == InputMerge::Replace)
+        {
+            mapper.ClearAxis(axis);
+        }
         if (config.keys)
         {
             mapper.BindKeys(axis, config.keys->first, config.keys->second);
@@ -302,9 +311,191 @@ Result<std::vector<std::string>> ApplyInputConfig(std::string_view json, InputMa
     }
     for (const std::string& warning : warnings)
     {
-        INTERI_LOG_WARN("Gameplay", "{}", warning);
+        INTERI_LOG_WARN("Input", "{}", warning);
     }
     return warnings;
 }
 
-} // namespace interi::gameplay
+std::string_view InputName(InputMapper::DigitalBinding binding) noexcept
+{
+    switch (binding.source)
+    {
+    case InputMapper::Source::Key:
+        return kKeyNames[binding.code];
+    case InputMapper::Source::MouseButton:
+        return kMouseNames[binding.code];
+    case InputMapper::Source::GamepadButton:
+        return kGamepadButtonNames[binding.code];
+    }
+    return {};
+}
+
+std::string CaptureInputConfig(const InputMapper& mapper)
+{
+    Json root = Json::object();
+    root["deadZone"] = mapper.DeadZone();
+    Json actions = Json::object();
+    for (std::size_t i = 0; i < mapper.ActionCount(); ++i)
+    {
+        const auto id = static_cast<InputMapper::ActionId>(i);
+        Json bindings = Json::array();
+        for (const InputMapper::DigitalBinding& binding : mapper.ActionBindings(id))
+        {
+            bindings.push_back(std::string(InputName(binding)));
+        }
+        actions[std::string(mapper.ActionName(id))] = std::move(bindings);
+    }
+    root["actions"] = std::move(actions);
+    Json axes = Json::object();
+    for (std::size_t i = 0; i < mapper.AxisCount(); ++i)
+    {
+        const auto id = static_cast<InputMapper::AxisId>(i);
+        Json axis = Json::object();
+        Json gamepad = Json::array();
+        for (const InputMapper::AxisBinding& binding : mapper.AxisBindings(id))
+        {
+            if (binding.fromKeys)
+            {
+                axis["keys"] = Json::array({std::string(kKeyNames[static_cast<std::size_t>(binding.negative)]),
+                                            std::string(kKeyNames[static_cast<std::size_t>(binding.positive)])});
+            }
+            else
+            {
+                Json entry = Json::object();
+                entry["axis"] = std::string(kGamepadAxisNames[static_cast<std::size_t>(binding.gamepadAxis)]);
+                entry["scale"] = binding.scale;
+                gamepad.push_back(std::move(entry));
+            }
+        }
+        if (!gamepad.empty())
+        {
+            axis["gamepad"] = std::move(gamepad);
+        }
+        axes[std::string(mapper.AxisName(id))] = std::move(axis);
+    }
+    root["axes"] = std::move(axes);
+    return root.dump(2);
+}
+
+std::optional<std::string> FirstPressedInput(std::span<const InputEvent> events)
+{
+    for (const InputEvent& event : events)
+    {
+        if (const auto* key = std::get_if<KeyEvent>(&event))
+        {
+            if (key->down && !key->repeat && key->key != Key::Unknown)
+            {
+                return std::string(kKeyNames[static_cast<std::size_t>(key->key)]);
+            }
+        }
+        else if (const auto* mouse = std::get_if<MouseButtonEvent>(&event))
+        {
+            if (mouse->down)
+            {
+                return std::string(kMouseNames[static_cast<std::size_t>(mouse->button)]);
+            }
+        }
+        else if (const auto* pad = std::get_if<GamepadButtonEvent>(&event))
+        {
+            if (pad->down)
+            {
+                return std::string(kGamepadButtonNames[static_cast<std::size_t>(pad->button)]);
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+Result<void> RebindAction(InputMapper& mapper, std::string_view action, std::size_t index, std::string_view inputName)
+{
+    const std::optional<InputMapper::ActionId> id = mapper.FindAction(action);
+    if (!id)
+    {
+        return Invalid(std::format("unknown action '{}'", action));
+    }
+    const Json name = std::string(inputName);
+    INTERI_TRY_ASSIGN(input, ParseDigital(name, action));
+    // Rebuild the action's bindings with `index` replaced (the mapper only appends).
+    std::vector<DigitalInput> inputs;
+    for (const InputMapper::DigitalBinding& binding : mapper.ActionBindings(*id))
+    {
+        switch (binding.source)
+        {
+        case InputMapper::Source::Key:
+            inputs.emplace_back(static_cast<Key>(binding.code));
+            break;
+        case InputMapper::Source::MouseButton:
+            inputs.emplace_back(static_cast<MouseButton>(binding.code));
+            break;
+        case InputMapper::Source::GamepadButton:
+            inputs.emplace_back(static_cast<GamepadButton>(binding.code));
+            break;
+        }
+    }
+    if (index < inputs.size())
+    {
+        inputs[index] = input;
+    }
+    else
+    {
+        inputs.push_back(input);
+    }
+    mapper.ClearAction(*id);
+    for (const DigitalInput& entry : inputs)
+    {
+        if (const auto* key = std::get_if<Key>(&entry))
+        {
+            mapper.BindKey(*id, *key);
+        }
+        else if (const auto* mouse = std::get_if<MouseButton>(&entry))
+        {
+            mapper.BindMouseButton(*id, *mouse);
+        }
+        else
+        {
+            mapper.BindGamepadButton(*id, std::get<GamepadButton>(entry));
+        }
+    }
+    return {};
+}
+
+void RebindPrompt::Begin(std::string action, std::size_t index)
+{
+    m_action = std::move(action);
+    m_index = index;
+}
+
+bool RebindPrompt::BeginFromAction(std::string_view menuAction, std::size_t index)
+{
+    if (!menuAction.starts_with(kActionPrefix) || menuAction.size() == kActionPrefix.size())
+    {
+        return false;
+    }
+    Begin(std::string(menuAction.substr(kActionPrefix.size())), index);
+    return true;
+}
+
+RebindPrompt::Outcome RebindPrompt::Update(std::span<const InputEvent> events, InputMapper& mapper)
+{
+    if (!Active())
+    {
+        return {};
+    }
+    const std::optional<std::string> pressed = FirstPressedInput(events);
+    if (!pressed)
+    {
+        return {};
+    }
+    const std::string action = std::exchange(m_action, {});
+    if (*pressed == "Escape")
+    {
+        return {.status = Status::Cancelled, .input = {}, .message = {}};
+    }
+    if (auto done = RebindAction(mapper, action, m_index, *pressed); !done)
+    {
+        return {.status = Status::Failed, .input = {}, .message = done.error().message};
+    }
+    return {.status = Status::Rebound, .input = *pressed, .message = {}};
+}
+
+} // namespace interi

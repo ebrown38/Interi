@@ -7,14 +7,17 @@
 #include <interi/editor/DataEditing.h>
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
+#include <interi/editor/EditorModules.h>
 #include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
 #include <interi/editor/ScenePlay.h>
 #include <interi/editor_ui/DataPanels.h>
+#include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/FracturePanel.h>
+#include <interi/editor_ui/HudDesigner.h>
 #include <interi/editor_ui/ImGuiInput.h>
 #include <interi/editor_ui/ServicePanels.h>
 #include <interi/editor_ui/StructurePanel.h>
@@ -49,6 +52,9 @@ struct EditorAppDesc
     std::filesystem::path projectDataPath;
     /// Where preferences are kept; empty: DefaultPreferencesPath().
     std::filesystem::path preferencesPath;
+    /// Folders searched for a project module's library after its own folder (a build output directory). A project
+    /// whose modules can't load falls back to the core chain library.
+    std::vector<std::filesystem::path> moduleLibraries;
 };
 
 struct FrameResult
@@ -114,6 +120,12 @@ private:
     /// Resolves the modules of `desc` and loads the project data file (errors are logged; no project then).
     void OpenProject(const EditorAppDesc& desc);
     void SaveProjectData();
+    /// The project's data and chain registry: the loaded modules' when they loaded, else the module-less ones.
+    [[nodiscard]] values::DataRegistry* ActiveData() noexcept;
+    [[nodiscard]] chain::ChainRegistry& ActiveChains() noexcept;
+    /// Loads the project's modules into a host (extensions register through it); logs and falls back on failure.
+    void LoadProjectModulesHost(const sdk::Project& project);
+    void DrawHud();
 
     // Fracture authoring.
     [[nodiscard]] bool PreviewActive() const;
@@ -199,6 +211,20 @@ private:
     std::unique_ptr<NativeFileSystem> m_projectFiles; ///< The open project folder, mounted over the data tree.
     sdk::ModuleSet m_chainModules;
     std::unique_ptr<chain::ChainRegistry> m_chains;
+    std::vector<std::filesystem::path> m_moduleLibraries;
+    /// What modules add to the editor. Declared before m_modules: the host takes the entries back while unloading.
+    EditorExtensions m_extensions;
+    std::unique_ptr<EditorModules> m_modules; ///< The open project's loaded modules (null: none, or they didn't load).
+    struct HudState
+    {
+        bool show = false;
+        std::string path = "content/ui/hud.hud.json";
+        hud::HudDocument document;
+        UndoStack undo;
+        HudDesignerState ui;
+        std::string message;
+    };
+    HudState m_hud;
     std::optional<Replay> m_watching; ///< The replay being played back, if any.
     std::size_t m_nextReplayEvent = 0;
     StructureTool m_structure;

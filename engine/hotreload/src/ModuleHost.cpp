@@ -102,8 +102,11 @@ public:
               std::span<const std::byte> savedState, std::vector<std::string>& systemNames, Scheduler& scheduler,
               std::vector<std::pair<ComponentTypeId, ComponentMigrator>>& components, StateSaver& saver,
               std::span<const std::pair<std::string, values::Value>> savedFields, void*& stateObject,
-              std::vector<values::FieldInfo>& stateFields, PhysicsEngineInfo physicsEngine)
+              std::vector<values::FieldInfo>& stateFields, PhysicsEngineInfo physicsEngine, SaveRegistry& saves,
+              const std::map<std::string, IModuleService*, std::less<>>& services)
         : m_physicsEngine(physicsEngine)
+        , m_saves(&saves)
+        , m_services(&services)
         , m_scope(&scope)
         , m_data(&data)
         , m_chains(&chains)
@@ -148,6 +151,12 @@ public:
     [[nodiscard]] const sdk::ModuleScope& Scope() const override { return *m_scope; }
     [[nodiscard]] const values::DataRegistry& Data() const override { return *m_data; }
     [[nodiscard]] chain::ChainRegistry& Chains() const override { return *m_chains; }
+    [[nodiscard]] SaveRegistry& Saves() const override { return *m_saves; }
+    [[nodiscard]] IModuleService* Service(std::string_view name) const override
+    {
+        const auto found = m_services->find(name);
+        return found == m_services->end() ? nullptr : found->second;
+    }
     [[nodiscard]] std::span<const std::byte> SavedState() const override { return m_savedState; }
     void SetStateSaver(StateSaver saver) override { *m_saver = std::move(saver); }
 
@@ -212,6 +221,8 @@ private:
     }
 
     PhysicsEngineInfo m_physicsEngine;
+    SaveRegistry* m_saves;
+    const std::map<std::string, IModuleService*, std::less<>>* m_services;
     const sdk::ModuleScope* m_scope;
     const values::DataRegistry* m_data;
     chain::ChainRegistry* m_chains;
@@ -389,6 +400,8 @@ ModuleHost::~ModuleHost()
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
         m_data->RemoveProvider(m_modules.back()->id);
         m_chains->RemoveProvider(m_modules.back()->id);
+        m_saves.RemoveProvider(m_modules.back()->id);
+        DropServiceEntries(m_modules.back()->id);
         m_modules.pop_back();
     }
 }
@@ -479,7 +492,8 @@ Result<void> ModuleHost::Register(Loaded& module, std::span<const std::byte> sav
     }
     const PhysicsEngineInfo engine{.id = module.physicsEngineId, .version = module.physicsEngineVersion};
     Registrar registrar(*module.scope, *m_data, *m_chains, savedState, module.systemNames, *module.scheduler,
-                        module.components, module.saver, savedFields, module.stateObject, module.stateFields, engine);
+                        module.components, module.saver, savedFields, module.stateObject, module.stateFields, engine,
+                        m_saves, m_desc.services);
     const ModuleContext context{.abiVersion = kModuleAbiVersion, .registrar = &registrar, .physicsEngine = engine};
     if (module.api != nullptr)
     {
@@ -536,12 +550,16 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     std::vector<HookEntries> extracted;
     std::vector<values::ExtractedData> extractedData;
     std::vector<chain::ChainRegistry::Extracted> extractedChains;
+    std::vector<SaveRegistry::Extracted> extractedSaves;
+    std::vector<std::vector<std::pair<IModuleService*, std::shared_ptr<void>>>> extractedServices;
     extracted.reserve(plan.outgoing.size());
     for (const std::string& id : plan.outgoing)
     {
         extracted.push_back(m_hooks->Registry().ExtractProvider(id));
         extractedData.push_back(m_data->ExtractProvider(id));
         extractedChains.push_back(m_chains->ExtractProvider(id));
+        extractedSaves.push_back(m_saves.ExtractProvider(id));
+        extractedServices.push_back(ExtractServiceEntries(id));
     }
     std::optional<sdk::ModuleSet> previousSet;
     if (plan.moduleSet)
@@ -557,6 +575,8 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
             m_hooks->Registry().RemoveProvider(module->id);
             m_data->RemoveProvider(module->id);
             m_chains->RemoveProvider(module->id);
+            m_saves.RemoveProvider(module->id);
+            DropServiceEntries(module->id);
         }
         if (previousSet)
         {
@@ -573,6 +593,17 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
         for (chain::ChainRegistry::Extracted& chains : extractedChains)
         {
             m_chains->Restore(std::move(chains));
+        }
+        for (SaveRegistry::Extracted& saves : extractedSaves)
+        {
+            m_saves.Restore(std::move(saves));
+        }
+        for (auto& tokens : extractedServices)
+        {
+            for (auto& [service, token] : tokens)
+            {
+                service->Restore(std::move(token));
+            }
         }
         // Dependents first, like any unload.
         while (!plan.incoming.empty())
@@ -617,6 +648,8 @@ Result<ModuleLoadStats> ModuleHost::Execute(Plan plan)
     extracted.clear();
     extractedData.clear();
     extractedChains.clear();
+    extractedSaves.clear();
+    extractedServices.clear();
     stats.migratedAttributeBlocks = m_data->Characters().MigrateBlocks(*m_world);
     for (const std::string& warning : m_data->Revalidate())
     {
@@ -843,6 +876,22 @@ Result<ModuleLoadStats> ModuleHost::Reload(std::string_view id)
     return stats;
 }
 
+std::vector<std::pair<IModuleService*, std::shared_ptr<void>>> ModuleHost::ExtractServiceEntries(std::string_view id)
+{
+    std::vector<std::pair<IModuleService*, std::shared_ptr<void>>> tokens;
+    tokens.reserve(m_desc.services.size());
+    for (const auto& [name, service] : m_desc.services)
+    {
+        tokens.emplace_back(service, service->Extract(id));
+    }
+    return tokens;
+}
+
+void ModuleHost::DropServiceEntries(std::string_view id)
+{
+    (void)ExtractServiceEntries(id);
+}
+
 void ModuleHost::Unload()
 {
     // Dependents first; each module's hooks leave the registry before its code is unloaded.
@@ -851,6 +900,8 @@ void ModuleHost::Unload()
         m_hooks->Registry().RemoveProvider(m_modules.back()->id);
         m_data->RemoveProvider(m_modules.back()->id);
         m_chains->RemoveProvider(m_modules.back()->id);
+        m_saves.RemoveProvider(m_modules.back()->id);
+        DropServiceEntries(m_modules.back()->id);
         LogUnload(*m_modules.back());
         m_modules.pop_back();
     }

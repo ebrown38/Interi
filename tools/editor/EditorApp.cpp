@@ -30,6 +30,7 @@
 #include <interi/values/ProjectData.h>
 
 #include <imgui.h>
+#include <imgui_stdlib.h>
 
 #include <algorithm>
 #include <cctype>
@@ -113,7 +114,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v6.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v7.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -123,6 +124,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
         m_chainModules.DeclareContract(std::move(id));
     }
     m_chains = std::make_unique<chain::ChainRegistry>(m_chainModules);
+    m_moduleLibraries = desc.moduleLibraries;
     if (Logger* logger = GetGlobalLogger())
     {
         logger->AddSink(std::make_unique<LogBufferSink>(m_log));
@@ -240,14 +242,48 @@ void EditorApp::OpenProject(const EditorAppDesc& desc)
                     m_project->Data().Tables().TableIds().size());
 }
 
+values::DataRegistry* EditorApp::ActiveData() noexcept
+{
+    if (m_modules != nullptr)
+    {
+        return &m_modules->Data();
+    }
+    return m_project != nullptr ? &m_project->Data() : nullptr;
+}
+
+chain::ChainRegistry& EditorApp::ActiveChains() noexcept
+{
+    return m_modules != nullptr ? m_modules->Chains() : *m_chains;
+}
+
+void EditorApp::LoadProjectModulesHost(const sdk::Project& project)
+{
+    m_modules.reset(); // unloads the old modules (their extensions leave first)
+    if (project.modules.empty() || !hotreload::ModuleHost::Supported())
+    {
+        return;
+    }
+    game::ProjectModulesDesc desc;
+    desc.librarySearchPaths = m_moduleLibraries;
+    desc.services[kEditorExtensionsService] = &m_extensions;
+    auto modules = EditorModules::Open(project, desc);
+    if (!modules)
+    {
+        INTERI_LOG_WARN("Editor", "modules not loaded ({}): play uses the core chain library", modules.error().message);
+        return;
+    }
+    m_modules = std::move(*modules);
+    INTERI_LOG_INFO("Editor", "loaded {} modules", m_modules->Host().LoadedModules().size());
+}
+
 void EditorApp::SaveProjectData()
 {
-    if (m_project == nullptr || m_projectDataPath.empty())
+    if (ActiveData() == nullptr || m_projectDataPath.empty())
     {
         return;
     }
     std::ofstream file(m_projectDataPath, std::ios::binary | std::ios::trunc);
-    file << values::WriteProjectData(m_project->Data());
+    file << values::WriteProjectData(*ActiveData());
     if (!file.flush())
     {
         INTERI_LOG_ERROR("Editor", "can't write {}", m_projectDataPath.string());
@@ -1019,6 +1055,7 @@ void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
         }
     }
     m_templates = ListTemplates(*manifests);
+    LoadProjectModulesHost(*project);
     if (m_projectFiles != nullptr)
     {
         (void)m_files.Unmount(*m_projectFiles); // before the old project's file system goes away
@@ -1110,10 +1147,11 @@ void EditorApp::ApplyProjectChange(Result<sdk::Project> changed, const std::stri
 
 void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
 {
-    values::ValueRegistry* values = m_project != nullptr ? &m_project->Data().Values() : nullptr;
+    values::DataRegistry* data = ActiveData();
+    values::ValueRegistry* values = data != nullptr ? &data->Values() : nullptr;
     if (requests.play && m_scenePlay == nullptr)
     {
-        auto session = ScenePlaySession::Start(m_document.Scene(), *m_chains, values, m_files, m_jobs);
+        auto session = ScenePlaySession::Start(m_document.Scene(), ActiveChains(), values, m_files, m_jobs);
         if (!session)
         {
             INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
@@ -1134,8 +1172,7 @@ void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
     if (requests.stop)
     {
         const std::size_t kept =
-            EndPlay(*m_scenePlay, m_keepPlayValues, m_project != nullptr ? &m_project->Data() : nullptr,
-                    m_document.Undo(), m_playUndoMark);
+            EndPlay(*m_scenePlay, m_keepPlayValues, ActiveData(), m_document.Undo(), m_playUndoMark);
         if (kept > 0)
         {
             INTERI_LOG_INFO("Editor", "kept {} Value(s) chains set during play", kept);
@@ -1414,12 +1451,36 @@ void EditorApp::DrawViewport()
             }
             ImGui::EndDragDropTarget();
         }
-        HandleViewportInput(viewport);
+        {
+            // An active extension tool owns the viewport's mouse; the editor's own picking and gizmo stand by.
+            const ImVec2 mouse = ImGui::GetMousePos();
+            const bool hovered = ImGui::IsItemHovered();
+            const ToolInput input{.mouseX = mouse.x,
+                                  .mouseY = mouse.y,
+                                  .hovered = hovered,
+                                  .pressed = hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                                  .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                                  .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left)};
+            ViewportCanvas canvas(*ImGui::GetWindowDrawList(), m_camera, viewport);
+            DocumentFacade document(m_document);
+            if (!m_extensions.RunActiveTool(canvas, input, document))
+            {
+                HandleViewportInput(viewport);
+            }
+        }
         if (PreviewActive())
         {
             DrawPreviewOverlay(viewport);
         }
         DrawStructureOverlay(viewport);
+        {
+            ViewportCanvas canvas(*ImGui::GetWindowDrawList(), m_camera, viewport);
+            DocumentFacade document(m_document);
+            m_extensions.DrawOverlays(canvas, document);
+            DebugDraw debug;
+            m_extensions.CollectRenderFeatures(debug, document);
+            EditorExtensions::DrawDebug(debug, canvas);
+        }
         const EditorEntityId selection =
             (PreviewActive() || m_play != nullptr || m_scenePlay != nullptr) ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
@@ -1431,6 +1492,82 @@ void EditorApp::DrawViewport()
     }
     ImGui::End();
     ImGui::PopStyleVar();
+}
+
+namespace
+{
+
+/// Reads Values from the project's registry for the HUD designer's preview.
+class RegistryValues final : public chain::IValueReader
+{
+public:
+    explicit RegistryValues(const values::ValueRegistry* registry) noexcept
+        : m_registry(registry)
+    {
+    }
+    [[nodiscard]] const values::Value* Read(std::string_view id) const override
+    {
+        return m_registry == nullptr ? nullptr : m_registry->Get(id);
+    }
+
+private:
+    const values::ValueRegistry* m_registry;
+};
+
+} // namespace
+
+void EditorApp::DrawHud()
+{
+    if (!m_hud.show)
+    {
+        return;
+    }
+    // Load/save bar above the designer window.
+    if (ImGui::Begin("HUD File", &m_hud.show))
+    {
+        ImGui::InputText("path", &m_hud.path);
+        if (ImGui::Button("Load"))
+        {
+            if (auto loaded = hud::LoadHud(m_files, m_hud.path))
+            {
+                m_hud.document = std::move(loaded->document);
+                m_hud.undo.Clear();
+                m_hud.ui = {};
+                m_hud.message = std::format("loaded {} widgets", m_hud.document.widgets.size());
+            }
+            else
+            {
+                m_hud.message = loaded.error().message;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save"))
+        {
+            const std::string text = hud::WriteHud(m_hud.document);
+            const auto saved = m_files.WriteFile(m_hud.path, std::as_bytes(std::span(text)));
+            m_hud.message = saved ? std::format("saved {}", m_hud.path) : saved.error().message;
+            if (saved)
+            {
+                m_hud.undo.MarkClean();
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Undo") && m_hud.undo.CanUndo())
+        {
+            m_hud.undo.Undo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Redo") && m_hud.undo.CanRedo())
+        {
+            m_hud.undo.Redo();
+        }
+        ImGui::TextUnformatted(m_hud.message.c_str());
+    }
+    ImGui::End();
+    const values::DataRegistry* data = ActiveData();
+    const RegistryValues values(data != nullptr ? &data->Values() : nullptr);
+    (void)DrawHudDesignerPanel(m_hud.document, m_hud.undo, m_hud.ui, values,
+                               data != nullptr ? data->Values().Ids() : std::vector<std::string>{});
 }
 
 FrameResult EditorApp::Frame()
@@ -1467,12 +1604,23 @@ FrameResult EditorApp::Frame()
     const AssetRequests assets = DrawAssetsPanel(m_assetList);
     const FractureRequests fracture = DrawFracturePanel(m_fracture, m_preview, m_assetList);
     const StructureRequests structure = DrawStructurePanel(m_structure, Status());
-    if (m_project != nullptr)
+    if (values::DataRegistry* data = ActiveData())
     {
-        DrawValuesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
-        DrawCharactersPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
-        DrawDataTablesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
+        DrawValuesPanel(*data, m_document.Undo(), m_dataPanels);
+        DrawCharactersPanel(*data, m_document.Undo(), m_dataPanels);
+        DrawDataTablesPanel(*data, m_document.Undo(), m_dataPanels);
     }
+    if (ImGui::BeginMainMenuBar())
+    {
+        m_extensions.DrawMenu();
+        ImGui::MenuItem("HUD Designer", nullptr, &m_hud.show);
+        ImGui::EndMainMenuBar();
+    }
+    {
+        DocumentFacade document(m_document);
+        m_extensions.DrawPanels(document);
+    }
+    DrawHud();
     DrawConsolePanel(*m_log, m_console);
     const ProjectSettingsRequests settings = DrawProjectSettingsPanel(m_physicsEngine);
     if (DrawPreferencesPanel(m_preferences, INTERI_PROFILING_ACTIVE != 0, ProfilerConnected()))

@@ -319,7 +319,8 @@ std::vector<std::string> CoreContracts()
             std::string(kFlowDelay),           std::string(kFlowTimer),          std::string(kFlowBranch),
             std::string(kFlowSequence),        std::string(kFlowRandom),         std::string(kTriggerStart),
             std::string(kTriggerTick),         std::string(kTriggerInputAction), std::string(kTriggerTimer),
-            std::string(kTriggerValueChanged), std::string(kTriggerSpawned),     std::string(kTriggerDestroyed)};
+            std::string(kTriggerValueChanged), std::string(kTriggerSpawned),     std::string(kTriggerDestroyed),
+            std::string(kTriggerOverlap),      std::string(kTriggerOverlapEnd)};
 }
 
 Result<void> RegisterCoreLibrary(ChainRegistry& registry)
@@ -349,6 +350,15 @@ Result<void> RegisterCoreLibrary(ChainRegistry& registry)
     INTERI_TRY(events.Provide(
         engine, kTriggerDestroyed,
         Trigger({}, {{.name = "entity", .type = ValueType::EntityRef}}, "Fires when an entity is destroyed.")));
+    for (const std::string_view overlap : {kTriggerOverlap, kTriggerOverlapEnd})
+    {
+        INTERI_TRY(events.Provide(engine, overlap,
+                                  Trigger({Input(std::string(kTriggerKeyInput), ValueType::String, std::string())},
+                                          {{.name = "other", .type = ValueType::EntityRef}},
+                                          overlap == kTriggerOverlap
+                                              ? "Fires when an actor enters the trigger volume tagged key."
+                                              : "Fires when an actor leaves the trigger volume tagged key.")));
+    }
     INTERI_TRY(RegisterFlow(events));
     return RegisterWorld(events);
 }

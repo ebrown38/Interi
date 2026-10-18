@@ -1,0 +1,10 @@
+{
+  "deadZone": 0.15,
+  "actions": {
+    "moveLeft": ["A", "Left", "Gamepad.DpadLeft"],
+    "moveRight": ["D", "Right", "Gamepad.DpadRight"],
+    "moveUp": ["W", "Up", "Gamepad.DpadUp"],
+    "moveDown": ["S", "Down", "Gamepad.DpadDown"],
+    "pause": ["Escape", "Gamepad.Start"]
+  }
+}

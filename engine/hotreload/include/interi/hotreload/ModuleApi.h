@@ -4,8 +4,8 @@
 // The boundary between the engine (host) and a gameplay module: a Module, Extension or Plugin built as a shared
 // library (.so / .dll) from game code, described by a module.json manifest (see interi/sdk/Manifest.h).
 //
-// ABI v6 (v2 made the engine shared; v3 added module data; v4 Chain Reaction events; v5 hooks, state and manifests;
-// v6 the selected Physics Engine in ModuleContext and ModuleRegistrar): the engine is a set of shared
+// ABI v7 (v2 made the engine shared; v3 added module data; v4 Chain Reaction events; v5 hooks, state and manifests;
+// v6 the selected Physics Engine in ModuleContext and ModuleRegistrar; v7 save sections): the engine is a set of shared
 // libraries (INTERI_BUILD_SHARED) and every module links them, so the host and all modules share one component
 // registry, logger, assert handler and job thread state. Modules are distributed as source and built against the
 // engine; the loader rejects a module whose toolchain fingerprint (compiler, standard library, debug level, ABI
@@ -39,6 +39,8 @@
 #include <interi/ecs/Component.h>
 #include <interi/ecs/Query.h>
 #include <interi/ecs/Scheduler.h>
+#include <interi/hotreload/ModuleService.h>
+#include <interi/runtime/SaveGame.h>
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Toolchain.h>
 #include <interi/values/DataRegistry.h>
@@ -103,6 +105,13 @@ public:
     /// Scope().Provider()), or override a lower module's. Implementations must stay pure and thread-safe (see
     /// interi/chain/Event.h); the host removes them before the module is unloaded, and chain executors recompile.
     [[nodiscard]] virtual chain::ChainRegistry& Chains() const = 0;
+    /// Save sections (see interi/runtime/SaveGame.h): register `<module id>:<name>` with functions that capture and
+    /// restore the module's state; the host removes them before the module is unloaded. The functions run on the
+    /// game thread, from SaveRegistry::Capture / Apply.
+    [[nodiscard]] virtual SaveRegistry& Saves() const = 0;
+    /// A service the host application offered (ModuleHostDesc::services), or nullptr. Cast it to its type with
+    /// ServiceAs<T>. Entries a module registers with it are taken back by the host before the module unloads.
+    [[nodiscard]] virtual IModuleService* Service(std::string_view name) const = 0;
     /// Declares module-global state as reflected fields of the object at `object` (use DeclareState). The host
     /// writes the previous instance's values of fields with the same name and type into it now, and reads them
     /// again before this instance is unloaded for a reload; fields that are new or changed type keep what the module
@@ -116,6 +125,16 @@ public:
 protected:
     ~ModuleRegistrar() = default;
 };
+
+/// The service called `name` as a T (nullptr if the host has none, or it is another type). T declares
+/// `static constexpr std::string_view kServiceType` and returns it from ServiceType(); the layout agrees because the
+/// host and module are built by one toolchain (see the toolchain fingerprint).
+template <typename T>
+[[nodiscard]] T* ServiceAs(const ModuleRegistrar& registrar, std::string_view name)
+{
+    IModuleService* service = registrar.Service(name);
+    return service != nullptr && service->ServiceType() == T::kServiceType ? static_cast<T*>(service) : nullptr;
+}
 
 /// Declares module-owned component T.
 template <Component T>

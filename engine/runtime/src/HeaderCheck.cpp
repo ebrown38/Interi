@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Compiles every public runtime header in a library translation unit so header-only code is also built with the
 // engine's warnings and checked by clang-tidy, and instantiates the templates.
+#include <interi/runtime/CameraRig.h>
 #include <interi/runtime/FixedStepClock.h>
+#include <interi/runtime/FollowCamera.h>
 #include <interi/runtime/FramePipeline.h>
 #include <interi/runtime/Interpolation.h>
+#include <interi/runtime/SaveGame.h>
+#include <interi/runtime/TriggerVolumes.h>
 
 namespace interi
 {

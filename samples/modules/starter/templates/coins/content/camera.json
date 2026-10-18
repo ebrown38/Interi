@@ -1,0 +1,6 @@
+{
+  "rigs": [
+    { "name": "map", "kind": "topDown", "height": 10, "pitch": -1.5, "fov": 50 },
+    { "name": "follow", "kind": "orbit", "distance": 6, "shoulder": 0, "fov": 60 }
+  ]
+}

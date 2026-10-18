@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "Coin Run",
+  "modules": ["com.interi.starter"],
+  "moduleDirs": ["modules"],
+  "content": ["content"],
+  "startupScene": "content/scenes/main.scene.json",
+  "data": "project_data.json"
+}

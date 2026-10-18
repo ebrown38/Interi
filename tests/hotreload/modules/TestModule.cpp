@@ -13,6 +13,7 @@
 #include <interi/hotreload/ModuleApi.h>
 
 #include "TestComponents.h"
+#include "TestService.h"
 
 #include <algorithm>
 #include <cstring>
@@ -112,6 +113,9 @@ bool Register(ModuleRegistrar&)
     return false; // (a preprocessor branch: MSVC reports code after an `if constexpr` return as unreachable)
 }
 #else
+// The value the module's save section carries (module state: a global, like any module's).
+std::int32_t g_saved = 0;
+
 bool Register(ModuleRegistrar& registrar)
 {
     interi::hotreload::DeclareComponent<HrCounter>(registrar);
@@ -125,6 +129,35 @@ bool Register(ModuleRegistrar& registrar)
     registrar.AddSystem("Increment", SystemAccess{}.Write<HrCounter>(), &Increment);
     registrar.RunAfter("Mark", "Increment");
     registrar.AddSystem("Regenerate", SystemAccess{}.Write<Health>(), &Regenerate);
+    // A save section whose version is the variant, so a test can tell which instance registered it.
+    if (!registrar.Saves()
+             .Add(registrar.Scope().Provider(),
+                  {.id = registrar.Scope().Local("Saved"),
+                   .version = static_cast<std::uint32_t>(kVariant),
+                   .capture =
+                       []
+                   {
+                       std::vector<std::byte> bytes(sizeof(g_saved));
+                       std::memcpy(bytes.data(), &g_saved, sizeof(g_saved));
+                       return bytes;
+                   },
+                   .restore = [](std::span<const std::byte> data, std::uint32_t) -> interi::Result<void>
+                   {
+                       if (data.size() != sizeof(g_saved))
+                       {
+                           return interi::MakeError(interi::ErrorCode::Corrupt, "bad size");
+                       }
+                       std::memcpy(&g_saved, data.data(), sizeof(g_saved));
+                       return {};
+                   }})
+             .has_value())
+    {
+        return false;
+    }
+    if (auto* service = interi::hotreload::ServiceAs<interi::testing::TestService>(registrar, "test.service"))
+    {
+        service->Add(std::string(registrar.Scope().Provider()), [] { return kVariant; });
+    }
     if constexpr (kVariant == 2)
     {
         registrar.AddSystem("Extra", SystemAccess{}, [](SystemContext&) {});

@@ -3,7 +3,7 @@
 
 #include <interi/core/math/Vec.h>
 
-namespace interi::gameplay
+namespace interi
 {
 
 /// A third-person orbit camera around a target (the character's eyes). Yaw 0 looks along -Z; positive yaw turns
@@ -33,4 +33,4 @@ struct FollowCamera
     [[nodiscard]] Vec3 MoveDirection(float right, float forward) const noexcept;
 };
 
-} // namespace interi::gameplay
+} // namespace interi

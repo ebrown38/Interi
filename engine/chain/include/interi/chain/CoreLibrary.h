@@ -13,6 +13,9 @@
 //   trigger.ValueChanged  key: a Value id; the step after a chain changed it       -> Fired
 //   trigger.Spawned       an entity was spawned (raised by the host)               -> Fired {entity: entity}
 //   trigger.Destroyed     an entity was destroyed (world.Destroy, or the host)     -> Fired {entity: entity}
+//   trigger.Overlap       key: a trigger volume's tag; an actor entered it         -> Fired {other: entity}
+//   trigger.OverlapEnd    the same, when the actor left                            -> Fired {other: entity}
+//                         (raised by the host for the volume's entity; see scene/Triggers.h)
 //
 // Flow:
 //   flow.Delay     seconds                       latent -> Finished (after seconds, rounded up to whole steps)
@@ -52,6 +55,8 @@ inline constexpr std::string_view kTriggerTimer = "trigger.Timer";
 inline constexpr std::string_view kTriggerValueChanged = "trigger.ValueChanged";
 inline constexpr std::string_view kTriggerSpawned = "trigger.Spawned";
 inline constexpr std::string_view kTriggerDestroyed = "trigger.Destroyed";
+inline constexpr std::string_view kTriggerOverlap = "trigger.Overlap";
+inline constexpr std::string_view kTriggerOverlapEnd = "trigger.OverlapEnd";
 
 inline constexpr std::string_view kFlowDelay = "flow.Delay";
 inline constexpr std::string_view kFlowTimer = "flow.Timer";

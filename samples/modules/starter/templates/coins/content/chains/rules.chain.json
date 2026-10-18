@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "nodes": [
+    { "id": "changed", "event": "trigger.ValueChanged", "params": { "key": { "const": "com.interi.starter:coins" } } },
+    { "id": "win", "event": "world.SetValue", "params": {
+        "id": { "const": "com.interi.starter:won" }, "value": { "const": true } } },
+    { "id": "complete", "event": "com.interi.starter:LevelComplete" }
+  ],
+  "links": [
+    { "from": "changed", "to": "win",
+      "condition": "value(\"com.interi.starter:coins\") >= value(\"com.interi.starter:total\")" },
+    { "from": "win", "to": "complete" }
+  ]
+}

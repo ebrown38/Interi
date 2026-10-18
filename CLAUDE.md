@@ -49,7 +49,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 ## Build-system conventions
 
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
-- **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk, values, chain and hotreload: everything the host and a gameplay module both link. The rest stay static.
+- **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk, values, chain, scene and hotreload: everything the host and a gameplay module both link. The rest stay static.
   - Windows exports every function (`WINDOWS_EXPORT_ALL_SYMBOLS`) but no data. **Keep globals out of public headers**: put them in a `.cpp` behind a function.
   - Each library also gets `<interi/<name>/Export.h>` (`INTERI_<NAME>_API`) for a symbol that needs explicit export.
   - MSVC C4251/C4275 don't arise, because there is no class-level `dllexport`. STL members in exported classes are fine because the toolchain fingerprint guarantees one compiler and standard library.
@@ -172,7 +172,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Hot reload and module host (`engine/hotreload`, namespace `interi::hotreload`)
 
-- **Module ABI v4** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
+- **Module ABI v5** (`ModuleApi.h`): a Module, Extension or Plugin is a shared library that links the shared engine and exports `InteriGetModuleApi` via `INTERI_GAMEPLAY_MODULE(Register)`. The host and every module share one component registry, logger, assert handler and job thread state.
   - The loader rejects a library whose `ModuleApi::toolchain` differs from `sdk::EngineToolchainFingerprint()`. Modules are built from source against the engine, which is what makes C++ types safe across the boundary.
   - Rules that keep this safe:
     - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. Nothing else enforces it (there is no registry "module mode" any more).
@@ -219,15 +219,25 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Expressions** (`Expression.h`): lexer + Pratt parser with byte-span errors, typed once at compile. int/u32 wrap, int/u32 mixed with float promote, `x / 0` and `x % 0` are 0, `int()` saturates (NaN → 0). Built-ins min/max/abs/clamp/sqrt/floor/int/float/vec3/length/dot; other calls resolve in the `FunctionRegistry`. **No trigonometry**: chain results must be bit-identical across standard libraries. Watch raw strings in tests: `value(\"id\")"` contains `)"`, so use `R"json(...)json"`.
 - **Events** (`Event.h`): `EventDefinition` = kind (Action/Trigger), inputs (`EventParam`; `typeFrom` types an input by the Value another constant input names), outputs with payloads, latent, `Authority`. `EventRegistry`/`FunctionRegistry` are `ContributionRegistry`s; an override must keep the signature. `ChainRegistry` holds both (`ExtractProvider`/`Restore`/`Subscribe`).
   - A native implementation runs during a wave (possibly on a worker) against the pre-step state. It reads inputs, the World and Values, and records outputs (`Fire`, `FireAfter(ns)`) and effects (`Defer`). It must not write shared state, throw, or depend on anything but its inputs and `Seed()`.
-- **Core library** (`CoreLibrary.h`): triggers (Start, Tick, InputAction, Timer, ValueChanged, Spawned, Destroyed; a trigger's `key` input matches the raised key), flow (Delay, Timer, Branch, Sequence, Random) and world (SetValue, ModifyValue, Destroy, Move, Rotate, Show, Hide, PlaySound). All are engine shared contract ids (`CoreContracts()`); `ModuleHost` declares them and registers the library.
+- **Core library** (`CoreLibrary.h`): triggers (Start, Tick, InputAction, Timer, ValueChanged, Spawned, Destroyed; a trigger's `key` input matches the raised key), flow (Delay, Timer, Branch, Sequence, Random) and world (SetValue, ModifyValue, Destroy, Move, Rotate, Show, Hide, PlaySound, SpawnPrefab). All are engine shared contract ids (`CoreContracts()`); `ModuleHost` declares them and registers the library.
 - **Compiler** (`Compiler.h`): resolves ids through the registries (overrides apply), type-checks every binding per incoming link (payload fields come from the upstream output), validates constants with the input schema, promotes int to float inputs, drops unreachable nodes with a warning. `Diagnostic`s locate node, link, input and span.
 - **`ChainExecutor`** (`Executor.h`), a sync point called once per fixed step:
   - Wave 0 is the raised triggers, Start for new chains, Timer/Tick and due continuations, sorted by (chain priority, entity id, sequence). Each wave's link activations are truncated to the step's budget by queue index, then evaluated in parallel (`ParallelFor`, fixed grain) and merged in activation order. A depth limit caps waves; overruns log, drop and set `LastStats()`.
   - Nothing shared is written during waves. Effects run serially at step end, in activation order. Deltas (ModifyValue, Move, Rotate) resolve then, so two hits in one step both land; SetValue is last writer wins. Writes that fail `ValidateValue` are dropped and traced. Structural changes go through `CommandBuffers` (ordered keys), transforms through an overlay flushed as commands.
   - `RuntimeValues` is the run-time layer (run time > project > module). Triggers raised by effects (ValueChanged, Destroyed) fire next step. Random is `HashCombine(seed, step, sequence, link)` per activation.
-  - Entities are named by `StableIdComponent` (u64); a chain is bound to an entity or global (0). `HiddenComponent` is the hide tag; `Sounds()` are requests for the host.
+  - Entities are named by `StableIdComponent` (u64); a chain is bound to an entity or global (0). `HiddenComponent` is the hide tag; `Sounds()` and `Spawns()` are requests for the host (a spawn's root id is allocated in effect order from `ExecutorDesc::firstSpawnId`, 2^62).
   - Programs hold module code, so the executor drops them on any event/function/Value registry change and recompiles at the next step. Continuations survive by node id; a chain that no longer compiles is inactive with diagnostics.
 - **Tests:** `tests/chain/ChainTestUtil.h` (a small project with Values and test actions), `ChainHash.h` (binary hashing of trace, Values and world). `interi_chain_stress_tests` (label `stress`) compares 1/4/32 threads and pins `ChainDeterminism.MatchesCrossPlatformGoldenHash`; any change to evaluation, ordering, the library, Random or the scenario changes it. Rotate (sin/cos) stays out of it.
+
+## Scenes (`engine/scene`, namespace `interi::scene`)
+
+- **Objects.** A scene object is an entity with `chain::StableIdComponent` (its id in files and chains), `NameComponent`, `ParentComponent` (an `EntityRef`; 0 = root) and `LocalTransformComponent` (authored, relative to the parent). `interi::Transform` stays the world transform everything else reads; `PropagateTransforms` derives it parents first in id order, treating missing parents and loops as roots (`HierarchyIndex::broken`). Children are ordered by id.
+- **Scene v2** (`SceneFile.h`, `.scene.json`): objects by id, components keyed by `kComponentName` (never compiler type names: `interi::Transform` has none and is not saved), fields as values-module JSON, sorted keys. The document keeps field text, so components no loaded module reflects survive a load and save (`KeptComponents`). `InstantiateScene` is all or nothing and fills missing fields with defaults; `CaptureScene` is a fixed point.
+- **Primitives** (`Primitives.h`): box, sphere, cylinder, cone, capsule, plane, wedge, stairs, torus as welded `TriangleMesh`es (per-corner normals, a material slot per face group). Every shape but the plane is a closed 2-manifold. Generation uses sin/cos, so test them by properties (`IsClosedManifold`, Euler characteristic, analytic volume), never by bits. `PrimitiveComponent`/`MeshComponent` have a geometry `offset` (pivot editing) and per-slot `colors`.
+- **Mesh assets** (`Mesh.h`, `.imesh`): IMSH header, payload hash, versioned archive; `ValidateMesh` on read.
+- **Prefabs** (`Prefab.h`, `.prefab.json` = a scene with one root). A saved instance is its root only: own name, parent and placement plus `PrefabInstanceComponent{prefab, overrides}` (`"<source>/<component>/<field>=<json>"`). `ExpandPrefabs` rebuilds the other objects with derived ids `PrefabObjectId(root, source)` (bit 63 set; never allocated by editors) and a `PrefabLinkComponent`; `CollapsePrefabs` turns differences from the prefab (resolved through reflection, so defaults aren't overrides) back into overrides. Not recorded: deleting an expanded object, removing one of its components, entity references other than parent links. Prefabs don't nest.
+- **`SceneRuntime`** runs a scene: `ChainsComponent{chains, global}` chains in a `ChainExecutor`; each `Step` runs the executor, adopts world transforms chains changed into local ones (relative to the parent's pre-step transform), propagates, then expands `Spawns()` (`SpawnPrefabs`) and raises `trigger.Spawned`. Tests compare 1/4/32 workers.
+- **Projects** (`sdk/Project.h`): `project.json` = name, ordered modules, module dirs, content folders, startup scene, data file. A module.json `templates` section lists starter project folders.
 
 ## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
 
@@ -461,21 +471,27 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Editor (`engine/editor`, `engine/editor_ui`, `tools/editor`, namespace `interi::editor`)
 
-- **Module split.** `interi::editor` is the editor without UI (tested headless): reflection, the level document,
-  undo, camera and gizmo math, picking, fracture preview, play sessions and replays. `interi::editor_ui` is the Dear
+- **Module split.** `interi::editor` is the editor without UI (tested headless): reflection, the scene document,
+  undo, modeling, prefabs, camera and gizmo math, picking, fracture preview, play sessions and replays, projects and
+  editor services. `interi::modeling` (static, editor-only) does CSG through Manifold (Apache-2.0; its
+  `.clang-tidy` drops `bugprone-macro-parentheses` for Manifold's command-line `MANIFOLD_PAR`). `interi::editor_ui` is the Dear
   ImGui layer (imgui 1.92 docking, no SDL/Vulkan bindings: input comes from `InputEvent`s, drawing goes through the
   RHI). `tools/editor` builds `level_editor` (the `interi_editor` target name is the core library).
 - **Reflection** is `interi::values`' (`editor/Reflection.h` aliases it: `FieldType` = `values::ValueType`,
-  `FieldValue` = `values::Value`). `RegisterEngineReflection` covers Transform, the document components and
-  VehicleComponent / WreckComponent. Field widgets for every value type are `ValueWidget` (`editor_ui/ValueWidgets.h`).
-- **Document.** `EditorScene` holds the level JSON as ECS entities: `EditorIdComponent` (stable id across
-  delete/undo, not reflected), Transform, and one kind component (`StaticBoxComponent`,
-  `DestructiblePlacementComponent`, `SpawnPointComponent`; a spawn point's yaw is its rotation about +Y).
-  `Load(LevelDef)` / `ToLevel()`; `gameplay::WriteLevel` writes what `ParseLevel` reads. Snapshots and `Restore` cover
-  reflected components only.
+  `FieldValue` = `values::Value`). `RegisterEngineReflection` covers the scene components (not the world Transform),
+  primitives, meshes, prefabs, chains, the level bridge's components and VehicleComponent / WreckComponent. Enum
+  fields carry their options (`values::EnumField`). Field widgets for every value type are `ValueWidget` (`editor_ui/ValueWidgets.h`).
+- **Document.** `EditorScene` holds a scene v2 document as ECS entities (generic objects, ids = stable ids) and keeps
+  world transforms and the `HierarchyIndex` current. Snapshots and `Restore` cover reflected components plus kept
+  (unknown) ones; prefab-derived ids never advance `NextId`. `EditorDocument` opens `.scene.json` (expanding prefab
+  instances) or imports a legacy level (any other `.json`) through `LevelBridge.h` (static boxes become Box
+  primitives; the scene is named `<stem>.scene.json` and the level remembered for File > Export level, which
+  `PlaySession`, replays and the sandbox read until M19). Saving collapses prefab instances. Multi-selection:
+  `SelectedIds`, `SelectedRoots` (no selected ancestor; what operations act on), `ToggleSelected`.
 - **Undo.** `UndoStack` executes `ICommand`s; commands with the same non-zero merge key merge until `Seal()` (the UI
   seals on widget release), a capacity drops the oldest, `MarkClean`/`IsDirty` track the save point. Edits go through
-  `EditField` / `EditTransform` / `EditorDocument::Add` / `DeleteSelection`, and project data edits through
+  `EditField` / `EditTransform` (world target, stored local) / `Reparent` / `AddComponent` / `RemoveComponent` /
+  `EditorDocument::Add` / `DeleteSelection` (subtrees, one `MacroCommand`), and project data edits through
   `DataEditing.h` (`EditValue`, `EditAttributeDefault`, `EditCell`, `AddTableRow`, `RemoveTableRow`; checked before
   they are recorded).
 - **Project data.** `ProjectData::Create(graph)` builds a `DataRegistry` from manifests (no libraries). The Values,
@@ -495,15 +511,33 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   when no widget is active. Painted seed density is `SeedPattern::Painted` (uniform base + strokes, one random
   stream per stroke); material volumes assign chunks by centroid after the hierarchy is built. Both live in the
   `.fracture.json` sidecar, so `fracture_cooker` reproduces the editor's result.
-- **Play and replays.** `PlaySession` spawns `ToLevel()` into fresh physics/ECS/destruction worlds (needs a
+- **Modeling** (`Modeling.h`): group/ungroup, duplicate and array (subtree copies, entity references inside remapped),
+  align, distribute, mirror (negative scale on the local axis nearest the mirror axis, rotation `M R M_k`: exact),
+  snap, pivot (origin moves; geometry offset and children compensate) and CSG (result baked to `meshes/csg_<n>.imesh`;
+  the file is not removed by undo). Every operation is one undo step.
+- **Prefabs** (`Prefabs.h`): create from the selected object (writes `prefabs/<name>.prefab.json`, the object becomes
+  an instance), instance (drag a prefab asset), revert (undoable) and apply (rewrites the prefab, reloads the scene,
+  clears undo).
+- **Play-in-editor** (`ScenePlay.h`): Play / Pause / Step / Stop (F5 / F6 / F10) run the scene in a `SceneRuntime`
+  of its own (collapsed then re-expanded, so unsaved instance edits play), physics-free; the document is never
+  touched. On Stop, Values chains set can be kept (`KeepRuntimeValues`, undoable; a preference). Modules' native
+  events aren't available yet (no libraries load in the editor): chains use the core library.
+- **Services** (`EditorServices.h`, `editor_ui/ServicePanels.h`): preferences (`editor.json` in the user config
+  folder: recent projects, autosave, play, snapping, Tracy frame marks), `AutosaveTimer` (writes
+  `<scene>.autosave` without marking clean), `LogBuffer`/`LogBufferSink` (console panel; thread-safe, the sink runs
+  on the logger's flush thread). Projects (`Projects.h`): `CreateProject` (empty or from a module template),
+  `LoadProjectModules`; the Project menu opens, creates and lists recent projects, and `--project-file <dir>` opens
+  one at startup (the folder is mounted over the data tree: its paths are project-relative and writes go there).
+- **Play and replays.** `PlaySession` spawns `ExportLevel(scene)` into fresh physics/ECS/destruction worlds (needs a
   `JoltRuntime`) and steps at 60 Hz; `Detonate` queues an explosion for the next step and records it. `Replay` files
   (IRPL: payload hash, versioned archive) hold the level JSON, the step-indexed explosions, the step count and the
   final `StateHash` (Jolt SaveState + bond health). `RunReplay` reproduces it from a fresh spawn; tests compare 1/4/32
   workers (`interi_editor_stress_tests`).
 - **Smoke run:** `level_editor --video-driver offscreen --frames 120 --demo 1 --screenshot out.ppm` (plays the level,
   detonates, saves and verifies a replay, writes the last frame). `--fracture destruction/samples/building.gltf`
-  opens a source in the Fracture panel. The dock layout is saved in the temp directory
-  (`interi_editor_layout_v3.ini`; bump the version when windows are added).
+  opens a source in the Fracture panel. `--project-file <dir> --play 1` opens a project and plays its startup scene
+  (prints `Played N steps`). The dock layout is saved in the temp directory
+  (`interi_editor_layout_v5.ini`; bump the version when windows are added).
 
 ## Dependencies and licensing
 

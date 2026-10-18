@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 #include "EditorApp.h"
 
+#include <interi/chain/CoreLibrary.h>
 #include <interi/core/Hash.h>
 #include <interi/core/Log.h>
+#include <interi/core/Profiling.h>
 #include <interi/core/math/Mat4.h>
 #include <interi/core/math/Quat.h>
 #include <interi/destruction/BondGraph.h>
@@ -11,6 +13,9 @@
 #include <interi/destruction/FractureMesh.h>
 #include <interi/destruction_cook/Cooker.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor/LevelBridge.h>
+#include <interi/editor/Modeling.h>
+#include <interi/editor/Prefabs.h>
 #include <interi/editor/Replay.h>
 #include <interi/editor/StructureDebug.h>
 #include <interi/editor_ui/EditorPanels.h>
@@ -18,6 +23,8 @@
 #include <interi/jobs/JobSystem.h>
 #include <interi/physics/Queries.h>
 #include <interi/platform_sdl/SdlPlatform.h>
+#include <interi/scene/Mesh.h>
+#include <interi/scene/Primitives.h>
 #include <interi/sdk/Manifest.h>
 #include <interi/sdk/ModuleGraph.h>
 #include <interi/values/ProjectData.h>
@@ -25,6 +32,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -33,6 +41,21 @@
 
 namespace interi::editor
 {
+
+namespace
+{
+
+/// Whether a Tracy profiler is connected (profile builds only).
+[[nodiscard]] bool ProfilerConnected()
+{
+#if INTERI_PROFILING_ACTIVE
+    return TracyIsConnected;
+#else
+    return false;
+#endif
+}
+
+} // namespace
 
 namespace
 {
@@ -90,11 +113,39 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v3.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v5.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
     (void)m_files.Mount("generated", m_generatedFiles);
+    for (std::string& id : chain::CoreContracts())
+    {
+        m_chainModules.DeclareContract(std::move(id));
+    }
+    m_chains = std::make_unique<chain::ChainRegistry>(m_chainModules);
+    if (Logger* logger = GetGlobalLogger())
+    {
+        logger->AddSink(std::make_unique<LogBufferSink>(m_log));
+    }
+    m_preferencesPath = desc.preferencesPath.empty() ? DefaultPreferencesPath() : desc.preferencesPath;
+    if (auto preferences = LoadPreferences(m_preferencesPath))
+    {
+        m_preferences = std::move(*preferences);
+    }
+    else
+    {
+        INTERI_LOG_WARN("Editor", "{}: {} (using defaults)", m_preferencesPath.string(), preferences.error().message);
+    }
+    m_tools.snap = m_preferences.snap;
+    m_tools.moveSnap = m_preferences.moveSnap;
+    m_tools.rotateSnapDegrees = m_preferences.rotateSnapDegrees;
+    m_tools.sizeSnap = m_preferences.sizeSnap;
+    m_keepPlayValues = m_preferences.keepPlayValues;
+    m_autosave.SetInterval(std::chrono::seconds(m_preferences.autosaveSeconds));
+    if (auto registered = chain::RegisterCoreLibrary(*m_chains); !registered)
+    {
+        INTERI_LOG_ERROR("Editor", "chain library: {}", registered.error().message);
+    }
     if (auto wall = BuildSandboxWall(jobs))
     {
         (void)m_generatedFiles.WriteFile("wall.idest", *wall);
@@ -242,6 +293,25 @@ AssetBoundsFn EditorApp::Bounds()
 {
     return [this](std::string_view path) -> std::optional<AABB>
     {
+        if (path.ends_with(".imesh"))
+        {
+            const std::string key = "mesh:" + std::string(path);
+            auto found = m_meshCache.find(key);
+            if (found == m_meshCache.end())
+            {
+                auto mesh = scene::LoadMeshAsset(m_files, path);
+                found =
+                    m_meshCache
+                        .emplace(key, mesh ? std::make_shared<const scene::TriangleMesh>(std::move(*mesh)) : nullptr)
+                        .first;
+            }
+            if (found->second == nullptr)
+            {
+                return std::nullopt;
+            }
+            const scene::MeshBounds bounds = scene::BoundsOf(*found->second);
+            return AABB{.min = bounds.min, .max = bounds.max};
+        }
         const auto asset = Asset(std::string(path));
         if (asset == nullptr)
         {
@@ -263,6 +333,32 @@ Vec3 EditorApp::PlacementPoint(const Ray& ray) const
 
 void EditorApp::DropAsset(const std::string& path, const Ray& ray)
 {
+    Transform placement;
+    placement.position = Snap(PlacementPoint(ray), m_tools.snap ? m_tools.moveSnap : 0.0f);
+    if (path.ends_with(".prefab.json"))
+    {
+        if (auto instance = InstantiatePrefab(m_document, m_files, path, placement); !instance)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", path, instance.error().message);
+        }
+        return;
+    }
+    if (path.ends_with(".imesh"))
+    {
+        (void)m_document.Add(
+            [&](EditorScene& scene)
+            {
+                const EditorEntityId id = scene.CreateObject(std::filesystem::path(path).stem().string(), placement);
+                (void)scene.AddComponent(id, scene::MeshComponent::kComponentName);
+                const auto entity = scene.Find(id);
+                if (auto* mesh = entity ? scene.GetWorld().GetMut<scene::MeshComponent>(*entity) : nullptr)
+                {
+                    mesh->asset.path = path;
+                }
+                return id;
+            });
+        return;
+    }
     std::string asset = path;
     if (!path.ends_with(".idest"))
     {
@@ -276,7 +372,7 @@ void EditorApp::DropAsset(const std::string& path, const Ray& ray)
     }
     Transform transform;
     transform.position = Snap(PlacementPoint(ray), m_tools.snap ? m_tools.moveSnap : 0.0f);
-    (void)m_document.Add([&](EditorScene& scene) { return scene.CreateDestructible(transform, asset); });
+    (void)m_document.Add([&](EditorScene& scene) { return CreateDestructible(scene, transform, asset); });
 }
 
 Result<std::string> EditorApp::CookSource(const std::string& path)
@@ -302,7 +398,7 @@ bool EditorApp::PreviewActive() const
 
 void EditorApp::StartPlay()
 {
-    auto session = PlaySession::Start(m_document.Scene().ToLevel(), m_files, m_jobs);
+    auto session = PlaySession::Start(ExportLevel(m_document.Scene()), m_files, m_jobs);
     if (!session)
     {
         INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
@@ -751,12 +847,16 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
         }
         return;
     }
+    if (m_scenePlay != nullptr)
+    {
+        return; // the viewport shows the running scene: the camera moves, nothing is edited
+    }
     const EditorEntityId selection = m_document.Selection();
     const auto entity = m_document.Scene().Find(selection);
     std::optional<Gizmo> gizmo;
     if (entity)
     {
-        const Vec3 origin = m_document.Scene().GetWorld().Get<Transform>(*entity)->position;
+        const Vec3 origin = m_document.Scene().WorldTransform(selection).position;
         gizmo = Gizmo{.mode = m_tools.mode, .origin = origin, .size = Gizmo::SizeFor(origin, m_camera.Eye())};
     }
     m_hoveredAxis = (hovered && gizmo && !m_drag) ? GizmoRayPick(*gizmo, ray) : GizmoAxis::None;
@@ -778,26 +878,30 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
     {
         return;
     }
-    // Scaling only resizes static boxes: the other kinds have no size in the level file.
-    const bool canDrag =
-        gizmo && (m_tools.mode != GizmoMode::Scale || m_document.Scene().KindOf(selection) == EntityKind::StaticBox);
-    if (canDrag && m_hoveredAxis != GizmoAxis::None)
+    if (gizmo && m_hoveredAxis != GizmoAxis::None)
     {
         m_drag = GizmoDrag::Begin(*gizmo, m_hoveredAxis, ray);
         if (m_drag)
         {
-            const World& world = m_document.Scene().GetWorld();
             m_dragTarget = selection;
-            m_dragStart = *world.Get<Transform>(*entity);
-            const auto* box = world.Get<StaticBoxComponent>(*entity);
-            m_dragStartHalfExtents = box != nullptr ? box->halfExtents : Vec3(1.0f);
+            m_dragStart = m_document.Scene().WorldTransform(selection);
             m_dragKey = (m_dragKey + 1) | 0x8000000000000000ull;
             m_document.Undo().Seal();
             return;
         }
     }
     const auto hit = PickEntity(m_document.Scene(), ray, Bounds());
-    m_document.Select(hit ? hit->id : 0);
+    if (ImGui::GetIO().KeyCtrl)
+    {
+        if (hit)
+        {
+            m_document.ToggleSelected(hit->id);
+        }
+    }
+    else
+    {
+        m_document.Select(hit ? hit->id : 0);
+    }
 }
 
 void EditorApp::ApplyDrag(const Ray& ray)
@@ -824,23 +928,312 @@ void EditorApp::ApplyDrag(const Ray& ray)
     }
     case GizmoMode::Scale:
     {
-        Vec3 halfExtents = m_dragStartHalfExtents;
+        Vec3 scale = m_dragStart.scale;
         const int index = axis == GizmoAxis::X ? 0 : (axis == GizmoAxis::Y ? 1 : 2);
         const float scaled =
-            std::max(Snap(halfExtents[index] * m_drag->Factor(ray), m_tools.snap ? m_tools.sizeSnap : 0.0f), 0.01f);
-        halfExtents = {index == 0 ? scaled : halfExtents.x, index == 1 ? scaled : halfExtents.y,
-                       index == 2 ? scaled : halfExtents.z};
-        (void)EditField(m_document.Scene(), m_document.Undo(), m_dragTarget, StaticBoxComponent::kComponentName,
-                        "halfExtents", halfExtents, m_dragKey);
+            std::max(Snap(scale[index] * m_drag->Factor(ray), m_tools.snap ? m_tools.sizeSnap : 0.0f), 0.01f);
+        transform.scale = {index == 0 ? scaled : scale.x, index == 1 ? scaled : scale.y, index == 2 ? scaled : scale.z};
+        (void)EditTransform(m_document.Scene(), m_document.Undo(), m_dragTarget, transform, m_dragKey);
         break;
     }
     }
+}
+
+void EditorApp::UpdateServices(float seconds)
+{
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<float>(seconds));
+    if (m_preferences.autosave && m_autosave.Tick(elapsed, m_document.IsDirty()))
+    {
+        if (auto path = m_document.Autosave(m_files); !path)
+        {
+            INTERI_LOG_WARN("Editor", "autosave: {}", path.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "autosaved {}", *path);
+        }
+    }
+    if (m_preferences.profilerFrameMarks)
+    {
+        INTERI_FRAME_MARK();
+    }
+}
+
+void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
+{
+    // A running scene holds the current project's Value registry: stop it (keeping nothing) first.
+    m_scenePlay.reset();
+    auto project = sdk::LoadProject(folder);
+    if (!project)
+    {
+        INTERI_LOG_ERROR("Editor", "project: {}", project.error().message);
+        return;
+    }
+    for (const std::string& warning : project->warnings)
+    {
+        INTERI_LOG_WARN("Editor", "{}: {}", folder.string(), warning);
+    }
+    auto manifests = LoadProjectModules(*project);
+    if (!manifests)
+    {
+        INTERI_LOG_ERROR("Editor", "project modules: {}", manifests.error().message);
+        return;
+    }
+    auto graph = sdk::ResolveModuleGraph(project->modules, *manifests, sdk::CurrentHost());
+    if (!graph)
+    {
+        INTERI_LOG_ERROR("Editor", "project: {}", graph.error().message);
+        return;
+    }
+    auto data = ProjectData::Create(*graph);
+    if (!data)
+    {
+        INTERI_LOG_ERROR("Editor", "project data: {}", data.error().message);
+        return;
+    }
+    m_project = std::move(*data);
+    m_projectDataPath = project->data.empty() ? std::filesystem::path() : folder / project->data;
+    if (!m_projectDataPath.empty() && std::filesystem::exists(m_projectDataPath))
+    {
+        std::ifstream file(m_projectDataPath, std::ios::binary);
+        std::ostringstream text;
+        text << file.rdbuf();
+        if (auto loaded = values::LoadProjectData(text.str(), m_project->Data()); !loaded)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", m_projectDataPath.string(), loaded.error().message);
+        }
+    }
+    m_templates = ListTemplates(*manifests);
+    if (m_projectFiles != nullptr)
+    {
+        (void)m_files.Unmount(*m_projectFiles); // before the old project's file system goes away
+    }
+    m_projectFiles = std::make_unique<NativeFileSystem>(folder);
+    (void)m_files.Mount("", *m_projectFiles); // newest: the project's files shadow the data tree, writes go there
+    m_dataDir = folder;
+    m_assetList = ListAssets(m_dataDir);
+    m_meshCache.clear();
+    AddRecentProject(m_preferences, folder.string());
+    (void)SavePreferences(m_preferencesPath, m_preferences);
+    if (!project->startupScene.empty())
+    {
+        if (auto opened = OpenLevel(project->startupScene); !opened)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", project->startupScene, opened.error().message);
+        }
+    }
+    m_window.SetTitle(std::format("Interi Editor - {}", project->name));
+    INTERI_LOG_INFO("Editor", "opened project {} ({} modules)", project->name, graph->loadOrder.size());
+}
+
+void EditorApp::HandleProjectRequests(const ProjectRequests& requests)
+{
+    if (requests.createFolder)
+    {
+        const ProjectTemplate* from =
+            requests.createTemplate >= 0 && static_cast<std::size_t>(requests.createTemplate) < m_templates.size()
+                ? &m_templates[static_cast<std::size_t>(requests.createTemplate)]
+                : nullptr;
+        if (auto created = CreateProject(*requests.createFolder, requests.createName, from); !created)
+        {
+            INTERI_LOG_ERROR("Editor", "new project: {}", created.error().message);
+        }
+        else
+        {
+            OpenProjectFolder(*requests.createFolder);
+        }
+    }
+    if (requests.open)
+    {
+        OpenProjectFolder(*requests.open);
+    }
+}
+
+void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
+{
+    values::ValueRegistry* values = m_project != nullptr ? &m_project->Data().Values() : nullptr;
+    if (requests.play && m_scenePlay == nullptr)
+    {
+        auto session = ScenePlaySession::Start(m_document.Scene(), *m_chains, values, m_files, m_jobs);
+        if (!session)
+        {
+            INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
+            return;
+        }
+        m_scenePlay = std::move(*session);
+        m_playUndoMark = m_document.Undo().Applied();
+        for (const std::string& warning : m_scenePlay->Runtime().Warnings())
+        {
+            INTERI_LOG_WARN("Editor", "play: {}", warning);
+        }
+        return;
+    }
+    if (m_scenePlay == nullptr)
+    {
+        return;
+    }
+    if (requests.stop)
+    {
+        const std::size_t kept =
+            EndPlay(*m_scenePlay, m_keepPlayValues, m_project != nullptr ? &m_project->Data() : nullptr,
+                    m_document.Undo(), m_playUndoMark);
+        if (kept > 0)
+        {
+            INTERI_LOG_INFO("Editor", "kept {} Value(s) chains set during play", kept);
+        }
+        m_scenePlay.reset();
+        return;
+    }
+    if (requests.pause)
+    {
+        m_scenePlay->SetPaused(!m_scenePlay->Paused());
+    }
+    if (requests.step)
+    {
+        m_scenePlay->StepOnce();
+    }
+    m_scenePlay->Advance(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<float>(seconds)));
+}
+
+void EditorApp::HandleModeling(const ToolRequests& tools, bool groupShortcut)
+{
+    const AssetBoundsFn bounds = Bounds();
+    if (tools.group || groupShortcut)
+    {
+        (void)GroupSelection(m_document, bounds);
+    }
+    if (tools.ungroup)
+    {
+        (void)UngroupSelection(m_document);
+    }
+    if (tools.duplicate)
+    {
+        (void)DuplicateSelection(m_document);
+    }
+    if (tools.array)
+    {
+        (void)DuplicateSelection(m_document, static_cast<std::uint32_t>(m_tools.arrayCount), m_tools.arrayOffset);
+    }
+    if (tools.align)
+    {
+        (void)AlignSelection(m_document, m_tools.axis, *tools.align, bounds);
+    }
+    if (tools.distribute)
+    {
+        (void)DistributeSelection(m_document, m_tools.axis, bounds);
+    }
+    if (tools.mirror)
+    {
+        (void)MirrorSelection(m_document, m_tools.axis, bounds);
+    }
+    if (tools.snapSelection)
+    {
+        (void)SnapSelection(m_document, m_tools.moveSnap);
+    }
+    if (tools.pivot)
+    {
+        for (const EditorEntityId id : m_document.SelectedRoots())
+        {
+            (void)SetPivot(m_document, id, *tools.pivot, bounds);
+        }
+    }
+    if (tools.createPrefab)
+    {
+        const EditorEntityId root = m_document.Selection();
+        std::string name(m_document.Scene().NameOf(root));
+        std::ranges::replace_if(name, [](char c) { return !std::isalnum(static_cast<unsigned char>(c)); }, '_');
+        const std::string path = std::format("prefabs/{}.prefab.json", name.empty() ? "prefab" : name);
+        if (auto created = CreatePrefabFromSelection(m_document, m_files, path); !created)
+        {
+            INTERI_LOG_ERROR("Editor", "create prefab: {}", created.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "wrote {}", path);
+            m_assetList = ListAssets(m_dataDir);
+        }
+    }
+    if (tools.revertPrefab || tools.applyPrefab)
+    {
+        const EditorEntityId root = InstanceRootOf(m_document.Scene(), m_document.Selection());
+        auto done =
+            tools.revertPrefab ? RevertInstance(m_document, m_files, root) : ApplyInstance(m_document, m_files, root);
+        if (!done)
+        {
+            INTERI_LOG_ERROR("Editor", "prefab: {}", done.error().message);
+        }
+        m_meshCache.clear();
+    }
+    if (tools.csg)
+    {
+        // A fresh asset per operation: earlier results stay valid for undo.
+        std::string path;
+        for (std::uint32_t n = 1; path.empty() || m_files.Exists(path); ++n)
+        {
+            path = std::format("meshes/csg_{}.imesh", n);
+        }
+        if (auto created = CsgSelection(m_document, m_files, *tools.csg, path); !created)
+        {
+            INTERI_LOG_ERROR("Editor", "csg: {}", created.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "csg: wrote {}", path);
+            m_assetList = ListAssets(m_dataDir);
+        }
+    }
+}
+
+std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(const World& world, Entity entity)
+{
+    std::string key;
+    Result<scene::TriangleMesh> mesh = MakeError(ErrorCode::NotFound, "no mesh");
+    if (const auto* primitive = world.Get<scene::PrimitiveComponent>(entity))
+    {
+        key = std::format("primitive:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}", primitive->shape.name, primitive->size.x,
+                          primitive->size.y, primitive->size.z, primitive->radius, primitive->height, primitive->tube,
+                          primitive->segments, primitive->rings, primitive->steps);
+        if (const auto found = m_meshCache.find(key); found != m_meshCache.end())
+        {
+            return found->second;
+        }
+        auto params = scene::ParamsOf(*primitive);
+        mesh = params ? scene::GeneratePrimitive(*params) : std::unexpected(params.error());
+    }
+    else if (const auto* asset = world.Get<scene::MeshComponent>(entity))
+    {
+        key = "mesh:" + asset->asset.path;
+        if (const auto found = m_meshCache.find(key); found != m_meshCache.end())
+        {
+            return found->second;
+        }
+        mesh = scene::LoadMeshAsset(m_files, asset->asset.path);
+    }
+    else
+    {
+        return nullptr;
+    }
+    if (!mesh)
+    {
+        INTERI_LOG_WARN("Editor", "{}: {}", key, mesh.error().message);
+        m_meshCache.emplace(key, nullptr); // don't retry every frame
+        return nullptr;
+    }
+    if (m_meshCache.size() > 256)
+    {
+        m_meshCache.clear(); // parameter drags make many variants; the renderer drops what it no longer sees
+    }
+    auto shared = std::make_shared<const scene::TriangleMesh>(std::move(*mesh));
+    m_meshCache.emplace(key, shared);
+    return shared;
 }
 
 void EditorApp::BuildScene()
 {
     m_boxes.clear();
     m_chunks.clear();
+    m_meshes.clear();
+    m_meshColors.clear();
     if (PreviewActive())
     {
         BuildPreviewScene();
@@ -849,23 +1242,49 @@ void EditorApp::BuildScene()
                            .occluder = true});
         return;
     }
-    const World& world = m_document.Scene().GetWorld();
-    const EditorEntityId selection = m_document.Selection();
-    for (const EditorEntityId id : m_document.Scene().Ids())
+    // The edited scene, or the running one while playing.
+    World& world = m_scenePlay != nullptr ? m_scenePlay->Runtime().GetWorld() : m_document.Scene().GetWorld();
+    const scene::HierarchyIndex objects = scene::BuildHierarchy(world);
+    m_meshColors.reserve(objects.nodes.size()); // m_meshes keeps spans into it
+    for (const auto& [id, node] : objects.nodes)
     {
-        const Entity entity = *m_document.Scene().Find(id);
-        const Transform& transform = *world.Get<Transform>(entity);
-        const bool selected = id == selection;
-        if (m_play != nullptr && !world.Has<StaticBoxComponent>(entity))
+        const Entity entity = node.entity;
+        const auto* worldTransform = world.Get<Transform>(entity);
+        if (worldTransform == nullptr || world.Has<chain::HiddenComponent>(entity))
+        {
+            continue;
+        }
+        const Transform transform = *worldTransform;
+        const bool selected = m_scenePlay == nullptr && m_document.IsSelected(id);
+        const bool isDestructible = world.Has<DestructiblePlacementComponent>(entity);
+        if (m_play != nullptr && (isDestructible || world.Has<SpawnPointComponent>(entity)))
         {
             continue; // playing: the simulation draws the destructibles; spawn points are not played
         }
-        if (const auto* box = world.Get<StaticBoxComponent>(entity))
+        if (const auto mesh = ObjectMesh(world, entity))
         {
-            m_boxes.push_back(
-                {.transform = Mat4::FromTRS(transform.position, transform.rotation, box->halfExtents * 2.0f),
-                 .color = selected ? kSelectedColor : Vec3(0.5f, 0.52f, 0.48f),
-                 .occluder = true});
+            if (m_renderer != nullptr)
+            {
+                if (auto added = m_renderer->AddMesh(mesh); !added)
+                {
+                    INTERI_LOG_WARN("Editor", "mesh of {}: {}", id, added.error().message);
+                }
+            }
+            const auto* primitive = world.Get<scene::PrimitiveComponent>(entity);
+            const auto* asset = world.Get<scene::MeshComponent>(entity);
+            const values::ValueList& colors = primitive != nullptr ? primitive->colors : asset->colors;
+            const Vec3 offset = primitive != nullptr ? primitive->offset : asset->offset;
+            std::vector<Vec3>& slotColors = m_meshColors.emplace_back();
+            for (std::uint32_t slot = 0; slot < std::max<std::uint32_t>(mesh->SlotCount(), 1); ++slot)
+            {
+                const values::Color color = scene::SlotColor(colors, slot);
+                slotColors.emplace_back(color.r, color.g, color.b);
+            }
+            m_meshes.push_back({.mesh = mesh.get(),
+                                .transform = transform.ToMat4() * Mat4::Translation(offset),
+                                .slotColors = slotColors,
+                                .color = selected ? std::optional(kSelectedColor) : std::nullopt,
+                                .occluder = true});
         }
         else if (const auto* placement = world.Get<DestructiblePlacementComponent>(entity))
         {
@@ -903,6 +1322,10 @@ void EditorApp::DrawViewport()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     if (ImGui::Begin(kViewportWindow))
     {
+        ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + 6.0f, ImGui::GetCursorPosY() + 4.0f));
+        m_playRequests = DrawPlayControls({.playing = m_scenePlay != nullptr,
+                                           .paused = m_scenePlay != nullptr && m_scenePlay->Paused(),
+                                           .step = m_scenePlay != nullptr ? m_scenePlay->StepIndex() : 0});
         const ImVec2 size = ImGui::GetContentRegionAvail();
         m_viewportWidth = std::max(size.x, 0.0f);
         m_viewportHeight = std::max(size.y, 0.0f);
@@ -938,11 +1361,11 @@ void EditorApp::DrawViewport()
             DrawPreviewOverlay(viewport);
         }
         DrawStructureOverlay(viewport);
-        const EditorEntityId selection = (PreviewActive() || m_play != nullptr) ? 0 : m_document.Selection();
+        const EditorEntityId selection =
+            (PreviewActive() || m_play != nullptr || m_scenePlay != nullptr) ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
         {
-            const Vec3 origin =
-                m_document.Scene().GetWorld().Get<Transform>(*m_document.Scene().Find(selection))->position;
+            const Vec3 origin = m_document.Scene().WorldTransform(selection).position;
             const Gizmo gizmo{.mode = m_tools.mode, .origin = origin, .size = Gizmo::SizeFor(origin, m_camera.Eye())};
             DrawGizmo(*ImGui::GetWindowDrawList(), gizmo, m_camera, viewport, m_drag ? m_drag->Axis() : m_hoveredAxis);
         }
@@ -972,6 +1395,8 @@ FrameResult EditorApp::Frame()
     m_previous = now;
 
     ImGui::NewFrame();
+    // The Project menu first: File's right-aligned title would push later menus off the bar.
+    const ProjectRequests projectRequests = DrawProjectMenu(m_projectMenu, m_preferences.recentProjects, m_templates);
     MenuRequests requests = DrawMainMenu(m_document);
     (void)DrawDockSpace(m_buildLayout);
     m_buildLayout = false;
@@ -988,11 +1413,28 @@ FrameResult EditorApp::Frame()
         DrawCharactersPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
         DrawDataTablesPanel(m_project->Data(), m_document.Undo(), m_dataPanels);
     }
+    DrawConsolePanel(*m_log, m_console);
+    if (DrawPreferencesPanel(m_preferences, INTERI_PROFILING_ACTIVE != 0, ProfilerConnected()))
+    {
+        m_tools.snap = m_preferences.snap;
+        m_tools.moveSnap = m_preferences.moveSnap;
+        m_tools.rotateSnapDegrees = m_preferences.rotateSnapDegrees;
+        m_tools.sizeSnap = m_preferences.sizeSnap;
+        m_keepPlayValues = m_preferences.keepPlayValues;
+        m_autosave.SetInterval(std::chrono::seconds(m_preferences.autosaveSeconds));
+        if (auto saved = SavePreferences(m_preferencesPath, m_preferences); !saved)
+        {
+            INTERI_LOG_WARN("Editor", "preferences: {}", saved.error().message);
+        }
+    }
     DrawViewport();
+    HandleProjectRequests(projectRequests);
     const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
 
     HandleStructureRequests(structure);
+    HandlePlay(m_playRequests, io.DeltaTime);
+    UpdateServices(io.DeltaTime);
     if (m_play != nullptr && !m_structure.paused)
     {
         StepPlay(io.DeltaTime);
@@ -1011,24 +1453,28 @@ FrameResult EditorApp::Frame()
         (void)m_preview.Update(m_jobs);
     }
 
-    if (tools.addStaticBox || tools.addSpawnPoint)
+    if (tools.addPrimitive || tools.addSpawnPoint)
     {
         Transform transform;
         transform.position = Snap(m_camera.target, m_tools.snap ? m_tools.moveSnap : 0.0f);
-        if (tools.addStaticBox)
+        if (tools.addPrimitive)
         {
-            (void)m_document.Add([&](EditorScene& scene) { return scene.CreateStaticBox(transform, Vec3(1.0f)); });
+            scene::PrimitiveParams params;
+            params.shape = *tools.addPrimitive;
+            params.height = params.shape == scene::PrimitiveShape::Capsule ? 2.0f : 1.0f;
+            (void)m_document.Add([&](EditorScene& scene) { return scene.CreatePrimitive(params, transform); });
         }
         else
         {
             transform.position.y = 0.0f;
-            (void)m_document.Add([&](EditorScene& scene) { return scene.CreateSpawnPoint(transform, "spawn"); });
+            (void)m_document.Add([&](EditorScene& scene) { return CreateSpawnPoint(scene, transform, "spawn"); });
         }
     }
-    if (const auto entity = m_document.Scene().Find(m_document.Selection());
-        entity && (tools.focusSelection || (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))))
+    HandleModeling(tools, requests.group);
+    if (const EditorEntityId focused = m_document.Selection();
+        focused != 0 && (tools.focusSelection || (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false))))
     {
-        m_camera.target = m_document.Scene().GetWorld().Get<Transform>(*entity)->position;
+        m_camera.target = m_document.Scene().WorldTransform(focused).position;
     }
     if (assets.refresh)
     {
@@ -1046,15 +1492,27 @@ FrameResult EditorApp::Frame()
     {
         m_document.New();
     }
+    if (requests.exportLevel)
+    {
+        if (auto exported = m_document.ExportLevel(m_files); !exported)
+        {
+            INTERI_LOG_ERROR("Editor", "export: {}", exported.error().message);
+        }
+        else
+        {
+            INTERI_LOG_INFO("Editor", "exported {}", m_document.ExportPath());
+        }
+    }
     if (requests.save)
     {
-        if (auto saved = m_document.Save(m_dataFiles); !saved)
+        if (auto saved = m_document.Save(m_files); !saved)
         {
             INTERI_LOG_ERROR("Editor", "save: {}", saved.error().message);
         }
         else
         {
             INTERI_LOG_INFO("Editor", "saved {}", m_document.Path());
+            m_autosave.Reset();
         }
         SaveProjectData();
     }
@@ -1082,6 +1540,7 @@ FrameResult EditorApp::Frame()
     }
     result.presented = m_renderer->Render({.boxes = m_boxes,
                                            .chunks = m_chunks,
+                                           .meshes = m_meshes,
                                            .world = m_play != nullptr ? &m_play->GetWorld() : nullptr,
                                            .destruction = m_play != nullptr ? &m_play->Destruction() : nullptr,
                                            .view = view,

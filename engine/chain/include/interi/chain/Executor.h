@@ -97,6 +97,15 @@ private:
     std::map<std::string, values::Value, std::less<>> m_values;
 };
 
+/// A prefab a chain asked to spawn (world.SpawnPrefab). The host expands it after the step (scene::SpawnPrefabs)
+/// and raises trigger.Spawned for its root.
+struct SpawnRequest
+{
+    std::string prefab;   ///< Virtual path of a .prefab.json.
+    std::uint64_t id = 0; ///< The stable id the spawned root takes (allocated in effect order).
+    Transform transform;  ///< The root's world transform.
+};
+
 /// One record of the debug trace (for the M21 debugger).
 struct TraceRecord
 {
@@ -138,6 +147,8 @@ struct ExecutorDesc
     std::function<bool(std::uint64_t entity)> isOwner; ///< Client: does this client own the entity?
     bool trace = false;
     std::size_t grain = 16; ///< Activations per parallel chunk.
+    /// Stable ids of spawned prefab roots count up from here (above any authored scene id).
+    std::uint64_t firstSpawnId = std::uint64_t{1} << 62;
 };
 
 struct ExecutorStats
@@ -187,6 +198,8 @@ public:
     void RaiseTrigger(std::string_view trigger, std::uint64_t entity, std::string key,
                       std::vector<values::Value> payload = {});
     void PlaySound(SoundRequest request);
+    /// Asks the host to spawn a prefab after the step; returns the stable id its root will have.
+    std::uint64_t SpawnPrefab(std::string prefab, const Transform& transform);
 
 private:
     friend class ChainExecutor;
@@ -253,6 +266,8 @@ public:
     [[nodiscard]] const std::vector<TraceRecord>& Trace() const noexcept { return m_trace; }
     /// Sounds requested by the last step.
     [[nodiscard]] const std::vector<SoundRequest>& Sounds() const noexcept { return m_sounds; }
+    /// Prefabs spawned by the last step, in effect order.
+    [[nodiscard]] const std::vector<SpawnRequest>& Spawns() const noexcept { return m_spawns; }
     /// Continuations waiting for a later step.
     [[nodiscard]] std::size_t PendingContinuations() const noexcept;
 
@@ -286,6 +301,8 @@ private:
     std::vector<Continuation> m_continuations;
     std::vector<TraceRecord> m_trace;
     std::vector<SoundRequest> m_sounds;
+    std::vector<SpawnRequest> m_spawns;
+    std::uint64_t m_nextSpawnId = 0;
     std::vector<sdk::Subscription> m_subscriptions;
     ExecutorStats m_stats;
     std::uint64_t m_step = 0;

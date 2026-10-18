@@ -15,7 +15,7 @@
 #define INTERI_DETAIL_STRINGIFY(x) INTERI_DETAIL_STRINGIFY_INNER(x)
 
 /// Bumped whenever the module ABI (ModuleApi.h, the registrar, hooks) changes.
-#define INTERI_MODULE_ABI_VERSION 4 // NOLINT(modernize-macro-to-enum): stringified below
+#define INTERI_MODULE_ABI_VERSION 5 // NOLINT(modernize-macro-to-enum): stringified below
 
 #if defined(__clang__)
 #define INTERI_DETAIL_FP_COMPILER                                                                                      \

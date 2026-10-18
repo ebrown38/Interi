@@ -1,11 +1,24 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/math/Quat.h>
 #include <interi/editor/EditorScene.h>
+#include <interi/scene/Prefab.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace interi::editor
 {
+
+namespace
+{
+
+[[nodiscard]] bool IsStandard(std::string_view component) noexcept
+{
+    return component == scene::NameComponent::kComponentName || component == scene::ParentComponent::kComponentName ||
+           component == scene::LocalTransformComponent::kComponentName;
+}
+
+} // namespace
 
 EditorScene::EditorScene(const ReflectionRegistry& reflection)
     : m_reflection(&reflection)
@@ -19,83 +32,58 @@ void EditorScene::Clear()
         (void)m_world.DestroyEntity(entity);
     }
     m_entities.clear();
+    m_kept.clear();
+    m_hierarchy = {};
     m_nextId = 1;
 }
 
-void EditorScene::Load(const gameplay::LevelDef& level)
+Result<std::vector<std::string>> EditorScene::Load(const scene::SceneDocument& document)
 {
+    World scratch;
+    INTERI_TRY(scene::InstantiateScene(document, scratch, *m_reflection)); // validate before touching the scene
     Clear();
-    for (const gameplay::StaticBoxDef& box : level.staticBoxes)
-    {
-        (void)CreateStaticBox(box.transform, box.halfExtents);
-    }
-    for (const gameplay::DestructibleDef& destructible : level.destructibles)
-    {
-        (void)CreateDestructible(destructible.transform, destructible.asset);
-    }
-    for (const gameplay::SpawnPoint& spawn : level.spawnPoints)
-    {
-        Transform transform;
-        transform.position = spawn.position;
-        transform.rotation = YawRotation(spawn.yaw);
-        (void)CreateSpawnPoint(transform, spawn.name);
-    }
-}
-
-gameplay::LevelDef EditorScene::ToLevel() const
-{
-    gameplay::LevelDef level;
+    INTERI_TRY_ASSIGN(loaded, scene::InstantiateScene(document, m_world, *m_reflection));
+    m_entities = std::move(loaded.entities);
+    m_kept = std::move(loaded.kept);
+    m_nextId = 1;
     for (const auto& [id, entity] : m_entities)
     {
-        const Transform& transform = *m_world.Get<Transform>(entity);
-        Transform placement;
-        placement.position = transform.position;
-        placement.rotation = transform.rotation;
-        if (const auto* box = m_world.Get<StaticBoxComponent>(entity))
+        if (!scene::IsPrefabObjectId(id)) // derived ids (prefab instances) are not allocated from the counter
         {
-            level.staticBoxes.push_back({.transform = placement, .halfExtents = box->halfExtents});
-        }
-        else if (const auto* destructible = m_world.Get<DestructiblePlacementComponent>(entity))
-        {
-            gameplay::DestructibleDef def;
-            def.asset = destructible->asset;
-            def.transform = placement;
-            level.destructibles.push_back(std::move(def));
-        }
-        else if (const auto* spawn = m_world.Get<SpawnPointComponent>(entity))
-        {
-            level.spawnPoints.push_back(
-                {.name = spawn->name, .position = transform.position, .yaw = YawOf(transform.rotation)});
+            m_nextId = std::max(m_nextId, id + 1);
         }
     }
-    return level;
+    Refresh();
+    return std::move(loaded.warnings);
 }
 
-EditorEntityId EditorScene::Create(const Transform& transform)
+scene::SceneDocument EditorScene::ToDocument() const
+{
+    return scene::CaptureScene(m_world, *m_reflection, &m_kept);
+}
+
+void EditorScene::Refresh()
+{
+    m_hierarchy = scene::PropagateTransforms(m_world);
+}
+
+EditorEntityId EditorScene::CreateObject(std::string name, const Transform& local, EditorEntityId parent)
 {
     const EditorEntityId id = m_nextId++;
-    m_entities.emplace(id, m_world.CreateEntity(EditorIdComponent{id}, transform));
+    m_entities.emplace(id, scene::CreateObject(m_world, id, std::move(name), parent, local));
+    Refresh();
     return id;
 }
 
-EditorEntityId EditorScene::CreateStaticBox(const Transform& transform, const Vec3& halfExtents)
+EditorEntityId EditorScene::CreatePrimitive(const scene::PrimitiveParams& params, const Transform& local,
+                                            std::string name, EditorEntityId parent)
 {
-    const EditorEntityId id = Create(transform);
-    (void)m_world.Add(m_entities.at(id), StaticBoxComponent{halfExtents});
-    return id;
-}
-
-EditorEntityId EditorScene::CreateDestructible(const Transform& transform, std::string asset)
-{
-    const EditorEntityId id = Create(transform);
-    (void)m_world.Add(m_entities.at(id), DestructiblePlacementComponent{std::move(asset)});
-    return id;
-}
-
-EditorEntityId EditorScene::CreateSpawnPoint(const Transform& transform, std::string name)
-{
-    const EditorEntityId id = Create(transform);
-    (void)m_world.Add(m_entities.at(id), SpawnPointComponent{std::move(name)});
+    if (name.empty())
+    {
+        name = std::string(scene::ToString(params.shape));
+    }
+    const EditorEntityId id = CreateObject(std::move(name), local, parent);
+    (void)m_world.Add(m_entities.at(id), scene::MakePrimitiveComponent(params));
     return id;
 }
 
@@ -108,6 +96,8 @@ bool EditorScene::Destroy(EditorEntityId id)
     }
     (void)m_world.DestroyEntity(found->second);
     m_entities.erase(found);
+    m_kept.erase(id);
+    Refresh();
     return true;
 }
 
@@ -132,26 +122,31 @@ std::vector<EditorEntityId> EditorScene::Ids() const
     return ids;
 }
 
-EntityKind EditorScene::KindOf(EditorEntityId id) const
+std::string_view EditorScene::NameOf(EditorEntityId id) const
 {
     const auto entity = Find(id);
-    if (!entity)
-    {
-        return EntityKind::None;
-    }
-    if (m_world.Has<StaticBoxComponent>(*entity))
-    {
-        return EntityKind::StaticBox;
-    }
-    if (m_world.Has<DestructiblePlacementComponent>(*entity))
-    {
-        return EntityKind::Destructible;
-    }
-    if (m_world.Has<SpawnPointComponent>(*entity))
-    {
-        return EntityKind::SpawnPoint;
-    }
-    return EntityKind::None;
+    const auto* name = entity ? m_world.Get<scene::NameComponent>(*entity) : nullptr;
+    return name == nullptr ? std::string_view{} : std::string_view(name->name);
+}
+
+EditorEntityId EditorScene::ParentOf(EditorEntityId id) const
+{
+    const auto found = m_hierarchy.nodes.find(id);
+    return found == m_hierarchy.nodes.end() ? 0 : found->second.parent;
+}
+
+Transform EditorScene::WorldTransform(EditorEntityId id) const
+{
+    const auto entity = Find(id);
+    const auto* transform = entity ? m_world.Get<Transform>(*entity) : nullptr;
+    return transform == nullptr ? Transform{} : *transform;
+}
+
+Transform EditorScene::LocalTransform(EditorEntityId id) const
+{
+    const auto entity = Find(id);
+    const auto* local = entity ? m_world.Get<scene::LocalTransformComponent>(*entity) : nullptr;
+    return local == nullptr ? Transform{} : local->ToTransform();
 }
 
 std::optional<ComponentSnapshot> EditorScene::ReadComponent(EditorEntityId id, std::string_view component) const
@@ -162,8 +157,7 @@ std::optional<ComponentSnapshot> EditorScene::ReadComponent(EditorEntityId id, s
     {
         return std::nullopt;
     }
-    // GetErased has no const overload; reading only stamps a change tick, which the editor never looks at.
-    const void* data = const_cast<World&>(m_world).GetErased(*entity, reflection->type);
+    const void* data = m_world.GetErased(*entity, reflection->type);
     if (data == nullptr)
     {
         return std::nullopt;
@@ -201,7 +195,35 @@ bool EditorScene::WriteComponent(EditorEntityId id, const ComponentSnapshot& sna
     {
         (void)WriteField(reflection->fields[i], data, snapshot.values[i]);
     }
+    if (snapshot.component == scene::ParentComponent::kComponentName ||
+        snapshot.component == scene::LocalTransformComponent::kComponentName)
+    {
+        Refresh();
+    }
     return true;
+}
+
+bool EditorScene::AddComponent(EditorEntityId id, std::string_view component)
+{
+    const auto entity = Find(id);
+    const TypeReflection* reflection = m_reflection->Find(component);
+    if (!entity || reflection == nullptr || m_world.GetErased(*entity, reflection->type) != nullptr)
+    {
+        return false;
+    }
+    reflection->addDefault(m_world, *entity);
+    return true;
+}
+
+bool EditorScene::RemoveComponent(EditorEntityId id, std::string_view component)
+{
+    const auto entity = Find(id);
+    const TypeReflection* reflection = m_reflection->Find(component);
+    if (!entity || reflection == nullptr || IsStandard(reflection->name))
+    {
+        return false;
+    }
+    return m_world.RemoveErased(*entity, reflection->type);
 }
 
 std::optional<EntitySnapshot> EditorScene::Snapshot(EditorEntityId id) const
@@ -211,7 +233,7 @@ std::optional<EntitySnapshot> EditorScene::Snapshot(EditorEntityId id) const
     {
         return std::nullopt;
     }
-    EntitySnapshot snapshot{.id = id, .components = {}};
+    EntitySnapshot snapshot{.id = id, .components = {}, .kept = {}};
     const interi::detail::Archetype& archetype = *m_world.Archetypes()[m_world.ArchetypeOf(*entity)];
     for (const interi::detail::Column& column : archetype.columns) // by type name
     {
@@ -220,6 +242,10 @@ std::optional<EntitySnapshot> EditorScene::Snapshot(EditorEntityId id) const
         {
             snapshot.components.push_back(std::move(*component));
         }
+    }
+    if (const auto kept = m_kept.find(id); kept != m_kept.end())
+    {
+        snapshot.kept = kept->second;
     }
     return snapshot;
 }
@@ -237,7 +263,7 @@ bool EditorScene::Restore(const EntitySnapshot& snapshot)
             return false;
         }
     }
-    const Entity entity = m_world.CreateEntity(EditorIdComponent{snapshot.id});
+    const Entity entity = scene::CreateObject(m_world, snapshot.id, {});
     m_entities.emplace(snapshot.id, entity);
     for (const ComponentSnapshot& component : snapshot.components)
     {
@@ -248,7 +274,15 @@ bool EditorScene::Restore(const EntitySnapshot& snapshot)
         }
         (void)WriteComponent(snapshot.id, component);
     }
-    m_nextId = std::max(m_nextId, snapshot.id + 1);
+    if (!snapshot.kept.empty())
+    {
+        m_kept[snapshot.id] = snapshot.kept;
+    }
+    if (!scene::IsPrefabObjectId(snapshot.id))
+    {
+        m_nextId = std::max(m_nextId, snapshot.id + 1);
+    }
+    Refresh();
     return true;
 }
 

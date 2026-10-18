@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Manifold's CMake package defines MANIFOLD_PAR=-1 on the command line, which bugprone-macro-parentheses reports
+# against every file that links it. The macro is Manifold's, not ours.
+InheritParentConfig: true
+Checks: -bugprone-macro-parentheses

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor/LevelBridge.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/gameplay/Vehicle.h>
 
@@ -24,7 +25,7 @@ protected:
         wall.asset = "generated/wall.idest";
         level.destructibles.push_back(wall);
         level.spawnPoints.push_back({.name = "player", .position = {0, 0, 5}, .yaw = 0.5f});
-        m_document.Scene().Load(level);
+        ImportLevel(level, m_document.Scene());
     }
 
     void DrawAll(MenuRequests& requests)
@@ -87,10 +88,21 @@ TEST_F(EditorPanelsTest, OutlinerClick_SelectsRow)
     EXPECT_EQ(m_document.Selection(), 1u);
 }
 
+TEST_F(EditorPanelsTest, MultiSelectionAndChildren_Draw)
+{
+    const EditorEntityId child = m_document.Scene().CreateObject("child", {}, 1);
+    m_document.Select(1);
+    m_document.ToggleSelected(child);
+    MenuRequests requests;
+    const ImDrawData& data = m_context.Frame([&] { DrawAll(requests); });
+    EXPECT_GT(data.TotalVtxCount, 0);
+    EXPECT_EQ(OutlinerRows(m_document.Scene())[1].depth, 1u);
+}
+
 TEST_F(EditorPanelsTest, CtrlZ_UndoesLastEdit)
 {
-    ASSERT_TRUE(
-        EditField(m_document.Scene(), m_document.Undo(), 1, "interi.editor.StaticBox", "halfExtents", Vec3(9.0f)));
+    ASSERT_TRUE(EditField(m_document.Scene(), m_document.Undo(), 1, scene::PrimitiveComponent::kComponentName, "size",
+                          Vec3(9.0f)));
     MenuRequests requests;
     ImGuiIO& io = ImGui::GetIO();
     io.AddKeyEvent(ImGuiMod_Ctrl, true);
@@ -109,7 +121,7 @@ TEST_F(EditorPanelsTest, ToolsAndAssets_DefaultsRequestNothing)
 {
     MenuRequests requests;
     (void)m_context.Frame([&] { DrawAll(requests); });
-    EXPECT_FALSE(m_toolRequests.addStaticBox || m_toolRequests.addSpawnPoint || m_toolRequests.focusSelection);
+    EXPECT_FALSE(m_toolRequests.addPrimitive || m_toolRequests.addSpawnPoint || m_toolRequests.focusSelection);
     EXPECT_FALSE(m_assetRequests.openLevel.has_value());
     EXPECT_EQ(m_tools.mode, GizmoMode::Translate);
 }

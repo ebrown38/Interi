@@ -27,6 +27,11 @@ class DestructionWorld;
 struct DestructibleAsset;
 } // namespace interi::destruction
 
+namespace interi::scene
+{
+struct TriangleMesh;
+} // namespace interi::scene
+
 namespace interi::editor
 {
 class ImGuiRenderer;
@@ -48,11 +53,23 @@ struct EditorChunk
     std::optional<Vec3> color; ///< Overrides the chunk's materials (cell preview, selection).
 };
 
+/// A scene mesh (primitive or mesh asset, added with AddMesh) drawn with one colour per material slot (the last
+/// colour repeats; `color`, when set, overrides them all: selection).
+struct EditorMesh
+{
+    const scene::TriangleMesh* mesh = nullptr;
+    Mat4 transform;
+    std::span<const Vec3> slotColors;
+    std::optional<Vec3> color;
+    bool occluder = true;
+};
+
 /// What one editor frame shows: the 3D scene in the viewport texture, then the UI over the whole window.
 struct EditorFrame
 {
     std::span<const EditorBox> boxes;
     std::span<const EditorChunk> chunks;
+    std::span<const EditorMesh> meshes;
     /// Play mode: destructible pieces, debris and crack decals from the running simulation (both or neither).
     World* world = nullptr;
     const destruction::DestructionWorld* destruction = nullptr;
@@ -79,6 +96,9 @@ public:
     /// Uploads every chunk mesh of an asset (once per asset). When the mesh pool is full it is cleared and started
     /// over, so call this every frame for each asset drawn (it returns at once for cached ones).
     [[nodiscard]] Result<void> AddAsset(const std::shared_ptr<const destruction::DestructibleAsset>& asset);
+    /// Uploads a scene mesh, one range per material slot (once per mesh object; the renderer keeps it alive while
+    /// cached). Same pool rules as AddAsset: call it every frame for each mesh drawn.
+    [[nodiscard]] Result<void> AddMesh(const std::shared_ptr<const scene::TriangleMesh>& mesh);
 
     /// The ImTextureID of a `width` x `height` viewport texture for this frame (recreated when the size changes),
     /// or 0 for an empty size. Call during the UI frame, before Render.
@@ -96,6 +116,8 @@ private:
     struct State;
     explicit EditorRenderer(std::unique_ptr<State> state);
     [[nodiscard]] bool Capture(const EditorFrame& frame, render::FGTexture viewport);
+    /// Clears the mesh pool (waiting for the GPU) and re-adds the built-in cube.
+    [[nodiscard]] Result<void> ResetMeshPool();
 
     std::unique_ptr<State> m_state;
     std::string m_capturePath;

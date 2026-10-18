@@ -108,6 +108,23 @@ TEST(VirtualFS, MountOverride_LaterMountWins)
     EXPECT_EQ(Text(vfs.ReadFile("textures/wall.dds").value()), "patch");
 }
 
+TEST(VirtualFS, Unmount_RemovesThatFileSystemOnly)
+{
+    MemoryFileSystem base;
+    MemoryFileSystem patch;
+    ASSERT_TRUE(base.WriteFile("textures/wall.dds", Bytes("base")).has_value());
+    ASSERT_TRUE(patch.WriteFile("textures/wall.dds", Bytes("patch")).has_value());
+
+    VirtualFileSystem vfs;
+    ASSERT_TRUE(vfs.Mount("", base).has_value());
+    ASSERT_TRUE(vfs.Mount("", patch).has_value());
+    EXPECT_TRUE(vfs.Unmount(patch));
+    EXPECT_FALSE(vfs.Unmount(patch));
+    EXPECT_EQ(Text(vfs.ReadFile("textures/wall.dds").value()), "base");
+    ASSERT_TRUE(vfs.WriteFile("new.txt", Bytes("x")).has_value());
+    EXPECT_TRUE(base.Exists("new.txt"));
+}
+
 TEST(VirtualFS, LaterMountMissingFile_FallsThrough)
 {
     MemoryFileSystem base;

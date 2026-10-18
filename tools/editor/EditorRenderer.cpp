@@ -17,10 +17,12 @@
 #include <interi/rhi/ResourceManager.h>
 #include <interi/rhi/UploadQueue.h>
 #include <interi/rhi_vulkan/VulkanDevice.h>
+#include <interi/scene/Mesh.h>
 
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <map>
 #include <utility>
 #include <vector>
 
@@ -75,6 +77,13 @@ struct EditorRenderer::State
     std::unique_ptr<rhi::ISwapchain> swapchain;
     std::unique_ptr<FrameGraph> graph;
     MeshRange cube;
+    /// Scene meshes by object: the mesh (kept alive so its address isn't reused) and a range per slot.
+    struct SceneMesh
+    {
+        std::shared_ptr<const scene::TriangleMesh> mesh;
+        std::vector<std::optional<MeshRange>> slots;
+    };
+    std::map<const scene::TriangleMesh*, SceneMesh> sceneMeshes;
     std::vector<RenderObject> objects;
     rhi::TextureHandle viewport;
     std::uint32_t viewportWidth = 0;
@@ -165,17 +174,73 @@ Result<void> EditorRenderer::AddAsset(const std::shared_ptr<const destruction::D
         // The pool only appends and fracture previews recook often: start it over. Assets still drawn are added
         // again by the next frames' AddAsset calls.
         INTERI_LOG_INFO("Editor", "mesh pool full: clearing it ({} assets cached)", state.chunkMeshes->AssetCount());
-        state.device->WaitForValue(state.device->LastSubmittedValue());
-        state.chunkMeshes->Clear();
-        state.meshes->Clear();
-        INTERI_TRY(UploadNow(*state.device,
-                             [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
-                             {
-                                 INTERI_TRY_ASSIGN(cube, state.meshes->Add(uploads, commands, MakeCube(0.5f)));
-                                 state.cube = cube;
-                                 return {};
-                             }));
+        INTERI_TRY(ResetMeshPool());
         added = UploadNow(*state.device, add);
+    }
+    return added;
+}
+
+Result<void> EditorRenderer::ResetMeshPool()
+{
+    State& state = *m_state;
+    state.device->WaitForValue(state.device->LastSubmittedValue());
+    state.chunkMeshes->Clear();
+    state.sceneMeshes.clear();
+    state.meshes->Clear();
+    return UploadNow(*state.device,
+                     [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
+                     {
+                         INTERI_TRY_ASSIGN(cube, state.meshes->Add(uploads, commands, MakeCube(0.5f)));
+                         state.cube = cube;
+                         return {};
+                     });
+}
+
+Result<void> EditorRenderer::AddMesh(const std::shared_ptr<const scene::TriangleMesh>& mesh)
+{
+    State& state = *m_state;
+    if (mesh == nullptr || state.sceneMeshes.contains(mesh.get()))
+    {
+        return {};
+    }
+    // One render mesh per slot: three vertices per triangle (the corner normals are per corner).
+    std::vector<MeshData> slots(mesh->SlotCount());
+    for (std::size_t t = 0; t < mesh->TriangleCount(); ++t)
+    {
+        MeshData& data = slots[mesh->slots[t]];
+        for (std::size_t k = 0; k < 3; ++k)
+        {
+            data.indices.push_back(static_cast<std::uint32_t>(data.vertices.size()));
+            data.vertices.push_back(
+                {.position = mesh->positions[mesh->indices[3 * t + k]], .normal = mesh->normals[3 * t + k]});
+        }
+    }
+    State::SceneMesh entry{.mesh = mesh, .slots = {}};
+    const auto add = [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
+    {
+        entry.slots.clear();
+        for (const MeshData& data : slots)
+        {
+            if (data.indices.empty())
+            {
+                entry.slots.emplace_back();
+                continue;
+            }
+            INTERI_TRY_ASSIGN(range, state.meshes->Add(uploads, commands, data));
+            entry.slots.emplace_back(range);
+        }
+        return {};
+    };
+    Result<void> added = UploadNow(*state.device, add);
+    if (!added && added.error().code == ErrorCode::OutOfMemory)
+    {
+        INTERI_LOG_INFO("Editor", "mesh pool full: clearing it ({} meshes cached)", state.sceneMeshes.size());
+        INTERI_TRY(ResetMeshPool());
+        added = UploadNow(*state.device, add);
+    }
+    if (added)
+    {
+        state.sceneMeshes.emplace(mesh.get(), std::move(entry));
     }
     return added;
 }
@@ -250,6 +315,29 @@ bool EditorRenderer::Render(const EditorFrame& frame)
                                      .transform = box.transform,
                                      .material = {.baseColor = box.color, .roughness = 0.8f},
                                      .occluder = box.occluder});
+        }
+        for (const EditorMesh& mesh : frame.meshes)
+        {
+            const auto found = state.sceneMeshes.find(mesh.mesh);
+            if (found == state.sceneMeshes.end())
+            {
+                continue;
+            }
+            for (std::size_t slot = 0; slot < found->second.slots.size(); ++slot)
+            {
+                if (!found->second.slots[slot])
+                {
+                    continue;
+                }
+                const Vec3 color = mesh.color ? *mesh.color
+                                   : mesh.slotColors.empty()
+                                       ? Vec3(0.6f)
+                                       : mesh.slotColors[std::min(slot, mesh.slotColors.size() - 1)];
+                state.objects.push_back({.mesh = *found->second.slots[slot],
+                                         .transform = mesh.transform,
+                                         .material = {.baseColor = color, .roughness = 0.75f},
+                                         .occluder = mesh.occluder});
+            }
         }
         for (const EditorChunk& chunk : frame.chunks)
         {

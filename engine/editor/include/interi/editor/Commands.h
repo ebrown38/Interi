@@ -5,7 +5,9 @@
 #include <interi/editor/UndoStack.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace interi::editor
 {
@@ -63,6 +65,56 @@ public:
 private:
     EditorScene* m_scene;
     EntitySnapshot m_snapshot;
+};
+
+/// Runs several commands as one undo step: Do in order, Undo in reverse.
+class MacroCommand final : public ICommand
+{
+public:
+    MacroCommand(std::string label, std::vector<std::unique_ptr<ICommand>> commands);
+
+    void Do() override;
+    void Undo() override;
+    [[nodiscard]] std::string_view Label() const override { return m_label; }
+    [[nodiscard]] std::size_t Size() const noexcept { return m_commands.size(); }
+
+private:
+    std::string m_label;
+    std::vector<std::unique_ptr<ICommand>> m_commands;
+};
+
+/// Adds a reflected component with its defaults; undo removes it.
+class AddComponentCommand final : public ICommand
+{
+public:
+    AddComponentCommand(EditorScene& scene, EditorEntityId id, std::string component);
+
+    void Do() override;
+    void Undo() override;
+    [[nodiscard]] std::string_view Label() const override { return m_label; }
+
+private:
+    EditorScene* m_scene;
+    EditorEntityId m_id;
+    std::string m_component;
+    std::string m_label;
+};
+
+/// Removes a reflected component; undo adds it back with its values.
+class RemoveComponentCommand final : public ICommand
+{
+public:
+    RemoveComponentCommand(EditorScene& scene, EditorEntityId id, ComponentSnapshot snapshot);
+
+    void Do() override;
+    void Undo() override;
+    [[nodiscard]] std::string_view Label() const override { return m_label; }
+
+private:
+    EditorScene* m_scene;
+    EditorEntityId m_id;
+    ComponentSnapshot m_snapshot;
+    std::string m_label;
 };
 
 } // namespace interi::editor

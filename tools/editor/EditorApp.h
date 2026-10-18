@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <interi/chain/Event.h>
 #include <interi/core/Result.h>
 #include <interi/editor/AssetBrowser.h>
 #include <interi/editor/DataEditing.h>
@@ -10,10 +11,12 @@
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/PlaySession.h>
+#include <interi/editor/ScenePlay.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/FracturePanel.h>
 #include <interi/editor_ui/ImGuiInput.h>
+#include <interi/editor_ui/ServicePanels.h>
 #include <interi/editor_ui/StructurePanel.h>
 #include <interi/platform/FileSystem.h>
 
@@ -44,6 +47,8 @@ struct EditorAppDesc
     std::vector<std::string> project;
     /// The project data file (ProjectData.h), loaded at startup if it exists and written with the level.
     std::filesystem::path projectDataPath;
+    /// Where preferences are kept; empty: DefaultPreferencesPath().
+    std::filesystem::path preferencesPath;
 };
 
 struct FrameResult
@@ -69,6 +74,14 @@ public:
     [[nodiscard]] FrameResult Frame();
     /// Opens a glTF under the data directory in the Fracture panel and previews it.
     void OpenFractureSource(const std::string& path) { OpenSource(path); }
+    /// Starts play-in-editor of the open scene (smoke runs: --play 1).
+    void PlayScene() { HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f); }
+    [[nodiscard]] std::uint64_t ScenePlaySteps() const noexcept
+    {
+        return m_scenePlay != nullptr ? m_scenePlay->StepIndex() : 0;
+    }
+    /// Opens a project folder (project.json): see OpenProjectFolder.
+    void OpenProject(const std::filesystem::path& folder) { OpenProjectFolder(folder); }
     /// A scripted session for smoke runs (--demo): at `frame` of `frames`, plays the level, sets off an explosion at
     /// the middle wall, saves the session as a replay and verifies it.
     void DemoStep(std::uint64_t frame, std::uint64_t frames);
@@ -123,6 +136,17 @@ private:
     [[nodiscard]] PlayStatus Status() const;
     /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
     [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
+    void HandlePlay(const ScenePlayRequests& requests, float seconds);
+    /// Opens a project folder: mounts it (its paths are the project's), resolves its modules, loads its data and
+    /// opens its startup scene. Errors are logged; the current project stays.
+    void OpenProjectFolder(const std::filesystem::path& folder);
+    void HandleProjectRequests(const ProjectRequests& requests);
+    /// Panels for the editor services, autosave and profiler frame marks.
+    void UpdateServices(float seconds);
+    /// Carries out the Tools panel's modeling requests on the selection.
+    void HandleModeling(const ToolRequests& tools, bool groupShortcut);
+    /// The mesh an object draws (its primitive's, cached by parameters, or its mesh asset's); nullptr if none.
+    [[nodiscard]] std::shared_ptr<const scene::TriangleMesh> ObjectMesh(const World& world, Entity entity);
 
     SdlPlatform& m_platform;
     IWindow& m_window;
@@ -146,7 +170,6 @@ private:
     std::optional<GizmoDrag> m_drag;
     EditorEntityId m_dragTarget = 0;
     Transform m_dragStart;
-    Vec3 m_dragStartHalfExtents;
     std::uint64_t m_dragKey = 0;
     GizmoAxis m_hoveredAxis = GizmoAxis::None;
     FracturePreview m_preview;
@@ -154,6 +177,21 @@ private:
     bool m_painting = false;
     std::optional<Vec3> m_lastStroke;
     std::unique_ptr<PlaySession> m_play;
+    /// Play-in-editor of the scene (chains, physics-free); the Structure panel's m_play is the destruction one.
+    std::unique_ptr<ScenePlaySession> m_scenePlay;
+    bool m_keepPlayValues = true;
+    ScenePlayRequests m_playRequests; ///< From this frame's viewport.
+    std::size_t m_playUndoMark = 0;   ///< UndoStack::Applied() when play started.
+    Preferences m_preferences;
+    std::filesystem::path m_preferencesPath;
+    AutosaveTimer m_autosave{std::chrono::seconds(120)};
+    std::shared_ptr<LogBuffer> m_log = std::make_shared<LogBuffer>();
+    ConsoleState m_console;
+    ProjectMenuState m_projectMenu;
+    std::vector<ProjectTemplate> m_templates;
+    std::unique_ptr<NativeFileSystem> m_projectFiles; ///< The open project folder, mounted over the data tree.
+    sdk::ModuleSet m_chainModules;
+    std::unique_ptr<chain::ChainRegistry> m_chains;
     std::optional<Replay> m_watching; ///< The replay being played back, if any.
     std::size_t m_nextReplayEvent = 0;
     StructureTool m_structure;
@@ -163,6 +201,9 @@ private:
     std::set<std::string, std::less<>> m_missingAssets;
     std::vector<EditorBox> m_boxes;
     std::vector<EditorChunk> m_chunks;
+    std::vector<EditorMesh> m_meshes;
+    std::vector<std::vector<Vec3>> m_meshColors; ///< Storage for m_meshes' slot colours.
+    std::map<std::string, std::shared_ptr<const scene::TriangleMesh>, std::less<>> m_meshCache;
     float m_viewportWidth = 0.0f;
     float m_viewportHeight = 0.0f;
     bool m_buildLayout = false;

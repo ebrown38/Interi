@@ -18,7 +18,7 @@ struct FractureMesh;
 namespace interi::editor
 {
 
-/// How the viewport shows entities without a mesh: spawn points as a 0.6 x 1.8 x 0.3 m block standing on their
+/// How the viewport shows objects without a mesh: spawn points as a 0.6 x 1.8 x 0.3 m block standing on their
 /// position, destructibles whose asset can't be read as a 1 m cube on theirs.
 inline constexpr Vec3 kSpawnMarkerHalfExtents{0.3f, 0.9f, 0.15f};
 inline constexpr Vec3 kPlaceholderHalfExtents{0.5f, 0.5f, 0.5f};
@@ -26,10 +26,15 @@ inline constexpr Vec3 kPlaceholderHalfExtents{0.5f, 0.5f, 0.5f};
 /// Asset-space bounds of a chunk's render mesh (invalid if it has none).
 [[nodiscard]] AABB ChunkBounds(const destruction::DestructibleAsset& asset, std::uint32_t chunk);
 
-/// Bounds of a destructible asset by path (chunk 0), or nothing if it can't be read.
+/// Bounds of an asset by path (a destructible's chunk 0, or a mesh asset), or nothing if it can't be read.
 using AssetBoundsFn = std::function<std::optional<AABB>(std::string_view asset)>;
 
-/// The pick shape of an entity: an oriented box (centre, rotation, half extents) in the world.
+/// An object's bounds in its own space: its primitive's, its mesh asset's or destructible's (a placeholder cube when
+/// the asset can't be read), or a spawn point's marker. Nothing for an object without a shape (a group).
+[[nodiscard]] std::optional<AABB> LocalBounds(const EditorScene& scene, EditorEntityId id, const AssetBoundsFn& bounds);
+
+/// The pick shape of an object (its LocalBounds under its world transform): an oriented box (centre, rotation, half
+/// extents) in the world.
 struct PickBox
 {
     Vec3 centre;

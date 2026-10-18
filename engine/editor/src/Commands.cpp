@@ -3,6 +3,7 @@
 #include <interi/editor/Commands.h>
 
 #include <format>
+#include <ranges>
 
 namespace interi::editor
 {
@@ -58,7 +59,7 @@ void CreateEntityCommand::Undo()
 
 DestroyEntityCommand::DestroyEntityCommand(EditorScene& scene, EditorEntityId id)
     : m_scene(&scene)
-    , m_snapshot{.id = id, .components = {}}
+    , m_snapshot{.id = id, .components = {}, .kept = {}}
 {
 }
 
@@ -77,6 +78,65 @@ void DestroyEntityCommand::Do()
 void DestroyEntityCommand::Undo()
 {
     INTERI_VERIFY(m_scene->Restore(m_snapshot), "DestroyEntityCommand: id in use");
+}
+
+MacroCommand::MacroCommand(std::string label, std::vector<std::unique_ptr<ICommand>> commands)
+    : m_label(std::move(label))
+    , m_commands(std::move(commands))
+{
+}
+
+void MacroCommand::Do()
+{
+    for (const std::unique_ptr<ICommand>& command : m_commands)
+    {
+        command->Do();
+    }
+}
+
+void MacroCommand::Undo()
+{
+    for (const std::unique_ptr<ICommand>& command : std::views::reverse(m_commands))
+    {
+        command->Undo();
+    }
+}
+
+AddComponentCommand::AddComponentCommand(EditorScene& scene, EditorEntityId id, std::string component)
+    : m_scene(&scene)
+    , m_id(id)
+    , m_component(std::move(component))
+    , m_label(std::format("Add {}", m_component))
+{
+}
+
+void AddComponentCommand::Do()
+{
+    INTERI_VERIFY(m_scene->AddComponent(m_id, m_component), "AddComponentCommand: can't add");
+}
+
+void AddComponentCommand::Undo()
+{
+    INTERI_VERIFY(m_scene->RemoveComponent(m_id, m_component), "AddComponentCommand: component is gone");
+}
+
+RemoveComponentCommand::RemoveComponentCommand(EditorScene& scene, EditorEntityId id, ComponentSnapshot snapshot)
+    : m_scene(&scene)
+    , m_id(id)
+    , m_snapshot(std::move(snapshot))
+    , m_label(std::format("Remove {}", m_snapshot.component))
+{
+}
+
+void RemoveComponentCommand::Do()
+{
+    INTERI_VERIFY(m_scene->RemoveComponent(m_id, m_snapshot.component), "RemoveComponentCommand: can't remove");
+}
+
+void RemoveComponentCommand::Undo()
+{
+    INTERI_VERIFY(m_scene->AddComponent(m_id, m_snapshot.component) && m_scene->WriteComponent(m_id, m_snapshot),
+                  "RemoveComponentCommand: can't restore");
 }
 
 } // namespace interi::editor

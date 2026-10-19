@@ -77,11 +77,9 @@ Result<void> ValidateMesh(const TriangleMesh& mesh)
         return corrupt("mesh: non-finite position or normal");
     }
     if (!std::ranges::all_of(mesh.uvs, [](const TexCoord& uv) { return std::isfinite(uv.u) && std::isfinite(uv.v); }) ||
-        !std::ranges::all_of(mesh.tangents,
-                             [](const Vec4& t) {
-                                 return std::isfinite(t.x) && std::isfinite(t.y) && std::isfinite(t.z) &&
-                                        std::isfinite(t.w);
-                             }))
+        !std::ranges::all_of(
+            mesh.tangents, [](const Vec4& t)
+            { return std::isfinite(t.x) && std::isfinite(t.y) && std::isfinite(t.z) && std::isfinite(t.w); }))
     {
         return corrupt("mesh: non-finite uv or tangent");
     }

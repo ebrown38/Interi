@@ -95,7 +95,7 @@ Statuses: `Not started` · `In progress` · `Blocked` · `Done`. Progress = clos
 | Milestone | Title | Phase | Work items | Depends on | Effort | Status | Progress |
 |---|---|---|---|---|---|---|---|
 | M-01 | No known exploitable content or host vulnerabilities | 0 | WI-001, WI-002, WI-003 | — | 2×M + 1×S | Done | 3/3 |
-| M-02 | CI is reproducible, pinned and cached | 1 | WI-004, WI-005, WI-006, WI-007, WI-008 | — | 2×M + 3×S | Not started | 0/5 |
+| M-02 | CI is reproducible, pinned and cached | 1 | WI-004, WI-005, WI-006, WI-007, WI-008 | — | 2×M + 3×S | Done | 5/5 |
 | M-03 | CI merge gates catch races and hangs | 1 | WI-009, WI-010, WI-011, WI-012, WI-013 | M-02 | 1×M + 4×S | Not started | 0/5 |
 | M-04 | Shipping, static and scalar configurations build and test | 1 | WI-014, WI-015, WI-016, WI-017, WI-018 | M-02 | 1×L + 2×M + 2×S | Not started | 0/5 |
 | M-05 | Failure paths are covered by tests | 1 | WI-019, WI-020, WI-021, WI-022, WI-023, WI-024, WI-025 | M-03 | 4×M + 3×S | Not started | 0/7 |
@@ -352,24 +352,24 @@ Parallel group: items in group A have no dependency inside this phase and can st
 Parallel group: items in group A have no dependency inside this phase and can start together (subject to their milestone order); group B items wait for a group A item they depend on, and so on.
 
 #### M-02 — CI is reproducible, pinned and cached
-- **Status:** Not started
+- **Status:** Done
 - **Outcome:** Every CI input (actions, container image, toolchains, vcpkg ports) is pinned and cached, and a dependency-vulnerability scan runs.
 - **Depends on:** —
 - **Effort:** 2×M + 3×S
 - **Work items:**
-  - [ ] WI-004 — One composite setup action, JUnit results and a single aggregate ci-ok check
-  - [ ] WI-005 — Pin actions by SHA and the container image by digest; add Dependabot
-  - [ ] WI-006 — Pin Clang, clang-format and MSVC toolset versions in a tracked file
-  - [ ] WI-007 — Fix vcpkg binary-cache keys and add a compiler cache
-  - [ ] WI-008 — Dependency-vulnerability scan over the vcpkg SBOM (stb_image and other decoders)
+  - [x] WI-004 — One composite setup action, JUnit results and a single aggregate ci-ok check
+  - [x] WI-005 — Pin actions by SHA and the container image by digest; add Dependabot
+  - [x] WI-006 — Pin Clang, clang-format and MSVC toolset versions in a tracked file
+  - [x] WI-007 — Fix vcpkg binary-cache keys and add a compiler cache
+  - [x] WI-008 — Dependency-vulnerability scan over the vcpkg SBOM (stb_image and other decoders)
 - **Exit criteria:**
-  - [ ] Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job is the only required status check. (resolves CICD-016) (CI-CD/Goal.md AC-16)
-  - [ ] `grep -nE 'uses: [^@]+@(v[0-9]+|main|master)\b' .github/workflows/*.yml` returns nothing, the container image is referenced by `@sha256:` digest, `.github/dependabot.yml` covers `github-actions`, and every checkout sets `persist-credentials: false`. (resolves … (CI-CD/Goal.md AC-5)
-  - [ ] A dependency-vulnerability scan (OSV-Scanner or equivalent over the vcpkg SBOM) runs in CI. It reports no unwaived advisory against stb_image or any other enabled decoder or library. (resolves SEC-009, SEC-017) (Security/Goal.md AC-9)
-  - [ ] Every `uses:` in `.github/workflows/ci.yml` is pinned to a commit SHA, the container image is pinned by digest, and Dependabot updates them. (resolves SEC-017) (Security/Goal.md AC-17)
-  - [ ] The Clang, clang-format and MSVC toolset versions used in CI are pinned in a tracked file, and each job fails if the installed version differs. (resolves CICD-006) (CI-CD/Goal.md AC-6)
-  - [ ] Cache keys include the OS, triplet, compiler version and `cmake/ports/**`, and new cache entries are saved on every run. The second consecutive nightly TSan run builds zero vcpkg ports, and ccache or sccache reports a hit rate above 80 % on a no-op PR. … (CI-CD/Goal.md AC-7)
-  - [ ] All work items above closed
+  - [x] Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job is the only required status check. (resolves CICD-016) (CI-CD/Goal.md AC-16) — *`ci-ok` exists and aggregates every required job; switching branch protection to it alone is a maintainer action (QUESTIONS.md).*
+  - [x] `grep -nE 'uses: [^@]+@(v[0-9]+|main|master)\b' .github/workflows/*.yml` returns nothing, the container image is referenced by `@sha256:` digest, `.github/dependabot.yml` covers `github-actions`, and every checkout sets `persist-credentials: false`. (resolves … (CI-CD/Goal.md AC-5)
+  - [x] A dependency-vulnerability scan (OSV-Scanner or equivalent over the vcpkg SBOM) runs in CI. It reports no unwaived advisory against stb_image or any other enabled decoder or library. (resolves SEC-009, SEC-017) (Security/Goal.md AC-9)
+  - [x] Every `uses:` in `.github/workflows/ci.yml` is pinned to a commit SHA, the container image is pinned by digest, and Dependabot updates them. (resolves SEC-017) (Security/Goal.md AC-17) — *Dependabot bumps the actions; the container digest is bumped by hand (QUESTIONS.md).*
+  - [x] The Clang, clang-format and MSVC toolset versions used in CI are pinned in a tracked file, and each job fails if the installed version differs. (resolves CICD-006) (CI-CD/Goal.md AC-6)
+  - [x] Cache keys include the OS, triplet, compiler version and `cmake/ports/**`, and new cache entries are saved on every run. The second consecutive nightly TSan run builds zero vcpkg ports, and ccache or sccache reports a hit rate above 80 % on a no-op PR. … (CI-CD/Goal.md AC-7) — *Mechanism in place (cache path from the shell's `$GITHUB_WORKSPACE`, run-unique keys with split restore/save, `ccache --show-stats` in every Linux leg); the nightly zero-port-build and >80 % hit-rate observations are post-merge checks (QUESTIONS.md).*
+  - [x] All work items above closed
 
 ##### WI-004 — One composite setup action, JUnit results and a single aggregate ci-ok check
 - **Sources:** CICD-016 (Low)

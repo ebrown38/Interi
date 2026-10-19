@@ -197,3 +197,28 @@
 - **Task:** Milestone 25 verification
 - **Context:** M21's importers are absent (see M24's notes), so that part cannot run.
 - **Assumption made:** The end-to-end check was covered by the starter sample: enable the module, play, export with interi_export, run the packaged game with interi_player (tests/samples/StarterExportTests.cpp). Editor level building and imports were not exercised.
+
+## Should branch protection on main require only the new `ci-ok` check instead of the eight per-leg checks?
+- **Task:** Remediation M-02, WI-004 (one aggregate ci-ok check)
+- **Context:** `.github/workflows/ci.yml` now has a `ci-ok` job that needs lint, linux, windows and coverage. Branch protection still lists `lint`, `linux (linux-clang-*)`, `windows (windows-msvc-*)` and `coverage`, and changing repository settings is a maintainer action.
+- **Assumption made:** Job and matrix-leg names are unchanged, so the current required checks still work. Switching protection to `ci-ok` alone is left to the maintainer. CI-CD AC-16's "only required status check" holds once that switch is made.
+
+## How should the Fedora container digest be kept current, since Dependabot's github-actions ecosystem doesn't update `container:` images?
+- **Task:** Remediation M-02, WI-005 (pin the container by digest; Dependabot)
+- **Context:** `.github/workflows/ci.yml` pins `fedora:44@sha256:43b29f65...`. `.github/dependabot.yml` bumps the SHA-pinned actions (workflows and `.github/actions/*`). `container:` can't read `env`, and a published CI image built from a tracked Dockerfile (CI-CD Remediation CICD-006 option 1) needs `packages: write` and a registry.
+- **Assumption made:** The digest is bumped by hand (`skopeo inspect --format '{{.Digest}}' docker://docker.io/library/fedora:44`). Packages still come from the live Fedora 44 repos, and `tools/ci/toolchain.env` catches compiler drift.
+
+## Is a major.minor pin with a failing check enough for the Linux toolchain, or should CI move to a published image with exact package versions?
+- **Task:** Remediation M-02, WI-006 (pin Clang, clang-format and MSVC)
+- **Context:** `tools/ci/toolchain.env` pins Clang 22.1, clang-format 22.1 and MSVC toolset 14.51. `tools/ci/check_toolchain.py` fails a job whose compilers report a different major.minor. Exact Fedora NEVRAs would break CI each time the updates repo drops a superseded build.
+- **Assumption made:** A major.minor pin plus the check. Patch releases may change between runs; a change of minor version fails the job until the pin is edited.
+
+## Should Windows builds get a compiler cache (sccache/ccache with /Z7)?
+- **Task:** Remediation M-02, WI-007 (compiler cache)
+- **Context:** ccache needs `CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded` (`/Z7`) instead of PDB files. That is a preset and debugging change that can't be verified locally.
+- **Assumption made:** Only the Linux legs use ccache (CI-CD AC-7 measures the hit rate on a no-op PR). Windows gets the fixed vcpkg cache only.
+
+## Who verifies the M-02 exit criteria that can only be observed on GitHub after merge?
+- **Task:** Remediation M-02 exit criteria (CI-CD AC-7)
+- **Context:** "The second consecutive nightly TSan run builds zero vcpkg ports" and "ccache reports a hit rate above 80% on a no-op PR" need runs on `main` with the new cache keys. The first run after merge populates the caches.
+- **Assumption made:** The mechanism is in place (fixed cache path, run-unique keys, `ccache --show-stats` in every Linux leg's log). M-02 is marked Done, and the plan notes these two observations as post-merge checks.

@@ -570,3 +570,64 @@ TEST_F(AssetDatabaseTest, FindByProduct_NamesTheSource)
     EXPECT_EQ(record->path, "models/cube.obj");
     EXPECT_EQ(db.FindByProduct("imported/nothing.imesh"), nullptr);
 }
+
+namespace
+{
+
+// Cooks a.png, then points the product path in a.png.meta at `hostile` (a file that must survive).
+void PoisonProductPath(const std::filesystem::path& root, const std::string& hostile)
+{
+    std::string meta = ReadText(root, "a.png.meta");
+    const std::string product = "imported/a.png.itex";
+    const auto at = meta.find(product);
+    ASSERT_NE(at, std::string::npos) << meta;
+    meta.replace(at, product.size(), hostile);
+    WriteText(root, "a.png.meta", meta);
+}
+
+} // namespace
+
+TEST_F(AssetDatabaseTest, Cook_MetaProductsOutsideImported_NothingDeleted)
+{
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "victim.txt", "keep");
+    WriteText(Root(), "keep/inside.txt", "keep");
+    const std::string absolute = (outside.Path() / "victim.txt").generic_string();
+    for (const std::string& hostile : {absolute, std::string("../outside_victim.txt"),
+                                       std::string("imported/../keep/inside.txt"), std::string("keep/inside.txt")})
+    {
+        WriteFile(Root(), "a.png", SolidPng(10));
+        std::filesystem::remove(Root() / "a.png.meta");
+        {
+            AssetDatabase db = Make();
+            ASSERT_TRUE(db.Scan().has_value());
+            ASSERT_TRUE(db.CookAll().failed.empty());
+        }
+        PoisonProductPath(Root(), hostile);
+        WriteFile(Root(), "a.png", SolidPng(200)); // a new source cooks again and forgets the old products
+        AssetDatabase db = Make();
+        ASSERT_TRUE(db.Scan().has_value());
+        db.CookAll();
+        EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt")) << hostile;
+        EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt")) << hostile;
+    }
+}
+
+TEST_F(AssetDatabaseTest, Prune_MetaProductsOutsideImported_NothingDeleted)
+{
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "victim.txt", "keep");
+    WriteText(Root(), "keep/inside.txt", "keep");
+    WriteFile(Root(), "a.png", SolidPng(10));
+    {
+        AssetDatabase db = Make();
+        ASSERT_TRUE(db.Scan().has_value());
+        ASSERT_TRUE(db.CookAll().failed.empty());
+    }
+    PoisonProductPath(Root(), (outside.Path() / "victim.txt").generic_string());
+    std::filesystem::remove(Root() / "a.png");
+    AssetDatabase db = Make();
+    db.Prune();
+    EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt"));
+    EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt"));
+}

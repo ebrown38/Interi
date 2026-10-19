@@ -180,7 +180,39 @@ Json MetaToJson(const AssetRecord& record)
 }
 
 /// Fills `record` (whose path and kind are known) from a .meta; false if the text is unusable.
-bool ReadMeta(std::string_view text, AssetRecord& record)
+// A product path must be a normalised virtual path inside the imported folder: Cook and Prune delete it.
+bool IsContainedProduct(std::string_view path, std::string_view importedFolder)
+{
+    const auto normalized = NormalizeVirtualPath(path);
+    return normalized && *normalized == path && path.size() > importedFolder.size() + 1 &&
+           path.starts_with(importedFolder) && path[importedFolder.size()] == '/';
+}
+
+// Deletes a product only when it is a regular file (not a symlink) that really lies inside `<root>/<imported>`.
+bool RemoveProduct(const fs::path& root, std::string_view importedFolder, std::string_view product,
+                   std::error_code& error)
+{
+    if (!IsContainedProduct(product, importedFolder))
+    {
+        INTERI_LOG_WARN("assets", "refusing to delete '{}', it is outside '{}'", product, importedFolder);
+        return false;
+    }
+    const fs::path file = root / std::string(product);
+    if (fs::is_symlink(fs::symlink_status(file, error)))
+    {
+        return false;
+    }
+    const fs::path canonicalImported = fs::weakly_canonical(root / std::string(importedFolder), error);
+    const fs::path canonicalFile = fs::weakly_canonical(file, error);
+    const auto relative = canonicalFile.lexically_relative(canonicalImported);
+    if (error || relative.empty() || *relative.begin() == "..")
+    {
+        return false;
+    }
+    return fs::remove(file, error);
+}
+
+bool ReadMeta(std::string_view text, AssetRecord& record, std::string_view importedFolder)
 {
     const Json meta = Json::parse(text, nullptr, false);
     if (meta.is_discarded() || !meta.is_object() || !meta.contains("guid") || !meta["guid"].is_string())
@@ -249,6 +281,12 @@ bool ReadMeta(std::string_view text, AssetRecord& record)
             field("guid", guidText);
             product.guid = assets::ParseGuid(guidText).value_or(assets::Guid{});
             product.hash = item.is_object() && item.contains("hash") ? ParseHex(item["hash"]).value_or(0) : 0;
+            if (!IsContainedProduct(product.path, importedFolder))
+            {
+                INTERI_LOG_WARN("assets", "ignoring product '{}' of '{}', it is outside '{}'", product.path,
+                                record.path, importedFolder);
+                continue;
+            }
             record.products.push_back(std::move(product));
         }
     }
@@ -696,7 +734,7 @@ struct AssetDatabase::Impl
             if (!kept.contains(old.path))
             {
                 std::error_code ignored;
-                fs::remove(options.root / old.path, ignored);
+                RemoveProduct(options.root, options.importedFolder, old.path, ignored);
             }
         }
         record.products.clear();
@@ -807,7 +845,8 @@ Result<void> AssetDatabase::Scan()
         bool fresh = true;
         if (const auto text = impl.files.ReadFile(path + std::string(kMetaExtension)))
         {
-            if (ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record))
+            if (ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record,
+                         impl.options.importedFolder))
             {
                 fresh = false;
             }
@@ -960,11 +999,12 @@ std::vector<std::string> AssetDatabase::Prune()
         AssetRecord record = MakeRecord(sourcePath);
         if (const auto text = impl.files.ReadFile(sourcePath + std::string(kMetaExtension)))
         {
-            (void)ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record);
+            (void)ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record,
+                           impl.options.importedFolder);
         }
         for (const CookedProduct& product : record.products)
         {
-            if (fs::remove(impl.options.root / product.path, error))
+            if (RemoveProduct(impl.options.root, impl.options.importedFolder, product.path, error))
             {
                 removed.push_back(product.path);
             }

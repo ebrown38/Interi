@@ -38,6 +38,10 @@
 namespace interi::chain
 {
 
+/// The deepest expression tree CompileExpression accepts. Evaluation recurses over the tree on job worker threads
+/// (1 MB stacks on Windows), so a long left-leaning chain such as `1+1+...` counts as deep as nested parentheses.
+inline constexpr std::uint32_t kMaxExpressionDepth = 64;
+
 /// A byte range [begin, end) in an expression's source.
 struct SourceSpan
 {

@@ -286,26 +286,20 @@ TEST_F(FuzzTest, DeeplyNestedInput_IsRejectedWithoutExhaustingTheStack)
     EXPECT_FALSE(chain::CompileExpression(deepParens, {}).has_value());
     EXPECT_FALSE(chain::CompileExpression(std::string(200000, '-') + "1", {}).has_value());
 
-    // A long flat expression is not deep nesting: it still compiles and evaluates; a huge one is refused (the
-    // evaluator recurses over the tree).
-    EXPECT_FALSE(chain::CompileExpression(std::string("1") +
-                                              []
-                                              {
-                                                  std::string text;
-                                                  for (int i = 0; i < 50000; ++i)
-                                                  {
-                                                      text += "+1";
-                                                  }
-                                                  return text;
-                                              }(),
-                                          {})
-                     .has_value());
-    std::string flat = "1";
-    for (int i = 0; i < 500; ++i)
+    // The evaluator recurses over the tree, so a long flat chain (`1+1+...` leans left) is as deep as nested
+    // parentheses: one at the depth limit compiles and evaluates, one past it and a huge one are refused.
+    const auto flatSum = [](std::uint32_t depth)
     {
-        flat += "+1";
-    }
-    auto compiled = chain::CompileExpression(flat, {});
+        std::string text = "1";
+        for (std::uint32_t i = 1; i < depth; ++i)
+        {
+            text += "+1";
+        }
+        return text;
+    };
+    EXPECT_FALSE(chain::CompileExpression(flatSum(50000), {}).has_value());
+    EXPECT_FALSE(chain::CompileExpression(flatSum(chain::kMaxExpressionDepth + 1), {}).has_value());
+    auto compiled = chain::CompileExpression(flatSum(chain::kMaxExpressionDepth), {});
     ASSERT_TRUE(compiled.has_value());
     (void)chain::EvaluateExpression(*compiled, {});
 }

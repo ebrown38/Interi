@@ -1,25 +1,24 @@
 // SPDX-License-Identifier: MIT
+// Links the Vulkan component's libraries from an installed engine. It never creates a device (machines without a
+// driver must pass), and needs no GoogleTest: the point is that the package's targets, headers and dependencies
+// resolve.
 #include <interi/editor_ui/EditorExtensionsApi.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/rhi_vulkan/VulkanDevice.h>
 
-#include "VulkanTestDevice.h"
-#include <gtest/gtest.h>
+#include <cstdio>
 
-using namespace interi;
-
-class Consumer : public interi::testing::VulkanTest
+int main()
 {
-};
-
-TEST_F(Consumer, Device_HasAName)
-{
-    EXPECT_FALSE(device->DeviceName().empty());
-}
-
-TEST(VulkanConsumer, EditorApi_RenderFeatureDefaultsAreEmpty)
-{
+    using namespace interi;
+    // Taking the addresses forces the linker to resolve the backend and the platform from the installed libraries.
+    const auto createDevice = &rhi::VulkanDevice::Create;
+    const auto createPlatform = &SdlPlatform::Create;
     const editor::RenderFeatureDef def;
-    EXPECT_FALSE(def.render);
-    EXPECT_FALSE(def.contribute);
+    if (createDevice == nullptr || createPlatform == nullptr || def.render || def.contribute)
+    {
+        std::puts("unexpected package contents");
+        return 1;
+    }
+    return 0;
 }

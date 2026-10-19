@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 cmake_minimum_required(VERSION 3.25)
 project(ufbx C)
 add_library(ufbx STATIC ufbx.c)

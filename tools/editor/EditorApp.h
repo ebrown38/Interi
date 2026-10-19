@@ -78,6 +78,7 @@ public:
     [[nodiscard]] FrameResult Frame();
     /// Opens the Chain Editor on a chain asset (errors show in its file bar).
     void OpenChain(const std::string& path);
+    void SetChainBreakpoint(const std::string& node) { m_chain.debugger.ToggleNodeBreakpoint(node); }
     /// Starts play-in-editor of the open scene (smoke runs: --play 1).
     void PlayScene() { HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f); }
     [[nodiscard]] std::uint64_t ScenePlaySteps() const noexcept

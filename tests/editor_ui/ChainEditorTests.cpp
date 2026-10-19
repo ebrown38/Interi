@@ -9,6 +9,7 @@
 #include "../chain/ChainTestUtil.h"
 #include "ImGuiTestContext.h"
 #include <gtest/gtest.h>
+#include <imgui_internal.h>
 
 using namespace interi;
 using namespace interi::editor;
@@ -446,4 +447,73 @@ TEST(ChainEditorUi, LivePlay_FiringChainsLightUp_AndBreakpointsPauseAtTheStep)
     EXPECT_GT(debugger.LinkHeat(0, (*runtime)->StepIndex()), 0.9f);
     EXPECT_TRUE(debugger.LinkPassed(0));
     EXPECT_FALSE(debugger.Timeline().empty());
+}
+
+TEST(ChainEditorUi, ToolbarButtons_ContinueAndStepRequestThePlaySession)
+{
+    editor::testing::ImGuiTestContext context;
+    Fixture f;
+    Driver d(context, f);
+    d.host = f.Host(true);
+    d.host.paused = true;
+    d.Frame();
+    // Buttons have no fixed position: sweep the toolbar row, click, and see which request comes back.
+    bool resumed = false;
+    bool stepped = false;
+    for (float x = 70.0f; x < 700.0f && !(resumed && stepped); x += 5.0f)
+    {
+        d.MoveTo(ImVec2(x, 97.0f));
+        d.Button(true);
+        resumed |= d.last.resumeRequested;
+        stepped |= d.last.stepRequested;
+        d.Button(false);
+        resumed |= d.last.resumeRequested;
+        stepped |= d.last.stepRequested;
+    }
+    EXPECT_TRUE(resumed);
+    EXPECT_TRUE(stepped);
+
+    // Playing and not paused: the same button reads "Pause".
+    d.host.paused = false;
+    d.Frame();
+    bool paused = false;
+    for (float x = 70.0f; x < 700.0f && !paused; x += 5.0f)
+    {
+        d.MoveTo(ImVec2(x, 97.0f));
+        d.Button(true);
+        paused |= d.last.pauseRequested;
+        d.Button(false);
+        paused |= d.last.pauseRequested;
+    }
+    EXPECT_TRUE(paused);
+}
+
+TEST(ChainEditorUi, NodeMenu_ToggleBreakpoint_SetsItOnTheDebugger)
+{
+    editor::testing::ImGuiTestContext context;
+    Fixture f;
+    Driver d(context, f);
+    d.host = f.Host(true);
+    d.Frame();
+    const auto at = f.asset.nodes[1].pos;
+    const ImVec2 node = d.Screen(at[0] + 60.0f, at[1] + 10.0f);
+    d.MoveTo(node);
+    ImGui::GetIO().AddMouseButtonEvent(1, true);
+    d.Frame();
+    ImGui::GetIO().AddMouseButtonEvent(1, false);
+    d.Frame();
+    d.Frame();
+    ASSERT_EQ(f.state.contextNode, "Shoot1");
+    // The menu opens at the cursor; its last item is "Toggle breakpoint". Sweep upward from the menu's bottom edge.
+    ImGuiContext& imgui = *ImGui::GetCurrentContext();
+    ASSERT_FALSE(imgui.OpenPopupStack.empty());
+    const ImRect menu = imgui.OpenPopupStack.back().Window->Rect();
+    for (float y = menu.Max.y - 2.0f; y > menu.Min.y && !f.debugger.HasNodeBreakpoint("Shoot1"); y -= 3.0f)
+    {
+        d.MoveTo(ImVec2(menu.Min.x + 12.0f, y));
+        d.Button(true);
+        d.Button(false);
+    }
+    EXPECT_TRUE(f.debugger.HasNodeBreakpoint("Shoot1"));
+    EXPECT_EQ(f.asset.nodes.size(), 3u); // Delete wasn't hit on the way
 }

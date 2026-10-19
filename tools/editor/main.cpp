@@ -6,14 +6,16 @@
 //   level_editor [--level <scene under data/>] [--video-driver <name>] [--frames <count>]
 //                [--screenshot <file.ppm>] [--validation 1]
 //                [--modules <dir> [--project <id>,<id>...] [--project-data <file.json>]] [--project-file <dir>]
-//                [--module-libs <dir>[,<dir>]] [--play 1] [--chain <file under the project or data>]
+//                [--module-libs <dir>[,<dir>]] [--play 1] [--chain <file under the project or data> [--chain-breakpoint
+//                <node>]]
 //
 // --frames exits after that many frames (smoke runs; --video-driver offscreen renders without a display, dummy has
 // no Vulkan so the UI runs without drawing). --modules edits the data of the module folders in <dir> (the project
 // order from --project, top first; default every module by id) in the Values, Characters and Data Tables panels;
 // --project-data is loaded at startup and saved with the level. --project-file opens a project folder (project.json:
 // its modules, data and startup scene) instead of a level. --play starts play-in-editor of the opened scene. --chain
-// opens the Chain Editor on a .chain.json.
+// opens the Chain Editor on a .chain.json; --chain-breakpoint sets a breakpoint on a node (play pauses at the step it
+// hits).
 #include <interi/core/Log.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/platform_sdl/SdlPlatform.h>
@@ -46,6 +48,7 @@ struct Options
     std::vector<std::filesystem::path> moduleLibraries;
     bool play = false;
     std::string chain;
+    std::string chainBreakpoint;
 };
 
 Options ParseOptions(int argc, char** argv)
@@ -88,6 +91,10 @@ Options ParseOptions(int argc, char** argv)
         else if (flag == "--chain")
         {
             options.chain = argv[i + 1];
+        }
+        else if (flag == "--chain-breakpoint")
+        {
+            options.chainBreakpoint = argv[i + 1];
         }
         else if (flag == "--play")
         {
@@ -163,6 +170,10 @@ int main(int argc, char** argv)
         if (!options.chain.empty())
         {
             app.OpenChain(options.chain);
+            if (!options.chainBreakpoint.empty())
+            {
+                app.SetChainBreakpoint(options.chainBreakpoint);
+            }
         }
         if (options.play)
         {

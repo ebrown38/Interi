@@ -55,7 +55,12 @@ Result<std::vector<std::string>> SplitRelative(std::string_view relative)
     {
         const std::size_t end = std::min(relative.find('/', start), relative.size());
         const std::string_view part = relative.substr(start, end - start);
-        if (part.empty() || part == "." || part == "..")
+        // Windows would also read a backslash as a separator and a colon as a drive or stream.
+        if (part.empty() || part == "." || part == ".." || part.find('\0') != std::string_view::npos
+#if defined(_WIN32)
+            || part.find_first_of("\\:") != std::string_view::npos
+#endif
+        )
         {
             return MakeError(ErrorCode::InvalidArgument,
                              std::format("'{}' is not a normalised relative path", relative));

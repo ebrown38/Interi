@@ -130,6 +130,16 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
     {
         return corrupt("tile bounds");
     }
+    // Queries quantize a box clamped to the tile bounds as (unsigned short)(bvQuantFactor * extent + 1).
+    const auto quantizable = [&](int axis)
+    {
+        const float extent = h.bmax[axis] - h.bmin[axis];
+        return std::isfinite(extent) && extent >= 0.0f && h.bvQuantFactor * extent <= 65534.0f;
+    };
+    if (h.bvNodeCount != 0 && (!(h.bvQuantFactor > 0.0f) || !quantizable(0) || !quantizable(1) || !quantizable(2)))
+    {
+        return corrupt("bounding volume quantization");
+    }
     const auto polyCount = static_cast<unsigned>(h.polyCount);
     for (std::size_t i = 0; i < polyCount; ++i)
     {
@@ -161,22 +171,32 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
             continue; // Detour gives only ground polygons (the first offMeshBase) a detail mesh
         }
         const auto detail = ReadAt<dtPolyDetail>(base, detailMeshesAt, i);
-        if (std::uint64_t{detail.vertBase} + detail.vertCount > static_cast<unsigned>(h.detailVertCount) ||
+        if (detail.triCount == 0 ||
+            std::uint64_t{detail.vertBase} + detail.vertCount > static_cast<unsigned>(h.detailVertCount) ||
             std::uint64_t{detail.triBase} + detail.triCount > static_cast<unsigned>(h.detailTriCount))
         {
             return corrupt("detail mesh range");
         }
+        // closestPointOnPoly interpolates along the nearest boundary edge of the detail mesh and dereferences null
+        // when there is none.
+        constexpr unsigned kAnyBoundaryEdge =
+            (DT_DETAIL_EDGE_BOUNDARY << 0) | (DT_DETAIL_EDGE_BOUNDARY << 2) | (DT_DETAIL_EDGE_BOUNDARY << 4);
+        bool boundaryEdge = false;
         for (unsigned t = 0; t < detail.triCount; ++t)
         {
+            const std::size_t tri = detailTrisAt + (std::size_t{detail.triBase} + t) * 4;
+            boundaryEdge = boundaryEdge || (std::to_integer<unsigned>(base[tri + 3]) & kAnyBoundaryEdge) != 0;
             for (unsigned k = 0; k < 3; ++k)
             {
-                const auto index =
-                    std::to_integer<unsigned>(base[detailTrisAt + (std::size_t{detail.triBase} + t) * 4 + k]);
-                if (index >= unsigned{poly.vertCount} + detail.vertCount)
+                if (std::to_integer<unsigned>(base[tri + k]) >= unsigned{poly.vertCount} + detail.vertCount)
                 {
                     return corrupt("detail triangle index");
                 }
             }
+        }
+        if (!boundaryEdge)
+        {
+            return corrupt("detail mesh without a boundary edge");
         }
     }
     for (int i = 0; i < h.bvNodeCount; ++i)

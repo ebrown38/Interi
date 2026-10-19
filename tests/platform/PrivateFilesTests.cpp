@@ -6,6 +6,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 
 using namespace interi;
 namespace fs = std::filesystem;
@@ -97,7 +99,11 @@ TEST(PrivateFiles, RemoveFileBeneath_RegularFile_Removed)
 TEST(PrivateFiles, RemoveFileBeneath_NotNormalised_Refused)
 {
     interi::testing::ScopedTempDir temp;
-    for (const char* relative : {"", "a//b", "../a", "a/./b", "a/", "/a"})
+    std::vector<std::string> hostile = {"", "a//b", "../a", "a/./b", "a/", "/a", std::string("a\0b", 3)};
+#if defined(_WIN32)
+    hostile.insert(hostile.end(), {"a\\..\\b", "C:\\x", "a/b:stream"});
+#endif
+    for (const std::string& relative : hostile)
     {
         const auto removed = RemoveFileBeneath(temp.Path(), relative);
         ASSERT_FALSE(removed.has_value()) << relative;

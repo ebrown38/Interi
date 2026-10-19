@@ -51,7 +51,8 @@ template <class T>
 T ReadAt(const std::byte* base, std::size_t offset, std::size_t index = 0)
 {
     T value;
-    std::memcpy(&value, base + offset + index * sizeof(T), sizeof(T));
+    const std::size_t byteOffset = offset + index * sizeof(T); // base is a byte pointer: this is a byte count
+    std::memcpy(&value, base + byteOffset, sizeof(T));
     return value;
 }
 

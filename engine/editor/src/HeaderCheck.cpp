@@ -15,6 +15,8 @@
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/HudEditing.h>
 #include <interi/editor/Inspector.h>
+#include <interi/editor/MaterialEditing.h>
+#include <interi/editor/MaterialPreview.h>
 #include <interi/editor/Modeling.h>
 #include <interi/editor/ModuleConflicts.h>
 #include <interi/editor/ModuleManager.h>
@@ -24,4 +26,5 @@
 #include <interi/editor/Projects.h>
 #include <interi/editor/Reflection.h>
 #include <interi/editor/ScenePlay.h>
+#include <interi/editor/Thumbnails.h>
 #include <interi/editor/UndoStack.h>

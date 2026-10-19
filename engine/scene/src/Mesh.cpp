@@ -25,9 +25,19 @@ constexpr FourCC kPayloadMagic = MakeFourCC("IMSP");
 } // namespace
 
 template <typename Archive>
+void Serialize(Archive& archive, TexCoord& uv)
+{
+    archive(uv.u, uv.v);
+}
+
+template <typename Archive>
 void Serialize(Archive& archive, TriangleMesh& mesh)
 {
     archive(mesh.positions, mesh.indices, mesh.normals, mesh.slots);
+    if (archive.Version() >= 2)
+    {
+        archive(mesh.uvs, mesh.tangents);
+    }
 }
 
 std::uint32_t TriangleMesh::SlotCount() const noexcept
@@ -50,6 +60,14 @@ Result<void> ValidateMesh(const TriangleMesh& mesh)
     {
         return corrupt("mesh: one slot per triangle expected");
     }
+    if (!mesh.uvs.empty() && mesh.uvs.size() != mesh.indices.size())
+    {
+        return corrupt("mesh: uvs must be empty or one per index");
+    }
+    if (!mesh.tangents.empty() && mesh.tangents.size() != mesh.indices.size())
+    {
+        return corrupt("mesh: tangents must be empty or one per index");
+    }
     if (std::ranges::any_of(mesh.indices, [&](std::uint32_t i) { return i >= mesh.positions.size(); }))
     {
         return corrupt("mesh: index out of range");
@@ -57,6 +75,13 @@ Result<void> ValidateMesh(const TriangleMesh& mesh)
     if (!std::ranges::all_of(mesh.positions, Finite) || !std::ranges::all_of(mesh.normals, Finite))
     {
         return corrupt("mesh: non-finite position or normal");
+    }
+    if (!std::ranges::all_of(mesh.uvs, [](const TexCoord& uv) { return std::isfinite(uv.u) && std::isfinite(uv.v); }) ||
+        !std::ranges::all_of(
+            mesh.tangents, [](const Vec4& t)
+            { return std::isfinite(t.x) && std::isfinite(t.y) && std::isfinite(t.z) && std::isfinite(t.w); }))
+    {
+        return corrupt("mesh: non-finite uv or tangent");
     }
     return {};
 }

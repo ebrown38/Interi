@@ -20,6 +20,8 @@ interi_add_module(editor
         src/HeaderCheck.cpp
         src/HudEditing.cpp
         src/Inspector.cpp
+        src/MaterialEditing.cpp
+        src/MaterialPreview.cpp
         src/Modeling.cpp
         src/ModuleConflicts.cpp
         src/ModuleManager.cpp
@@ -29,8 +31,9 @@ interi_add_module(editor
         src/Projects.cpp
         src/Reflection.cpp
         src/ScenePlay.cpp
+        src/Thumbnails.cpp
         src/UndoStack.cpp
-    DEPS interi::chain interi::hotreload interi::sdk interi::modeling interi::scene interi::hud interi::game interi::runtime interi::values interi::render interi::ecs interi::platform interi::core
+    DEPS interi::asset_import interi::assets interi::chain interi::hotreload interi::sdk interi::modeling interi::scene interi::hud interi::game interi::runtime interi::values interi::render interi::ecs interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
@@ -45,6 +48,11 @@ interi_add_module(editor
         ${_tests}/GizmoTests.cpp
         ${_tests}/HudEditingTests.cpp
         ${_tests}/InspectorTests.cpp
+        ${_tests}/ModelInstancingTests.cpp
+        ${_tests}/AssetBrowserTests.cpp
+        ${_tests}/MaterialEditingTests.cpp
+        ${_tests}/MaterialPreviewTests.cpp
+        ${_tests}/ThumbnailTests.cpp
         ${_tests}/ModelingTests.cpp
         ${_tests}/ModuleConflictsTests.cpp
         ${_tests}/ModuleManagerTests.cpp

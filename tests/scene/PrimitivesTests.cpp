@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 #include <set>
 #include <utility>
@@ -285,6 +286,37 @@ TEST(MeshAsset, InconsistentArrays_FailValidation)
     mesh.indices[4] = 99;
     EXPECT_FALSE(ValidateMesh(mesh).has_value());
     EXPECT_FALSE(ReadMeshAsset(WriteMeshAsset(mesh)).has_value());
+}
+
+TEST(MeshAsset, UvsAndTangents_RoundTrip)
+{
+    TriangleMesh mesh = Make(Shape(PrimitiveShape::Box));
+    for (std::size_t i = 0; i < mesh.indices.size(); ++i)
+    {
+        mesh.uvs.push_back({.u = static_cast<float>(i) * 0.25f, .v = 1.0f - static_cast<float>(i) * 0.125f});
+        mesh.tangents.emplace_back(1.0f, 0.0f, 0.0f, i % 2 == 0 ? 1.0f : -1.0f);
+    }
+    auto read = ReadMeshAsset(WriteMeshAsset(mesh));
+    ASSERT_TRUE(read.has_value()) << read.error().message;
+    EXPECT_EQ(*read, mesh);
+}
+
+TEST(MeshAsset, UvCountMismatch_FailsValidation)
+{
+    TriangleMesh mesh = Make(Shape(PrimitiveShape::Box));
+    mesh.uvs.resize(mesh.indices.size() - 1);
+    EXPECT_FALSE(ValidateMesh(mesh).has_value());
+    mesh.uvs.clear();
+    mesh.tangents.resize(2);
+    EXPECT_FALSE(ValidateMesh(mesh).has_value());
+}
+
+TEST(MeshAsset, NonFiniteUv_FailsValidation)
+{
+    TriangleMesh mesh = Make(Shape(PrimitiveShape::Box));
+    mesh.uvs.assign(mesh.indices.size(), TexCoord{});
+    mesh.uvs[3].u = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(ValidateMesh(mesh).has_value());
 }
 
 TEST(MeshAsset, SlotColor_ClampsToTheLastColor)

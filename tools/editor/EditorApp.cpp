@@ -11,6 +11,7 @@
 #include <interi/editor/Inspector.h>
 #include <interi/editor/Modeling.h>
 #include <interi/editor/Prefabs.h>
+#include <interi/editor_ui/AssetPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ViewportOverlay.h>
 #include <interi/hotreload/ModuleDocs.h>
@@ -86,7 +87,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v9.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v10.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -163,6 +164,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     }
     m_platform.SetTextInput(window, true);
     m_assetList = ListAssets(m_dataDir);
+    OpenAssetDatabase();
     OpenProject(desc);
 }
 
@@ -351,6 +353,14 @@ void EditorApp::DropAsset(const std::string& path, const Ray& ray)
         }
         return;
     }
+    if (path.ends_with(".imodel.json"))
+    {
+        if (auto instance = InstantiateModel(m_document, m_files, path, placement); !instance)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", path, instance.error().message);
+        }
+        return;
+    }
     if (path.ends_with(".imesh"))
     {
         (void)m_document.Add(
@@ -528,6 +538,65 @@ void EditorApp::UpdateServices(float seconds)
     {
         INTERI_FRAME_MARK();
     }
+    // Sources that changed on disk are imported again twice a second.
+    m_assetPollSeconds += seconds;
+    if (m_assetWatcher != nullptr && m_assetPollSeconds >= 0.5f)
+    {
+        m_assetPollSeconds = 0.0f;
+        const auto outcome = m_assetWatcher->Update();
+        if (outcome.changed)
+        {
+            for (const std::string& path : outcome.report.cooked)
+            {
+                INTERI_LOG_INFO("Editor", "imported {}", path);
+            }
+            for (const std::string& failure : outcome.report.failed)
+            {
+                INTERI_LOG_ERROR("Editor", "import {}", failure);
+            }
+            RefreshAssets();
+        }
+    }
+}
+
+void EditorApp::RefreshAssets()
+{
+    m_assetList = ListAssets(m_dataDir);
+    m_thumbnails.Clear();
+    m_meshCache.clear();
+}
+
+void EditorApp::OpenAssetDatabase()
+{
+    m_assetWatcher.reset();
+    m_assetDb = std::make_unique<asset_import::AssetDatabase>(
+        asset_import::AssetDatabase::Options{.root = m_dataDir, .importedFolder = "imported", .guids = {}});
+    if (auto scanned = m_assetDb->Scan(); !scanned)
+    {
+        INTERI_LOG_ERROR("Editor", "assets: {}", scanned.error().message);
+        m_assetDb.reset();
+        return;
+    }
+    for (const std::string& warning : m_assetDb->ScanWarnings())
+    {
+        INTERI_LOG_WARN("Editor", "assets: {}", warning);
+    }
+    const asset_import::CookReport report = m_assetDb->CookAll();
+    if (!report.cooked.empty())
+    {
+        INTERI_LOG_INFO("Editor", "imported {} asset(s)", report.cooked.size());
+    }
+    for (const std::string& warning : report.warnings)
+    {
+        INTERI_LOG_WARN("Editor", "import: {}", warning);
+    }
+    for (const std::string& failure : report.failed)
+    {
+        INTERI_LOG_ERROR("Editor", "import {}", failure);
+    }
+    m_assetWatcher = std::make_unique<asset_import::AssetWatcher>(*m_assetDb);
+    (void)m_assetWatcher->Update(); // records the state
+    RefreshAssets();
 }
 
 void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
@@ -596,6 +665,7 @@ void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
     (void)m_files.Mount("", *m_projectFiles); // newest: the project's files shadow the data tree, writes go there
     m_dataDir = folder;
     m_assetList = ListAssets(m_dataDir);
+    OpenAssetDatabase();
     m_meshCache.clear();
     AddRecentProject(m_preferences, folder.string());
     (void)SavePreferences(m_preferencesPath, m_preferences);
@@ -1444,7 +1514,16 @@ FrameResult EditorApp::Frame()
     DrawOutliner(m_document);
     DrawInspector(m_document);
     const ToolRequests tools = DrawToolsPanel(m_tools, m_document);
-    const AssetRequests assets = DrawAssetsPanel(m_assetList);
+    const AssetRequests assets =
+        DrawAssetsPanel(m_assetList, m_assetBrowser, {.files = &m_files, .thumbnails = &m_thumbnails});
+    if (DrawMaterialEditorPanel(m_materialEditor, m_files).saved)
+    {
+        m_thumbnails.Invalidate(m_materialEditor.path);
+    }
+    if (DrawImportPanel(m_assetDb.get(), m_importPanel, m_assetBrowser.selected).reimported)
+    {
+        RefreshAssets();
+    }
     if (values::DataRegistry* data = ActiveData())
     {
         DrawValuesPanel(*data, m_document.Undo(), m_dataPanels);
@@ -1510,7 +1589,14 @@ FrameResult EditorApp::Frame()
     }
     if (assets.refresh)
     {
-        m_assetList = ListAssets(m_dataDir);
+        RefreshAssets();
+    }
+    if (assets.openMaterial)
+    {
+        if (auto opened = OpenMaterialInEditor(m_materialEditor, m_files, *assets.openMaterial); !opened)
+        {
+            INTERI_LOG_ERROR("Editor", "{}: {}", *assets.openMaterial, opened.error().message);
+        }
     }
     if (assets.openLevel)
     {

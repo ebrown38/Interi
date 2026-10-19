@@ -21,8 +21,20 @@ namespace
 
 std::filesystem::path FromEnvironment(const char* name)
 {
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0;
+    std::filesystem::path result;
+    if (_dupenv_s(&value, &length, name) == 0 && value != nullptr)
+    {
+        result = value;
+        std::free(value); // NOLINT(cppcoreguidelines-no-malloc,cppcoreguidelines-owning-memory)
+    }
+    return result;
+#else
     const char* value = std::getenv(name); // NOLINT(concurrency-mt-unsafe): read at start-up, before threads race
     return value != nullptr ? std::filesystem::path(value) : std::filesystem::path();
+#endif
 }
 
 } // namespace

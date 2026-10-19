@@ -49,4 +49,4 @@ add_test(NAME InteriExternalPlatform_MissingFolder_FailsConfigure
             -DINTERI_EXTERNAL_PLATFORM_DIR=${CMAKE_CURRENT_BINARY_DIR}/does_not_exist)
 set_tests_properties(InteriExternalPlatform_MissingFolder_FailsConfigure PROPERTIES
     LABELS unit
-    PASS_REGULAR_EXPRESSION "is not a[^a-z]+directory") # CMake wraps long messages
+    PASS_REGULAR_EXPRESSION "is[^a-z]+not[^a-z]+a[^a-z]+directory") # CMake wraps long messages

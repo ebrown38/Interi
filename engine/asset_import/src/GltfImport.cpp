@@ -105,6 +105,31 @@ float NonNegative(float v)
     return std::isfinite(v) ? std::max(v, 0.0f) : 0.0f;
 }
 
+/// glTF requires every accessor's data to be aligned to its component size. cgltf's validation reads index data as
+/// wider integers before it checks that, which is undefined behaviour on a hostile file, so check first.
+Result<void> CheckAlignment(const cgltf_data& gltf)
+{
+    const auto aligned = [](const cgltf_buffer_view* view, cgltf_size offset, cgltf_component_type type)
+    {
+        const cgltf_size size = cgltf_component_size(type);
+        return view == nullptr || size == 0 || (view->offset + offset) % size == 0;
+    };
+    for (std::size_t i = 0; i < gltf.accessors_count; ++i)
+    {
+        const cgltf_accessor& accessor = gltf.accessors[i];
+        if (!aligned(accessor.buffer_view, accessor.offset, accessor.component_type) ||
+            (accessor.is_sparse && (!aligned(accessor.sparse.indices_buffer_view, accessor.sparse.indices_byte_offset,
+                                             accessor.sparse.indices_component_type) ||
+                                    !aligned(accessor.sparse.values_buffer_view, accessor.sparse.values_byte_offset,
+                                             accessor.component_type))))
+        {
+            return MakeError(ErrorCode::Corrupt,
+                             std::format("glTF: accessor {} is not aligned to its component size", i));
+        }
+    }
+    return {};
+}
+
 class GltfImporter
 {
 public:
@@ -785,8 +810,10 @@ Result<ImportedModel> ImportGltfData(std::span<const std::byte> data, const IFil
     options.file.read = &ReadFromFileSystem;
     options.file.release = &ReleaseFromFileSystem;
     options.file.user_data = const_cast<IFileSystem*>(&files); // only read through a const pointer
+    // cgltf points into the buffer (a GLB's binary chunk): give it one with the alignment of an allocation.
+    const std::vector<std::byte> input(data.begin(), data.end());
     cgltf_data* raw = nullptr;
-    if (const cgltf_result result = cgltf_parse(&options, data.data(), data.size(), &raw);
+    if (const cgltf_result result = cgltf_parse(&options, input.data(), input.size(), &raw);
         result != cgltf_result_success)
     {
         return MakeError(result == cgltf_result_out_of_memory ? ErrorCode::OutOfMemory : ErrorCode::Corrupt,
@@ -806,6 +833,7 @@ Result<ImportedModel> ImportGltfData(std::span<const std::byte> data, const IFil
         return MakeError(result == cgltf_result_file_not_found ? ErrorCode::NotFound : ErrorCode::Corrupt,
                          std::format("glTF: loading buffers failed ({})", static_cast<int>(result)));
     }
+    INTERI_TRY(CheckAlignment(*gltf));
     if (const cgltf_result result = cgltf_validate(gltf.get()); result != cgltf_result_success)
     {
         return MakeError(ErrorCode::Corrupt, std::format("glTF: validation failed ({})", static_cast<int>(result)));

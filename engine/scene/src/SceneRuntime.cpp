@@ -43,7 +43,57 @@ SceneRuntime::SceneRuntime(const values::ReflectionRegistry& reflection, chain::
     , m_commands(jobs)
     , m_executor(chains, values, desc.executor)
     , m_prefabs(files)
+    , m_chainRegistry(&chains)
 {
+}
+
+Result<chain::ChainAsset> SceneRuntime::ExpandFunctions(chain::ChainAsset asset, const IFileSystem& files,
+                                                        const SceneRuntimeDesc& desc)
+{
+    if (desc.functionProvider.empty())
+    {
+        return asset;
+    }
+    const std::string prefix = desc.functionProvider + ":";
+    // Load the functions the chain (and then their bodies) call, until nothing new turns up.
+    std::vector<const std::vector<chain::ChainNode>*> pending = {&asset.nodes};
+    while (!pending.empty())
+    {
+        const std::vector<chain::ChainNode>* nodes = pending.back();
+        pending.pop_back();
+        std::vector<std::string> wanted;
+        for (const chain::ChainNode& node : *nodes)
+        {
+            if (node.event.starts_with(prefix) && m_chainRegistry->Events().Resolve(node.event) == nullptr)
+            {
+                wanted.push_back(node.event.substr(prefix.size()));
+            }
+        }
+        for (const std::string& name : wanted)
+        {
+            if (m_functions.contains(name))
+            {
+                continue;
+            }
+            INTERI_TRY_ASSIGN(function,
+                              chain::LoadChainFunction(files, std::format("{}/{}{}", desc.functionFolder, name,
+                                                                          chain::kChainFunctionExtension)));
+            INTERI_TRY(chain::RegisterChainFunction(*m_chainRegistry, desc.functionProvider, function));
+            const auto inserted = m_functions.emplace(name, std::move(function));
+            pending.push_back(&inserted.first->second.body.nodes);
+        }
+    }
+    return chain::ExpandChainFunctions(asset, desc.functionProvider,
+                                       [this, &prefix](std::string_view event) -> const chain::ChainFunction*
+                                       {
+                                           if (!event.starts_with(prefix))
+                                           {
+                                               return nullptr;
+                                           }
+                                           const auto found =
+                                               m_functions.find(std::string(event.substr(prefix.size())));
+                                           return found == m_functions.end() ? nullptr : &found->second;
+                                       });
 }
 
 SceneRuntime::~SceneRuntime() = default;
@@ -81,8 +131,15 @@ Result<std::unique_ptr<SceneRuntime>> SceneRuntime::Create(SceneDocument documen
                 runtime->m_warnings.push_back(std::format("object {}: {}", id, asset.error().message));
                 continue;
             }
+            auto expanded = runtime->ExpandFunctions(std::move(*asset), files, desc);
+            if (!expanded)
+            {
+                runtime->m_warnings.push_back(std::format("{}: {}", path->path, expanded.error().message));
+                continue;
+            }
             const chain::ChainExecutor::ChainId chain =
-                runtime->m_executor.AddChain(std::move(*asset), component->global ? 0 : id);
+                runtime->m_executor.AddChain(std::move(*expanded), component->global ? 0 : id);
+            runtime->m_chainPaths.emplace(chain, path->path);
             if (!runtime->m_executor.IsActive(chain))
             {
                 for (const chain::Diagnostic& diagnostic : runtime->m_executor.Diagnostics(chain))
@@ -93,6 +150,12 @@ Result<std::unique_ptr<SceneRuntime>> SceneRuntime::Create(SceneDocument documen
         }
     }
     return runtime;
+}
+
+std::string_view SceneRuntime::ChainPath(chain::ChainExecutor::ChainId chain) const noexcept
+{
+    const auto found = m_chainPaths.find(chain);
+    return found == m_chainPaths.end() ? std::string_view{} : std::string_view(found->second);
 }
 
 void SceneRuntime::Step()

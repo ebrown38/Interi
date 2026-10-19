@@ -12,6 +12,7 @@
 //   4. Trigger volumes (Triggers.h) are tested against the actors; changes raise trigger.Overlap / OverlapEnd.
 
 #include <interi/chain/ChainAsset.h>
+#include <interi/chain/ChainFunction.h>
 #include <interi/chain/Event.h>
 #include <interi/chain/Executor.h>
 #include <interi/core/Result.h>
@@ -26,8 +27,10 @@
 #include <interi/values/ValueRegistry.h>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace interi::scene
@@ -54,6 +57,11 @@ struct SceneRuntimeDesc
     /// Instantiate the scene into this World instead of a private one (a game whose module systems run on the same
     /// World; see game/GameSession.h). It must outlive the runtime.
     World* world = nullptr;
+    /// Chain Functions (chain/ChainFunction.h): a call node's event `<functionProvider>:<Name>` that no module
+    /// provides is loaded from `<functionFolder>/<Name>.chainfn.json`, registered under the provider (a provider of the
+    /// registries' ModuleSet) and inlined into the chain before it compiles. Empty provider: no functions.
+    std::string functionProvider;
+    std::string functionFolder = "content/functions";
 };
 
 class SceneRuntime
@@ -83,10 +91,17 @@ public:
     [[nodiscard]] chain::ChainExecutor& Executor() noexcept { return m_executor; }
     [[nodiscard]] const chain::ChainExecutor& Executor() const noexcept { return m_executor; }
     [[nodiscard]] std::uint64_t StepIndex() const noexcept { return m_executor.StepIndex(); }
+    /// The path of the chain asset the executor's chain `chain` was loaded from (empty for an unknown id).
+    [[nodiscard]] std::string_view ChainPath(chain::ChainExecutor::ChainId chain) const noexcept;
     /// Problems so far: chains that couldn't be read or compiled, prefabs that couldn't be spawned.
     [[nodiscard]] const std::vector<std::string>& Warnings() const noexcept { return m_warnings; }
 
 private:
+    /// Loads and registers the functions `asset` calls (recursively), then inlines them. Error: a function that can't
+    /// be read or registered, or that expands wrongly.
+    Result<chain::ChainAsset> ExpandFunctions(chain::ChainAsset asset, const IFileSystem& files,
+                                              const SceneRuntimeDesc& desc);
+
     SceneRuntime(const values::ReflectionRegistry& reflection, chain::ChainRegistry& chains,
                  values::ValueRegistry* values, const IFileSystem& files, JobSystem& jobs,
                  const SceneRuntimeDesc& desc);
@@ -100,6 +115,9 @@ private:
     PrefabLibrary m_prefabs;
     OverlapTracker m_overlaps;
     std::vector<std::string> m_warnings;
+    std::map<chain::ChainExecutor::ChainId, std::string> m_chainPaths;
+    chain::ChainRegistry* m_chainRegistry = nullptr;
+    std::map<std::string, chain::ChainFunction> m_functions; ///< By name: the functions chains call.
 };
 
 } // namespace interi::scene

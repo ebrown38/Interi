@@ -4,6 +4,7 @@
 #include <interi/chain/Event.h>
 #include <interi/core/Result.h>
 #include <interi/editor/AssetBrowser.h>
+#include <interi/editor/ChainDebugger.h>
 #include <interi/editor/DataEditing.h>
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
@@ -11,6 +12,7 @@
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/ScenePlay.h>
+#include <interi/editor_ui/ChainEditor.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/EditorPanels.h>
@@ -74,6 +76,9 @@ public:
     /// Opens a level by its path under the data directory.
     [[nodiscard]] Result<void> OpenLevel(std::string_view path);
     [[nodiscard]] FrameResult Frame();
+    /// Opens the Chain Editor on a chain asset (errors show in its file bar).
+    void OpenChain(const std::string& path);
+    void SetChainBreakpoint(const std::string& node) { m_chain.debugger.ToggleNodeBreakpoint(node); }
     /// Starts play-in-editor of the open scene (smoke runs: --play 1).
     void PlayScene() { HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f); }
     [[nodiscard]] std::uint64_t ScenePlaySteps() const noexcept
@@ -116,6 +121,7 @@ private:
     /// Loads the project's modules into a host (extensions register through it); logs and falls back on failure.
     void LoadProjectModulesHost(const sdk::Project& project);
     void DrawHud();
+    void DrawChainEditorWindow();
 
     void HandlePlay(const ScenePlayRequests& requests, float seconds);
     /// Opens a project folder: mounts it (its paths are the project's), resolves its modules, loads its data and
@@ -188,6 +194,19 @@ private:
         std::string message;
     };
     HudState m_hud;
+    /// The chain editor (22): the open .chain.json, its undo history, canvas state and the live debugger.
+    struct ChainState
+    {
+        bool show = false;
+        std::string path = "content/chains/new.chain.json";
+        chain::ChainAsset asset;
+        UndoStack undo;
+        ChainEditorState ui;
+        ChainDebugger debugger;
+        std::string message;
+        std::uint64_t revision = 0; ///< Bumped when the chain registry changes (rebuilds the palette).
+    };
+    ChainState m_chain;
     std::vector<EditorBox> m_boxes;
     std::vector<EditorMesh> m_meshes;
     std::vector<std::vector<Vec3>> m_meshColors; ///< Storage for m_meshes' slot colours.

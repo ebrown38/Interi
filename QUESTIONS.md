@@ -102,3 +102,13 @@
 - **Task:** Milestone 20, 20.5 Engine removal
 - **Context:** In-tree builds of `modules/*` need `find_package(Jolt)`, and the engine's vcpkg manifest no longer lists it after M20.5.
 - **Assumption made:** the root CMake skips a module whose dependencies are missing (`modules/physics`, `modules/destruction` return early when Jolt is not found); the supported path is the standalone build against an installed engine (`cmake --install`, then `find_package(Interi COMPONENTS Vulkan)`), with the module's own `vcpkg.json` and the overlay port in `modules/physics/ports`. Destruction's standalone build adds the sibling `../physics` folder (`INTERI_PHYSICS_MODULE_DIR`), because the Jolt module has no install rules.
+
+## M21 (asset import) is not on this branch; build M22 without it?
+- **Task:** Milestone 22 (Chain editor)
+- **Context:** The branch is based on M20; M21 lives on autoflow/003-goal-implement-milestone-21-8367f0 and is unmerged. M22 depends nominally on M21 but needs nothing from it.
+- **Assumption made:** M22 is implemented on this base without M21 (no asset browser v2 use).
+
+## Which canvas library for the chain editor?
+- **Task:** 22.1.1 node canvas
+- **Context:** The plan says imgui-node-editor or imnodes after a license check; the engine uses imgui 1.92 with the new texture API.
+- **Assumption made:** The canvas (pan, zoom, minimap, links) is drawn directly on ImDrawList like DrawHudFrame, avoiding a dependency, license-policy and notices changes.

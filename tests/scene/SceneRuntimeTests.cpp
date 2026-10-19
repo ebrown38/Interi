@@ -154,3 +154,33 @@ TEST_F(SceneRuntimeTest, BadScene_Fails)
     ASSERT_TRUE(document.has_value());
     EXPECT_FALSE(SceneRuntime::Create(*document, m_reflection, *m_chains, nullptr, m_files, jobs).has_value());
 }
+
+TEST_F(SceneRuntimeTest, ChainFunctions_LoadFromProject_AreInlinedAndRun)
+{
+    sdk::Provider provider;
+    provider.id = "com.test.fn";
+    provider.rank = 1;
+    m_modules.AddProvider(provider);
+    Write("content/functions/Lift.chainfn.json", R"json({"version": 1, "name": "Lift",
+      "inputs": [{"name": "dy", "type": "float"}],
+      "outputs": [{"name": "Done", "payload": []}],
+      "nodes": [
+        {"id": "in", "event": "com.test.fn:Lift.Entry"},
+        {"id": "move", "event": "world.Move", "params": {"delta": {"expr": "vec3(0.0, payload.dy, 0.0)"}}},
+        {"id": "out", "event": "com.test.fn:Lift.Return.Done"}],
+      "links": [{"from": "in", "to": "move"}, {"from": "move", "to": "out"}]})json");
+    Write("chains/move.chain.json", R"json({"version": 1, "nodes": [
+      {"id": "tick", "event": "trigger.Tick"},
+      {"id": "lift", "event": "com.test.fn:Lift", "params": {"dy": {"const": 2.0}}}],
+      "links": [{"from": "tick", "to": "lift"}]})json");
+    JobSystem jobs(JobSystemDesc{.workerCount = 2, .pinThreads = false});
+    SceneRuntimeDesc desc;
+    desc.functionProvider = "com.test.fn";
+    auto runtime = SceneRuntime::Create(*ParseScene(kScene), m_reflection, *m_chains, nullptr, m_files, jobs, desc);
+    ASSERT_TRUE(runtime.has_value()) << runtime.error().message;
+    for (int i = 0; i < 3; ++i)
+    {
+        (*runtime)->Step();
+    }
+    INTERI_EXPECT_VEC_NEAR(WorldOf(**runtime, 1), Vec3(0, 6, 0), 0.0f);
+}

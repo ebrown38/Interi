@@ -6,6 +6,8 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/editor)
 interi_add_module(editor
     SOURCES
         src/AssetBrowser.cpp
+        src/ChainDebugger.cpp
+        src/ChainEditing.cpp
         src/Commands.cpp
         src/DataEditing.cpp
         src/EditorCamera.cpp
@@ -25,10 +27,12 @@ interi_add_module(editor
         src/Reflection.cpp
         src/ScenePlay.cpp
         src/UndoStack.cpp
-    DEPS interi::modeling interi::scene interi::hud interi::game interi::runtime interi::values interi::render interi::ecs interi::platform interi::core
+    DEPS interi::chain interi::modeling interi::scene interi::hud interi::game interi::runtime interi::values interi::render interi::ecs interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/ChainDebuggerTests.cpp
+        ${_tests}/ChainEditingTests.cpp
         ${_tests}/DataEditingTests.cpp
         ${_tests}/EditorCameraTests.cpp
         ${_tests}/EditorDocumentTests.cpp
@@ -54,3 +58,4 @@ if(INTERI_BUILD_SHARED)
         INTERI_STARTER_SOURCE_DIR="${PROJECT_SOURCE_DIR}/samples/modules/starter"
         INTERI_STARTER_LIBRARY_DIR="$<TARGET_FILE_DIR:com_interi_starter>")
 endif()
+target_include_directories(interi_editor_tests PRIVATE ${PROJECT_SOURCE_DIR}/tests/chain)

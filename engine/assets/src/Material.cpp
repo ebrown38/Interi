@@ -200,7 +200,7 @@ Result<ParsedMaterial> ParseMaterial(std::string_view text)
             }
             if (!value.is_object() || !value.contains("path") || !value["path"].is_string())
             {
-                return Invalid(std::format("material: texture \"{}\" needs a \"path\" string", key));
+                return Invalid(std::format(R"(material: texture "{}" needs a "path" string)", key));
             }
             TextureRef& ref = m.*(slot->member);
             ref.path = value["path"].get<std::string>();
@@ -208,7 +208,7 @@ Result<ParsedMaterial> ParseMaterial(std::string_view text)
             {
                 if (!uv->is_number_unsigned())
                 {
-                    return Invalid(std::format("material: texture \"{}\": \"uvSet\" must be an unsigned integer", key));
+                    return Invalid(std::format(R"(material: texture "{}": "uvSet" must be an unsigned integer)", key));
                 }
                 ref.uvSet = uv->get<std::uint32_t>();
             }
@@ -217,7 +217,7 @@ Result<ParsedMaterial> ParseMaterial(std::string_view text)
                 const auto parsedGuid = guid->is_string() ? ParseGuid(guid->get<std::string>()) : std::nullopt;
                 if (!parsedGuid)
                 {
-                    return Invalid(std::format("material: texture \"{}\": bad \"guid\"", key));
+                    return Invalid(std::format(R"(material: texture "{}": bad "guid")", key));
                 }
                 ref.guid = *parsedGuid;
             }

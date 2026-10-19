@@ -98,7 +98,7 @@ Result<void> ValidateSkeleton(const Skeleton& skeleton)
     for (std::size_t i = 0; i < skeleton.joints.size(); ++i)
     {
         const Joint& joint = skeleton.joints[i];
-        if (joint.parent < -1 || (joint.parent >= 0 && static_cast<std::size_t>(joint.parent) >= i))
+        if (joint.parent < -1 || (joint.parent >= 0 && std::cmp_greater_equal(joint.parent, i)))
         {
             return Corrupt(
                 std::format("skeleton: joint {} has parent {}, which is not an earlier joint", i, joint.parent));

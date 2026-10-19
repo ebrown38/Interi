@@ -51,7 +51,7 @@ public:
     {
         if (!Ok())
         {
-            return Vec4(1.0f, 1.0f, 1.0f, 1.0f);
+            return {1.0f, 1.0f, 1.0f, 1.0f};
         }
         const auto x = static_cast<std::uint32_t>(std::clamp(u - std::floor(u), 0.0f, 0.9999f) *
                                                   static_cast<float>(m_image.width));
@@ -66,7 +66,7 @@ public:
             }
             return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
         };
-        return Vec4(channel(0), channel(1), channel(2), channel(3));
+        return {channel(0), channel(1), channel(2), channel(3)};
     }
 
 private:

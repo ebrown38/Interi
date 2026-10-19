@@ -265,14 +265,14 @@ void EncodeBc1Block(const std::array<Rgb, 16>& texels, std::vector<std::byte>& o
     {
         for (int i = 1; i <= 6; ++i)
         {
-            palette[static_cast<std::size_t>(i + 1)] = ((7 - i) * a0 + i * a1) / 7;
+            palette[static_cast<std::size_t>(i) + 1] = ((7 - i) * a0 + i * a1) / 7;
         }
     }
     else
     {
         for (int i = 1; i <= 4; ++i)
         {
-            palette[static_cast<std::size_t>(i + 1)] = ((5 - i) * a0 + i * a1) / 5;
+            palette[static_cast<std::size_t>(i) + 1] = ((5 - i) * a0 + i * a1) / 5;
         }
         palette[6] = 0;
         palette[7] = 255;

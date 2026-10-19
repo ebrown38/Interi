@@ -82,7 +82,7 @@ Result<ModelManifest> ParseModelManifest(std::string_view text)
             if (!item.is_object() || !item.contains("name") || !item["name"].is_string() || !item.contains("mesh") ||
                 !item["mesh"].is_string())
             {
-                return Invalid("a mesh needs \"name\" and \"mesh\" strings");
+                return Invalid(R"(a mesh needs "name" and "mesh" strings)");
             }
             ModelManifestMesh mesh;
             mesh.name = item["name"].get<std::string>();

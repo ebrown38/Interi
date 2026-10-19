@@ -16,6 +16,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <utility>
 
 namespace interi::asset_import
 {
@@ -64,8 +65,8 @@ Result<DecodedImage> DecodeImage(std::span<const std::byte> data)
     {
         return MakeError(ErrorCode::Corrupt, "image: not a PNG, JPEG, TGA or HDR file");
     }
-    if (static_cast<std::uint32_t>(width) > assets::kMaxTextureDimension ||
-        static_cast<std::uint32_t>(height) > assets::kMaxTextureDimension ||
+    if (std::cmp_greater(width, assets::kMaxTextureDimension) ||
+        std::cmp_greater(height, assets::kMaxTextureDimension) ||
         static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) > kMaxImagePixels)
     {
         return MakeError(ErrorCode::Corrupt, "image: dimensions too large");

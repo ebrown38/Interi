@@ -50,7 +50,7 @@ Mat4 ToMat4(const ufbx_matrix& m)
 
 Vec3 ToVec3(const ufbx_vec3& v)
 {
-    return Vec3(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z));
+    return {static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)};
 }
 
 float Clamp01(double v)
@@ -437,7 +437,7 @@ private:
         return {};
     }
 
-    assets::SkinInfluence Influence(const ufbx_skin_deformer& skin, std::uint32_t vertex) const
+    [[nodiscard]] assets::SkinInfluence Influence(const ufbx_skin_deformer& skin, std::uint32_t vertex) const
     {
         assets::SkinInfluence influence;
         if (vertex >= skin.vertices.count)

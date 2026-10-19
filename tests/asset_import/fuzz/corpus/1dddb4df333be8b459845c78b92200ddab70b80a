@@ -1,0 +1,11 @@
+{
+  "alphaCutoff": 0.5,
+  "alphaMode": "opaque",
+  "baseColor": [
+    1.0,
+ g  1.0,
+    1.0,
+    1.0
+  ],
+  "doubleSided": false,
+  "emiss

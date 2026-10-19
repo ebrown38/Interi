@@ -81,7 +81,7 @@ std::string Name(const char* name, std::string_view fallback)
 Mat4 ToMat4(const cgltf_float* m)
 {
     Mat4 result;
-    for (int c = 0; c < 4; ++c)
+    for (std::size_t c = 0; c < 4; ++c)
     {
         result.columns[c] = Vec4(m[4 * c], m[4 * c + 1], m[4 * c + 2], m[4 * c + 3]);
     }
@@ -176,7 +176,7 @@ private:
             return {};
         }
         const cgltf_image* image = view.texture->image;
-        const std::size_t index = static_cast<std::size_t>(image - m_gltf.images);
+        const auto index = static_cast<std::size_t>(image - m_gltf.images);
         if (const auto found = m_imageRefs.find(index); found != m_imageRefs.end())
         {
             ok = !found->second.empty();
@@ -738,8 +738,9 @@ private:
                                           : -1;
         corners.materials.assign(order.size() / 3, material);
         corners.positions.reserve(order.size());
-        for (const std::uint32_t v : order)
+        for (const std::uint32_t vertexIndex : order)
         {
+            const std::size_t v = vertexIndex;
             corners.positions.emplace_back(positions[3 * v], positions[3 * v + 1], positions[3 * v + 2]);
             if (hasNormals)
             {

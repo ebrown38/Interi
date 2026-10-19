@@ -43,11 +43,11 @@ std::optional<std::uint64_t> ParseHex16(std::string_view text)
 std::string ToString(const Guid& guid)
 {
     std::string text(32, '0');
-    for (int i = 0; i < 16; ++i)
+    for (std::size_t i = 0; i < 16; ++i)
     {
-        const auto shift = static_cast<unsigned>(60 - 4 * i);
-        text[static_cast<std::size_t>(i)] = kDigits[(guid.high >> shift) & 0xF];
-        text[static_cast<std::size_t>(16 + i)] = kDigits[(guid.low >> shift) & 0xF];
+        const std::size_t shift = 60 - 4 * i;
+        text[i] = kDigits[(guid.high >> shift) & 0xF];
+        text[16 + i] = kDigits[(guid.low >> shift) & 0xF];
     }
     return text;
 }

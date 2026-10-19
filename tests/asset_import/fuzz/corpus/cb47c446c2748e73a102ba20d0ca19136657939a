@@ -1,0 +1,20 @@
+{
+  "clips": [],
+  "materials": [
+    "imported/Red.imat"
+  ],
+  "meshes": [
+    {
+      "materials": [
+        "imported/Red.imat"
+      ],
+      "mesh": "import››Ğ½›†Ôimesh",
+      "name": "Body",
+      "skin": "imported/Body.iskin"
+    }
+  ],
+  "skeletons": [],
+  "source": "m.fbx",
+  "textures": [],
+  "version": 1
+}

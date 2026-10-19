@@ -22,7 +22,10 @@ namespace interi::testing_fixtures
 inline std::vector<std::byte> Bytes(std::string_view text)
 {
     std::vector<std::byte> bytes(text.size());
-    std::memcpy(bytes.data(), text.data(), text.size());
+    if (!text.empty())
+    {
+        std::memcpy(bytes.data(), text.data(), text.size());
+    }
     return bytes;
 }
 

@@ -381,7 +381,7 @@ AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets, AssetBrowserSt
             for (std::size_t i = 0; i < kAssetKindCount; ++i)
             {
                 const std::string name(ToString(static_cast<AssetKind>(i)));
-                if (ImGui::Selectable(name.c_str(), state.kind == static_cast<int>(i)))
+                if (ImGui::Selectable(name.c_str(), std::cmp_equal(state.kind, i)))
                 {
                     state.kind = static_cast<int>(i);
                 }

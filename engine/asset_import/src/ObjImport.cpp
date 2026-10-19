@@ -9,6 +9,7 @@
 #include <cmath>
 #include <format>
 #include <sstream>
+#include <utility>
 
 namespace interi::asset_import
 {
@@ -162,9 +163,9 @@ Result<ImportedModel> ImportObjData(std::span<const std::byte> data, const IFile
             std::ranges::all_of(mesh.indices, [](const tinyobj::index_t& i) { return i.texcoord_index >= 0; });
         for (const tinyobj::index_t& index : mesh.indices)
         {
-            if (index.vertex_index < 0 || static_cast<std::size_t>(index.vertex_index) >= vertexCount ||
-                (allNormals && static_cast<std::size_t>(index.normal_index) >= normalCount) ||
-                (allUvs && static_cast<std::size_t>(index.texcoord_index) >= uvCount))
+            if (index.vertex_index < 0 || std::cmp_greater_equal(index.vertex_index, vertexCount) ||
+                (allNormals && std::cmp_greater_equal(index.normal_index, normalCount)) ||
+                (allUvs && std::cmp_greater_equal(index.texcoord_index, uvCount)))
             {
                 return MakeError(ErrorCode::Corrupt,
                                  std::format("OBJ: shape '{}' has an index out of range", corners.name));

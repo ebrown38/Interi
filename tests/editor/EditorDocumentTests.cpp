@@ -2,7 +2,6 @@
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorMath.h>
 #include <interi/editor/Inspector.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/platform/FileSystem.h>
 #include <interi/testing/ExpectNear.h>
 
@@ -16,11 +15,17 @@ using namespace interi::editor;
 namespace
 {
 
-constexpr std::string_view kLevel = R"({
-  "staticBoxes": [ { "position": [0, -1, 0], "halfExtents": [40, 1, 40] } ],
-  "destructibles": [ { "asset": "generated/wall.idest", "position": [0, 0, 0] } ],
-  "spawnPoints": [ { "name": "player", "position": [0, 0, 9] } ]
-})";
+/// A scene of a ground box and a pillar, saved as `path`.
+void SaveSample(MemoryFileSystem& files, std::string path)
+{
+    EditorDocument document;
+    scene::PrimitiveParams ground;
+    ground.size = {80, 2, 80};
+    document.Add([&](EditorScene& scene) { return scene.CreatePrimitive(ground, {}, "ground"); });
+    document.Add([](EditorScene& scene) { return scene.CreatePrimitive({}, {}, "pillar"); });
+    document.Add([](EditorScene& scene) { return scene.CreateObject("marker"); });
+    ASSERT_TRUE(document.SaveAs(files, std::move(path)).has_value());
+}
 
 void Write(MemoryFileSystem& files, std::string_view path, std::string_view text)
 {
@@ -29,15 +34,14 @@ void Write(MemoryFileSystem& files, std::string_view path, std::string_view text
 
 } // namespace
 
-TEST(EditorDocument, ImportLevelEditSave_RoundTripsAndTracksDirty)
+TEST(EditorDocument, OpenEditSave_RoundTripsAndTracksDirty)
 {
     MemoryFileSystem files;
-    Write(files, "levels/test.json", kLevel);
+    SaveSample(files, "levels/test.scene.json");
     EditorDocument document;
-    ASSERT_TRUE(document.Open(files, "levels/test.json").has_value());
+    ASSERT_TRUE(document.Open(files, "levels/test.scene.json").has_value());
     EXPECT_EQ(document.Scene().Size(), 3u);
     EXPECT_EQ(document.Path(), "levels/test.scene.json");
-    EXPECT_EQ(document.ExportPath(), "levels/test.json");
     EXPECT_FALSE(document.IsDirty());
 
     ASSERT_TRUE(EditField(document.Scene(), document.Undo(), 1, scene::PrimitiveComponent::kComponentName, "size",
@@ -45,33 +49,26 @@ TEST(EditorDocument, ImportLevelEditSave_RoundTripsAndTracksDirty)
     EXPECT_TRUE(document.IsDirty());
     ASSERT_TRUE(document.Save(files).has_value());
     EXPECT_FALSE(document.IsDirty());
-    ASSERT_TRUE(document.ExportLevel(files).has_value());
 
     EditorDocument reopened;
     ASSERT_TRUE(reopened.Open(files, "levels/test.scene.json").has_value());
     EXPECT_EQ(reopened.Scene().Size(), 3u);
-    EXPECT_TRUE(reopened.ExportPath().empty());
-    const auto level = ExportLevel(reopened.Scene());
-    ASSERT_EQ(level.staticBoxes.size(), 1u);
-    INTERI_EXPECT_VEC_NEAR(level.staticBoxes[0].halfExtents, Vec3(20, 1, 20), 0.0f);
-    EXPECT_EQ(level.destructibles.size(), 1u);
-
-    auto exported = gameplay::LoadLevel(files, "levels/test.json");
-    ASSERT_TRUE(exported.has_value());
-    INTERI_EXPECT_VEC_NEAR(exported->staticBoxes[0].halfExtents, Vec3(20, 1, 20), 0.0f);
+    const auto size = reopened.Scene().ReadComponent(1, scene::PrimitiveComponent::kComponentName);
+    ASSERT_TRUE(size.has_value());
+    INTERI_EXPECT_VEC_NEAR(std::get<Vec3>(size->values[1]), Vec3(40, 2, 40), 0.0f);
 }
 
 TEST(EditorDocument, OpenFailure_KeepsDocument)
 {
     MemoryFileSystem files;
-    Write(files, "good.json", kLevel);
+    SaveSample(files, "good.scene.json");
     Write(files, "bad.json", "{ not json");
     Write(files, "bad.scene.json", R"({"version": 2, "objects": 3})");
     EditorDocument document;
-    ASSERT_TRUE(document.Open(files, "good.json").has_value());
-    EXPECT_FALSE(document.Open(files, "bad.json").has_value());
+    ASSERT_TRUE(document.Open(files, "good.scene.json").has_value());
+    EXPECT_FALSE(document.Open(files, "bad.json").has_value()) << "only scenes open";
     EXPECT_FALSE(document.Open(files, "bad.scene.json").has_value());
-    EXPECT_FALSE(document.Open(files, "missing.json").has_value());
+    EXPECT_FALSE(document.Open(files, "missing.scene.json").has_value());
     EXPECT_EQ(document.Path(), "good.scene.json");
     EXPECT_EQ(document.Scene().Size(), 3u);
 }
@@ -81,7 +78,6 @@ TEST(EditorDocument, SaveWithoutPath_Fails)
     MemoryFileSystem files;
     EditorDocument document;
     EXPECT_FALSE(document.Save(files).has_value());
-    EXPECT_FALSE(document.ExportLevel(files).has_value());
     ASSERT_TRUE(document.SaveAs(files, "new.scene.json").has_value());
     EXPECT_TRUE(files.Exists("new.scene.json"));
 }

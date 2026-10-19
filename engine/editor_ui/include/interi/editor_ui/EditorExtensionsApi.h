@@ -38,11 +38,13 @@
 #include <interi/rhi/Device.h>
 #include <interi/rhi/ResourceManager.h>
 #include <interi/rhi/UploadQueue.h>
+#include <interi/values/Reflection.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -213,6 +215,9 @@ struct RenderFeatureContext
     std::function<Result<void>(const UploadFunction&)> upload;
     /// Changes whenever the mesh pool was cleared: ranges from an older generation are invalid.
     std::uint32_t generation = 0;
+    /// Alive as long as the editor's renderer (and so `device`, `resources` and `meshes`) is. A feature that owns GPU
+    /// resources releases them only while it is not expired: the module can outlive the renderer.
+    std::weak_ptr<void> renderer;
     /// Objects the forward pass draws at most; later ones are dropped.
     std::size_t maxObjects = 0;
 };
@@ -257,6 +262,10 @@ public:
     virtual Result<void> AddTool(std::string_view provider, ToolDef def) = 0;
     virtual Result<void> AddRenderFeature(std::string_view provider, RenderFeatureDef def) = 0;
     virtual Result<void> AddUpdate(std::string_view provider, UpdateDef def) = 0;
+    /// The registry the inspector and the undo stack read components through. A module registers the reflection of
+    /// its trivially copyable components here (`Register<T>({Field(...)})`); entries stay until the editor closes
+    /// (the field offsets are plain data, no module code is referenced).
+    virtual values::ReflectionRegistry& Reflection() = 0;
     /// Makes the tool `id` the active one (empty: none, the editor's own selection tool). False for an unknown id.
     virtual bool ActivateTool(std::string_view id) = 0;
 };

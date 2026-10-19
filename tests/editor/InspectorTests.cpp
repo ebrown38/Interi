@@ -2,7 +2,6 @@
 #include <interi/core/math/Transform.h>
 #include <interi/editor/EditorScene.h>
 #include <interi/editor/Inspector.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Reflection.h>
 #include <interi/editor/UndoStack.h>
 #include <interi/testing/ExpectNear.h>
@@ -59,7 +58,7 @@ TEST_F(InspectorTest, EditField_Invalid_RecordsNothing)
 {
     EXPECT_FALSE(EditField(m_scene, m_undo, m_box, kPrimitive, "size", 2.0f)); // wrong type
     EXPECT_FALSE(EditField(m_scene, m_undo, m_box, kPrimitive, "nope", Vec3(1.0f)));
-    EXPECT_FALSE(EditField(m_scene, m_undo, m_box, "interi.editor.Destructible", "asset", std::string("x")));
+    EXPECT_FALSE(EditField(m_scene, m_undo, m_box, "no.such.Component", "asset", std::string("x")));
     EXPECT_FALSE(EditField(m_scene, m_undo, 999, kPrimitive, "size", Vec3(2.0f)));
     EXPECT_FALSE(EditField(m_scene, m_undo, m_box, kPrimitive, "size", Vec3(1.0f))); // same
     EXPECT_EQ(m_undo.Size(), 0u);
@@ -133,16 +132,17 @@ TEST_F(InspectorTest, AddRemoveComponent_Undoable)
     EXPECT_EQ(m_scene.GetWorld().Get<scene::PrimitiveComponent>(*m_scene.Find(m_box))->radius, 2.0f);
     EXPECT_FALSE(RemoveComponent(m_scene, m_undo, m_box, scene::NameComponent::kComponentName));
 
-    ASSERT_TRUE(AddComponent(m_scene, m_undo, m_box, SpawnPointComponent::kComponentName));
-    EXPECT_FALSE(AddComponent(m_scene, m_undo, m_box, SpawnPointComponent::kComponentName));
+    constexpr const char* kMesh = scene::MeshComponent::kComponentName;
+    ASSERT_TRUE(AddComponent(m_scene, m_undo, m_box, kMesh));
+    EXPECT_FALSE(AddComponent(m_scene, m_undo, m_box, kMesh));
     ASSERT_TRUE(m_undo.Undo());
-    EXPECT_FALSE(m_scene.ReadComponent(m_box, SpawnPointComponent::kComponentName).has_value());
+    EXPECT_FALSE(m_scene.ReadComponent(m_box, kMesh).has_value());
 }
 
 TEST_F(InspectorTest, Outliner_IsATreeInPreOrder)
 {
     const EditorEntityId group = m_scene.CreateObject("group");
-    (void)CreateSpawnPoint(m_scene, {}, "player");
+    (void)m_scene.CreateObject("player");
     const EditorEntityId child = m_scene.CreateObject("", {}, group);
     const auto rows = OutlinerRows(m_scene);
     ASSERT_EQ(rows.size(), 4u);
@@ -152,5 +152,5 @@ TEST_F(InspectorTest, Outliner_IsATreeInPreOrder)
     EXPECT_EQ(rows[2].id, child);
     EXPECT_EQ(rows[2].depth, 1u);
     EXPECT_EQ(rows[2].label, "Object 4");
-    EXPECT_EQ(rows[3].label, "Spawn player");
+    EXPECT_EQ(rows[3].label, "player");
 }

@@ -72,3 +72,33 @@
 - **Task:** Milestone 19, 19.4 Manifest contributions (Physics rules)
 - **Context:** `ModuleRegistrar` has no reflection registration, so a module cannot register reflection itself.
 - **Assumption made:** the physics components now have `kComponentName`s (`com.interi.physics.RigidBody`, `.Collider`, `.Body`) and the module's library offers `RegisterPhysicsReflection(ReflectionRegistry&)` (rigid body numeric fields; motion type and layer are layer-table enums and are not reflected) for a host such as the editor to call; the character controller is the `CharacterComponent` driven by `CharacterSync`, and `SensorComponent`/`SensorSystem` wire `OnOverlap`; `hook.physics.*` has BodyBudget, ContactImpulseScale, CharacterMove and OverlapFilter. Body budget: the `bodyBudget` Value plus `hook.physics.BodyBudget` feed `MakeWorldDesc` (`maxBodies`), and `PhysicsSync` creates no body past it. `PhysicsMaterials` rows apply through `ApplyPhysicsMaterial`; `Layers` rows are table-driven: a row named like a built-in layer overrides its collisions, any other row defines a new layer (`PhysicsWorldDesc::extraLayers`, up to 32 layers in all). The built-in seven remain the defaults (golden hash unchanged); M20.3 moves Destruction's layers into rows and may then drop the built-ins.
+
+## Should the Destruction Module's Health and Armor be the shared ids `attr.Health` / `attr.Armor`?
+- **Task:** Milestone 20, 20.3 Contributions (Character: `attr.Health`, `attr.Armor`)
+- **Context:** Shared ids (no `:`) must be declared by the engine (`ModuleHostDesc::engineContracts`) or an Extension's `contracts`; neither declares `attr.*`. `modules/destruction/module.json` therefore declares them as local attributes (`com.interi.destruction:Health`, `:Armor`) in an attribute set `Vitals` and an archetype `Survivor`.
+- **Assumption made:** local ids for now. Making them shared needs a contract owner (an Extension, or engine contracts); other modules can still name them by full id or override them.
+
+## How does a destructible or a spawn point appear in a scene once the engine has no level bridge?
+- **Task:** Milestone 20, 20.1.5 Editor extensions (LevelBridge)
+- **Context:** Module components must be trivially copyable, and the old `DestructiblePlacementComponent` held a `std::string`. The editor extension's `LevelBridge` (`modules/destruction/libs/destruction_editor`) imports a level as plain scene objects instead.
+- **Assumption made:** a destructible is an object with the engine's `MeshComponent` whose asset is the cooked `.idest` (the editor does not draw such a mesh; the module's render feature does), and a spawn point is an object named `Spawn <name>`. `LevelToScene` converts a level file to scene v2, replacing the editor's legacy-level import; File > Export level is gone (play and replays export from the open scene).
+
+## Do editor render features need particles?
+- **Task:** Milestone 20, 20.2.1 render-feature hook ("particle and decal access")
+- **Context:** The editor never drew GPU particles (no `GpuParticleSystem` in `EditorRenderer`), so there was nothing to move. The hook (`RenderFeatureDef::render`) gives features `RenderObject`s and `Decal`s plus uploads into the editor's `MeshPool`.
+- **Assumption made:** decals and objects only. A feature that wants particles needs the editor to own a `GpuParticleSystem`; that can be added to `RenderFeatureOutput` without changing existing features.
+
+## How does an editor extension module get Dear ImGui?
+- **Task:** Milestone 20, 20.2.2 (open question from M18, "How do editor extension modules get ImGui?")
+- **Context:** The installed package does not export ImGui and the editor's ImGui is static.
+- **Assumption made:** the Destruction Module links its own ImGui (vcpkg `imgui`, same baseline as the engine, docking-experimental feature) into its entry library and adopts the editor's context (`PanelContext`). Its panel code is the old `FracturePanel`/`StructurePanel` contents, drawn between the editor's `Begin`/`End`. The ImGui used by a module and by the editor must stay the same version.
+
+## Where do the sandbox's weapon cooldown and weapon selection live?
+- **Task:** Milestone 20, 20.4 Sandbox as a project ("hard-coded sandbox gameplay and bindings become Values and Chains")
+- **Context:** Bindings were already data (`data/gameplay/input.json`). What was hard-coded is what an action does: `modules/destruction/projects/sandbox/content/chains/weapons.chain.json` now maps `weapon.swing|charge|detonate|rocket` input actions to the module's `Swing`/`PlaceCharge`/`Detonate`/`FireRocket` events, reading the aim from the Values `aimOrigin`/`aimDirection`.
+- **Assumption made:** the sandbox's C++ keeps the weapon cooldown, the 1/2/3 weapon selection and the truck/character code; only the weapon effects went through chains. The sandbox uses the module host directly (not `GameSession`, which is not in the installed package). The project is staged into the build tree (`<build>/sandbox_project`), because a project's module folders must lie inside it.
+
+## How do the Destruction and Jolt modules build in the engine tree after the engine drops Jolt?
+- **Task:** Milestone 20, 20.5 Engine removal
+- **Context:** In-tree builds of `modules/*` need `find_package(Jolt)`, and the engine's vcpkg manifest no longer lists it after M20.5.
+- **Assumption made:** the root CMake skips a module whose dependencies are missing (`modules/physics`, `modules/destruction` return early when Jolt is not found); the supported path is the standalone build against an installed engine (`cmake --install`, then `find_package(Interi COMPONENTS Vulkan)`), with the module's own `vcpkg.json` and the overlay port in `modules/physics/ports`. Destruction's standalone build adds the sibling `../physics` folder (`INTERI_PHYSICS_MODULE_DIR`), because the Jolt module has no install rules.

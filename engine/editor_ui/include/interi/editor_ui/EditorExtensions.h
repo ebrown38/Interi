@@ -88,6 +88,18 @@ private:
 class EditorExtensions final : public IEditorExtensions
 {
 public:
+    /// Extensions with a registry of their own (tests, an editor without a document).
+    EditorExtensions() noexcept
+        : m_reflection(&m_ownReflection)
+    {
+    }
+    /// `reflection` is the open document's registry (EditorDocument::Reflection()); it must outlive the extensions.
+    explicit EditorExtensions(values::ReflectionRegistry& reflection) noexcept
+        : m_reflection(&reflection)
+    {
+    }
+    values::ReflectionRegistry& Reflection() override { return *m_reflection; }
+
     Result<void> AddPanel(std::string_view provider, PanelDef def) override;
     Result<void> AddOverlay(std::string_view provider, OverlayDef def) override;
     Result<void> AddTool(std::string_view provider, ToolDef def) override;
@@ -153,6 +165,8 @@ private:
     std::vector<Entry<RenderFeatureDef>> m_features;
     std::vector<Entry<UpdateDef>> m_updates;
     std::string m_activeTool;
+    values::ReflectionRegistry m_ownReflection;
+    values::ReflectionRegistry* m_reflection;
 };
 
 } // namespace interi::editor

@@ -11,12 +11,6 @@ std::string_view ToString(AssetKind kind) noexcept
 {
     switch (kind)
     {
-    case AssetKind::Destructible:
-        return "destructible";
-    case AssetKind::Source:
-        return "gltf";
-    case AssetKind::Level:
-        return "level";
     case AssetKind::Scene:
         return "scene";
     case AssetKind::Mesh:
@@ -41,15 +35,7 @@ std::vector<AssetEntry> ListAssets(const std::filesystem::path& root)
         const std::filesystem::path relative = std::filesystem::relative(it->path(), root, error);
         std::string path = relative.generic_string();
         const std::string extension = relative.extension().string();
-        if (extension == ".idest")
-        {
-            assets.push_back({.path = std::move(path), .kind = AssetKind::Destructible});
-        }
-        else if (extension == ".gltf" || extension == ".glb")
-        {
-            assets.push_back({.path = std::move(path), .kind = AssetKind::Source});
-        }
-        else if (extension == ".imesh")
+        if (extension == ".imesh")
         {
             assets.push_back({.path = std::move(path), .kind = AssetKind::Mesh});
         }
@@ -60,10 +46,6 @@ std::vector<AssetEntry> ListAssets(const std::filesystem::path& root)
         else if (path.ends_with(".scene.json"))
         {
             assets.push_back({.path = std::move(path), .kind = AssetKind::Scene});
-        }
-        else if (extension == ".json" && path.starts_with("levels/"))
-        {
-            assets.push_back({.path = std::move(path), .kind = AssetKind::Level});
         }
     }
     std::ranges::sort(assets, {}, &AssetEntry::path);

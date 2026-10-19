@@ -3,7 +3,6 @@
 #include <interi/core/math/Quat.h>
 #include <interi/editor/Commands.h>
 #include <interi/editor/Gizmo.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Modeling.h>
 #include <interi/platform/FileSystem.h>
 #include <interi/scene/Primitives.h>

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/Inspector.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/editor_ui/EditorPanels.h>
-#include <interi/gameplay/Vehicle.h>
 
 #include "ImGuiTestContext.h"
 #include <gtest/gtest.h>
@@ -19,13 +17,14 @@ class EditorPanelsTest : public ::testing::Test
 protected:
     EditorPanelsTest()
     {
-        gameplay::LevelDef level;
-        level.staticBoxes.push_back({.transform = Transform(), .halfExtents = {4, 1, 4}});
-        gameplay::DestructibleDef wall;
-        wall.asset = "generated/wall.idest";
-        level.destructibles.push_back(wall);
-        level.spawnPoints.push_back({.name = "player", .position = {0, 0, 5}, .yaw = 0.5f});
-        ImportLevel(level, m_document.Scene());
+        scene::PrimitiveParams ground;
+        ground.size = {8, 2, 8};
+        (void)m_document.Scene().CreatePrimitive(ground, Transform(), "ground");
+        const EditorEntityId wall = m_document.Scene().CreateObject("wall");
+        (void)m_document.Scene().AddComponent(wall, scene::MeshComponent::kComponentName);
+        Transform spawn;
+        spawn.position = {0, 0, 5};
+        (void)m_document.Scene().CreateObject("player", spawn);
     }
 
     void DrawAll(MenuRequests& requests)
@@ -47,8 +46,8 @@ protected:
     EditorDocument m_document;
     ToolSettings m_tools;
     ToolRequests m_toolRequests;
-    std::vector<AssetEntry> m_assets{{.path = "levels/a.json", .kind = AssetKind::Level},
-                                     {.path = "walls/wall.idest", .kind = AssetKind::Destructible}};
+    std::vector<AssetEntry> m_assets{{.path = "levels/a.scene.json", .kind = AssetKind::Scene},
+                                     {.path = "walls/wall.imesh", .kind = AssetKind::Mesh}};
     AssetRequests m_assetRequests;
 };
 
@@ -63,10 +62,8 @@ TEST_F(EditorPanelsTest, EveryPanel_DrawsWithSelection)
         const ImDrawData& data = m_context.Frame([&] { DrawAll(requests); });
         EXPECT_GT(data.TotalVtxCount, 0);
     }
-    // A vehicle component (bool and float fields) shows too.
-    const Entity entity = *m_document.Scene().Find(1);
-    (void)m_document.Scene().GetWorld().Add(entity, gameplay::VehicleComponent{.health = 3.0f});
-    m_document.Select(1);
+    // A mesh component (an asset and a colour list) shows too.
+    m_document.Select(2);
     (void)m_context.Frame([&] { DrawAll(requests); });
     EXPECT_FALSE(requests.quit);
 }
@@ -121,7 +118,7 @@ TEST_F(EditorPanelsTest, ToolsAndAssets_DefaultsRequestNothing)
 {
     MenuRequests requests;
     (void)m_context.Frame([&] { DrawAll(requests); });
-    EXPECT_FALSE(m_toolRequests.addPrimitive || m_toolRequests.addSpawnPoint || m_toolRequests.focusSelection);
+    EXPECT_FALSE(m_toolRequests.addPrimitive || m_toolRequests.focusSelection);
     EXPECT_FALSE(m_assetRequests.openLevel.has_value());
     EXPECT_EQ(m_tools.mode, GizmoMode::Translate);
 }

@@ -34,8 +34,7 @@ struct MenuRequests
 {
     bool newLevel = false;
     bool save = false;
-    bool exportLevel = false; ///< Write the scene as a level to the document's export path.
-    bool group = false;       ///< Ctrl+G (the app groups: it knows asset bounds).
+    bool group = false; ///< Ctrl+G (the app groups: it knows asset bounds).
     bool quit = false;
 };
 
@@ -45,8 +44,6 @@ inline constexpr const char* kOutlinerWindow = "Outliner";
 inline constexpr const char* kInspectorWindow = "Inspector";
 inline constexpr const char* kAssetsWindow = "Assets";
 inline constexpr const char* kToolsWindow = "Tools";
-inline constexpr const char* kFractureWindow = "Fracture";   ///< FracturePanel.h
-inline constexpr const char* kStructureWindow = "Structure"; ///< Stress and replay tools.
 
 /// A dockspace over the whole window (below the menu bar). With `buildDefaultLayout` (first run, no saved layout)
 /// it is split into the outliner (left), inspector and tools / fracture / structure / values / characters tabs
@@ -81,7 +78,6 @@ struct ToolSettings
 struct ToolRequests
 {
     std::optional<scene::PrimitiveShape> addPrimitive;
-    bool addSpawnPoint = false;
     // Modeling on the selection (Modeling.h), carried out by the app (it knows asset bounds and files).
     bool group = false;
     bool ungroup = false;
@@ -99,7 +95,7 @@ struct ToolRequests
     bool focusSelection = false;
 };
 
-/// Gizmo mode (W/E/R while the viewport has the mouse), snapping and buttons that add primitives and spawn points.
+/// Gizmo mode (W/E/R while the viewport has the mouse), snapping and buttons that add primitives.
 [[nodiscard]] ToolRequests DrawToolsPanel(ToolSettings& settings, const EditorDocument& document);
 
 struct AssetRequests
@@ -108,8 +104,8 @@ struct AssetRequests
     bool refresh = false;
 };
 
-/// The data directory's assets. Destructibles, meshes and glTF sources drag into the viewport (payload
-/// kAssetPayload); double-clicking a scene or a level opens it.
+/// The data directory's assets. Meshes and prefabs drag into the viewport (payload kAssetPayload); double-clicking
+/// a scene opens it.
 [[nodiscard]] AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets);
 
 struct ScenePlayStatus

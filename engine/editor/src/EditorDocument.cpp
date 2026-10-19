@@ -3,11 +3,11 @@
 #include <interi/editor/Commands.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorServices.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Prefabs.h>
 #include <interi/platform/FileSystem.h>
 
 #include <algorithm>
+#include <format>
 #include <memory>
 #include <ranges>
 
@@ -24,13 +24,6 @@ constexpr std::string_view kSceneExtension = ".scene.json";
     return path.ends_with(kSceneExtension);
 }
 
-/// "levels/sandbox.json" -> "levels/sandbox.scene.json".
-[[nodiscard]] std::string ScenePathFor(std::string_view level)
-{
-    const std::string_view stem = level.ends_with(".json") ? level.substr(0, level.size() - 5) : level;
-    return std::string(stem) + std::string(kSceneExtension);
-}
-
 } // namespace
 
 EditorDocument::EditorDocument()
@@ -44,36 +37,27 @@ void EditorDocument::New()
     m_scene.Clear();
     m_undo.Clear();
     m_path.clear();
-    m_exportPath.clear();
     m_selection.clear();
 }
 
 Result<void> EditorDocument::Open(const IFileSystem& files, std::string_view path)
 {
-    if (IsScenePath(path))
+    if (!IsScenePath(path))
     {
-        INTERI_TRY_ASSIGN(document, scene::LoadScene(files, path));
-        scene::ExpandPrefabs(document, PrefabLoaderFor(files), document.warnings);
-        INTERI_TRY_ASSIGN(warnings, m_scene.Load(document));
-        for (const std::string& warning : document.warnings)
-        {
-            INTERI_LOG_WARN("Editor", "{}: {}", path, warning);
-        }
-        for (const std::string& warning : warnings)
-        {
-            INTERI_LOG_WARN("Editor", "{}: {}", path, warning);
-        }
-        m_path = std::string(path);
-        m_exportPath.clear();
+        return MakeError(ErrorCode::InvalidArgument, std::format("'{}' is not a scene ({})", path, kSceneExtension));
     }
-    else
+    INTERI_TRY_ASSIGN(document, scene::LoadScene(files, path));
+    scene::ExpandPrefabs(document, PrefabLoaderFor(files), document.warnings);
+    INTERI_TRY_ASSIGN(warnings, m_scene.Load(document));
+    for (const std::string& warning : document.warnings)
     {
-        INTERI_TRY_ASSIGN(level, gameplay::LoadLevel(files, path));
-        m_scene.Clear();
-        ImportLevel(level, m_scene);
-        m_path = ScenePathFor(path);
-        m_exportPath = std::string(path);
+        INTERI_LOG_WARN("Editor", "{}: {}", path, warning);
     }
+    for (const std::string& warning : warnings)
+    {
+        INTERI_LOG_WARN("Editor", "{}: {}", path, warning);
+    }
+    m_path = std::string(path);
     m_undo.Clear();
     m_selection.clear();
     return {};
@@ -114,24 +98,6 @@ Result<void> EditorDocument::SaveAs(IFileSystem& files, std::string path)
         m_path = std::move(previous);
     }
     return saved;
-}
-
-Result<void> EditorDocument::ExportLevel(IFileSystem& files, std::string_view path)
-{
-    const std::string target(path.empty() ? std::string_view(m_exportPath) : path);
-    if (target.empty())
-    {
-        return MakeError(ErrorCode::InvalidArgument, "no level path to export to");
-    }
-    std::vector<std::string> warnings;
-    const std::string json = gameplay::WriteLevel(editor::ExportLevel(m_scene, &warnings));
-    for (const std::string& warning : warnings)
-    {
-        INTERI_LOG_WARN("Editor", "export {}: {}", target, warning);
-    }
-    INTERI_TRY(files.WriteFile(target, std::as_bytes(std::span(json))));
-    m_exportPath = target;
-    return {};
 }
 
 EditorEntityId EditorDocument::Selection() const noexcept

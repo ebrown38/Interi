@@ -17,13 +17,11 @@ interi_add_module(editor_ui
         src/DataPanels.cpp
         src/EditorExtensions.cpp
         src/EditorPanels.cpp
-        src/FracturePanel.cpp
         src/HeaderCheck.cpp
         src/HudDesigner.cpp
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
         src/ServicePanels.cpp
-        src/StructurePanel.cpp
         src/ValueWidgets.cpp
         src/ViewportOverlay.cpp
     DEPS interi::editor interi::hotreload interi::hud interi::render interi::rhi interi::platform imgui::imgui
@@ -32,11 +30,9 @@ interi_add_module(editor_ui
         ${_tests}/DataPanelsTests.cpp
         ${_tests}/EditorExtensionsTests.cpp
         ${_tests}/EditorPanelsTests.cpp
-        ${_tests}/FracturePanelTests.cpp
         ${_tests}/HudDesignerTests.cpp
         ${_tests}/ImGuiInputTests.cpp
-        ${_tests}/ServicePanelsTests.cpp
-        ${_tests}/StructurePanelTests.cpp)
+        ${_tests}/ServicePanelsTests.cpp)
 target_compile_definitions(interi_editor_ui_tests PRIVATE
     INTERI_SDK_TEST_MODULES_DIR="${PROJECT_SOURCE_DIR}/tests/sdk/modules")
 interi_add_shaders(interi_editor_ui

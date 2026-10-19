@@ -2,7 +2,6 @@
 #include <interi/core/math/Transform.h>
 #include <interi/editor/EditorScene.h>
 #include <interi/editor/Reflection.h>
-#include <interi/gameplay/Vehicle.h>
 
 #include <gtest/gtest.h>
 
@@ -33,13 +32,7 @@ TEST(Reflection, Component_FieldsEnumerated)
     const TypeReflection* primitive = registry.Find(scene::PrimitiveComponent::kComponentName);
     ASSERT_NE(primitive, nullptr);
     EXPECT_EQ(primitive->fields[0].name, "shape");
-    EXPECT_NE(registry.Find("interi.editor.Destructible"), nullptr);
     EXPECT_NE(registry.Find(scene::MeshComponent::kComponentName), nullptr);
-
-    const TypeReflection* vehicle = registry.Find(gameplay::VehicleComponent::kComponentName);
-    ASSERT_NE(vehicle, nullptr);
-    EXPECT_EQ(vehicle->fields[0].name, "health");
-    EXPECT_EQ(registry.Find(ComponentId<gameplay::VehicleComponent>()), vehicle);
 
     std::vector<std::string> names;
     for (const TypeReflection* type : registry.Types())

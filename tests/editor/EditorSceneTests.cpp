@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/Commands.h>
 #include <interi/editor/EditorScene.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Reflection.h>
 #include <interi/editor/UndoStack.h>
 #include <interi/testing/ExpectNear.h>
@@ -10,6 +9,7 @@
 
 #include <memory>
 #include <numbers>
+#include <vector>
 
 using namespace interi;
 using namespace interi::editor;
@@ -24,19 +24,20 @@ Transform At(const Vec3& position)
     return transform;
 }
 
-gameplay::LevelDef SampleLevel()
+/// Three boxes, a mesh object and a group, as a small level.
+void BuildSample(EditorScene& scene)
 {
-    gameplay::LevelDef level;
-    level.staticBoxes.push_back({.transform = At({0, -1, 0}), .halfExtents = {40, 1, 40}});
-    level.staticBoxes.push_back({.transform = At({6, 3, 6}), .halfExtents = {1, 3, 1}});
-    gameplay::DestructibleDef wall;
-    wall.asset = "generated/wall.idest";
-    wall.transform.position = {4.5f, 0.0f, 0.0f};
-    wall.transform.rotation = YawRotation(0.5f);
-    level.destructibles.push_back(wall);
-    level.spawnPoints.push_back({.name = "player", .position = {0, 0, 9}, .yaw = 1.25f});
-    level.spawnPoints.push_back({.name = "vehicle", .position = {0, 1.5f, -14}, .yaw = std::numbers::pi_v<float>});
-    return level;
+    scene::PrimitiveParams ground;
+    ground.size = {80, 2, 80};
+    (void)scene.CreatePrimitive(ground, At({0, -1, 0}), "ground");
+    scene::PrimitiveParams pillar;
+    pillar.size = {2, 6, 2};
+    (void)scene.CreatePrimitive(pillar, At({6, 3, 6}), "pillar");
+    const EditorEntityId mesh = scene.CreateObject("wall", At({4.5f, 0.0f, 0.0f}));
+    (void)scene.AddComponent(mesh, scene::MeshComponent::kComponentName);
+    scene.GetWorld().GetMut<scene::MeshComponent>(*scene.Find(mesh))->asset.path = "walls/wall.imesh";
+    (void)scene.CreateObject("spawn", At({0, 0, 9}));
+    (void)scene.CreateObject("spawn 2", At({0, 1.5f, -14}));
 }
 
 class EditorSceneTest : public ::testing::Test
@@ -48,48 +49,6 @@ protected:
 };
 
 } // namespace
-
-TEST_F(EditorSceneTest, ImportExportLevel_RoundTrips)
-{
-    EditorScene scene(m_reflection);
-    const gameplay::LevelDef level = SampleLevel();
-    ImportLevel(level, scene);
-    EXPECT_EQ(scene.Size(), 5u);
-    EXPECT_TRUE(scene.ReadComponent(1, scene::PrimitiveComponent::kComponentName).has_value());
-    EXPECT_TRUE(scene.ReadComponent(3, DestructiblePlacementComponent::kComponentName).has_value());
-    EXPECT_TRUE(scene.ReadComponent(5, SpawnPointComponent::kComponentName).has_value());
-
-    const gameplay::LevelDef out = ExportLevel(scene);
-    ASSERT_EQ(out.staticBoxes.size(), 2u);
-    INTERI_EXPECT_VEC_NEAR(out.staticBoxes[1].halfExtents, Vec3(1, 3, 1), 0.0f);
-    INTERI_EXPECT_VEC_NEAR(out.staticBoxes[1].transform.position, Vec3(6, 3, 6), 0.0f);
-    ASSERT_EQ(out.destructibles.size(), 1u);
-    EXPECT_EQ(out.destructibles[0].asset, "generated/wall.idest");
-    INTERI_EXPECT_QUAT_NEAR(out.destructibles[0].transform.rotation, level.destructibles[0].transform.rotation, 0.0f);
-    ASSERT_EQ(out.spawnPoints.size(), 2u);
-    EXPECT_EQ(out.spawnPoints[0].name, "player");
-    EXPECT_NEAR(out.spawnPoints[0].yaw, 1.25f, 1e-5f);
-    EXPECT_NEAR(std::abs(out.spawnPoints[1].yaw), std::numbers::pi_v<float>, 1e-5f);
-    INTERI_EXPECT_VEC_NEAR(out.spawnPoints[1].position, Vec3(0, 1.5f, -14), 0.0f);
-}
-
-TEST_F(EditorSceneTest, ExportLevel_UsesWorldTransformsAndWarnsAboutOtherShapes)
-{
-    EditorScene scene(m_reflection);
-    Transform group = At({10, 0, 0});
-    group.scale = Vec3(2.0f);
-    const EditorEntityId parent = scene.CreateObject("group", group);
-    (void)scene.CreatePrimitive({}, At({1, 0, 0}), "box", parent);
-    scene::PrimitiveParams sphere;
-    sphere.shape = scene::PrimitiveShape::Sphere;
-    (void)scene.CreatePrimitive(sphere, {});
-    std::vector<std::string> warnings;
-    const gameplay::LevelDef out = ExportLevel(scene, &warnings);
-    ASSERT_EQ(out.staticBoxes.size(), 1u);
-    INTERI_EXPECT_VEC_NEAR(out.staticBoxes[0].transform.position, Vec3(12, 0, 0), 1e-5f);
-    INTERI_EXPECT_VEC_NEAR(out.staticBoxes[0].halfExtents, Vec3(1.0f), 1e-6f);
-    EXPECT_EQ(warnings.size(), 1u);
-}
 
 TEST_F(EditorSceneTest, Yaw_RoundTrips)
 {
@@ -122,7 +81,9 @@ TEST_F(EditorSceneTest, SnapshotRestore_KeepsIdValuesAndParent)
 {
     EditorScene scene(m_reflection);
     const EditorEntityId parent = scene.CreateObject("parent", At({0, 1, 0}));
-    const EditorEntityId id = CreateDestructible(scene, At({1, 2, 3}), "a.idest");
+    const EditorEntityId id = scene.CreateObject("thing", At({1, 2, 3}));
+    ASSERT_TRUE(scene.AddComponent(id, scene::MeshComponent::kComponentName));
+    scene.GetWorld().GetMut<scene::MeshComponent>(*scene.Find(id))->asset.path = "a.imesh";
     ComponentSnapshot link{.component = scene::ParentComponent::kComponentName, .values = {values::EntityRef{parent}}};
     ASSERT_TRUE(scene.WriteComponent(id, link));
     const auto snapshot = scene.Snapshot(id);
@@ -134,9 +95,9 @@ TEST_F(EditorSceneTest, SnapshotRestore_KeepsIdValuesAndParent)
 
     ASSERT_TRUE(scene.Restore(*snapshot));
     EXPECT_FALSE(scene.Restore(*snapshot)); // id in use
-    const auto placement = scene.ReadComponent(id, DestructiblePlacementComponent::kComponentName);
-    ASSERT_TRUE(placement.has_value());
-    EXPECT_EQ(std::get<std::string>(placement->values[0]), "a.idest");
+    const auto mesh = scene.ReadComponent(id, scene::MeshComponent::kComponentName);
+    ASSERT_TRUE(mesh.has_value());
+    EXPECT_EQ(std::get<values::AssetRef>(mesh->values[0]).path, "a.imesh");
     EXPECT_EQ(scene.ParentOf(id), parent);
     INTERI_EXPECT_VEC_NEAR(scene.WorldTransform(id).position, Vec3(1, 3, 3), 0.0f);
     EXPECT_EQ(scene.CreateObject("next"), id + 1); // ids are never reused
@@ -145,7 +106,7 @@ TEST_F(EditorSceneTest, SnapshotRestore_KeepsIdValuesAndParent)
 TEST_F(EditorSceneTest, DocumentRoundTrip_KeepsEverything)
 {
     EditorScene scene(m_reflection);
-    ImportLevel(SampleLevel(), scene);
+    BuildSample(scene);
     (void)scene.CreateObject("child", At({0, 1, 0}), 1);
     const std::string text = scene::WriteScene(scene.ToDocument());
 
@@ -188,14 +149,13 @@ TEST_F(EditorSceneTest, LoadFailure_KeepsScene)
 TEST_F(EditorSceneTest, DestroyCommand_UndoRestoresSameId)
 {
     EditorScene scene(m_reflection);
-    ImportLevel(SampleLevel(), scene);
+    BuildSample(scene);
     UndoStack undo;
     undo.Execute(std::make_unique<DestroyEntityCommand>(scene, 3));
     EXPECT_FALSE(scene.Contains(3));
-    EXPECT_EQ(ExportLevel(scene).destructibles.size(), 0u);
     ASSERT_TRUE(undo.Undo());
     ASSERT_TRUE(scene.Contains(3));
-    EXPECT_EQ(ExportLevel(scene).destructibles.size(), 1u);
+    EXPECT_TRUE(scene.ReadComponent(3, scene::MeshComponent::kComponentName).has_value());
     ASSERT_TRUE(undo.Redo());
     EXPECT_FALSE(scene.Contains(3));
 }
@@ -203,7 +163,7 @@ TEST_F(EditorSceneTest, DestroyCommand_UndoRestoresSameId)
 TEST_F(EditorSceneTest, CreateCommand_UndoRemoves)
 {
     EditorScene scene(m_reflection);
-    const EditorEntityId id = CreateSpawnPoint(scene, At({1, 0, 0}), "alt");
+    const EditorEntityId id = scene.CreatePrimitive({}, At({1, 0, 0}), "alt");
     auto snapshot = scene.Snapshot(id);
     ASSERT_TRUE(snapshot.has_value());
     ASSERT_TRUE(scene.Destroy(id));
@@ -233,7 +193,7 @@ TEST_F(EditorSceneTest, WriteComponent_WrongType_Fails)
     const EditorEntityId id = scene.CreatePrimitive({}, {});
     ComponentSnapshot bad{.component = scene::PrimitiveComponent::kComponentName, .values = {1.0f}};
     EXPECT_FALSE(scene.WriteComponent(id, bad));
-    EXPECT_FALSE(scene.ReadComponent(id, DestructiblePlacementComponent::kComponentName).has_value());
+    EXPECT_FALSE(scene.ReadComponent(id, scene::MeshComponent::kComponentName).has_value());
 }
 
 TEST_F(EditorSceneTest, MacroCommand_UndoesInReverse)

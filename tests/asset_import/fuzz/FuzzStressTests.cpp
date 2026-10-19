@@ -19,10 +19,20 @@ namespace
 
 constexpr std::size_t kMaxInput = std::size_t{1} << 16;
 
+const char* Env(const char* name)
+{
+#if defined(_MSC_VER)
+#pragma warning(suppress : 4996) // getenv is fine here: read-only, single-threaded test setup
+    return std::getenv(name);
+#else
+    return std::getenv(name);
+#endif
+}
+
 /// Number of mutations per seed: INTERI_FUZZ_ITERATIONS, default 300.
 std::size_t Iterations()
 {
-    if (const char* text = std::getenv("INTERI_FUZZ_ITERATIONS"))
+    if (const char* text = Env("INTERI_FUZZ_ITERATIONS"))
     {
         return static_cast<std::size_t>(std::strtoull(text, nullptr, 10));
     }
@@ -194,7 +204,7 @@ TEST_F(ImportFuzz, SeedsAreValidInputs)
 /// the libFuzzer harness expects). Not a test of anything: a way to refresh tests/asset_import/fuzz/corpus.
 TEST(ImportFuzzCorpus, WriteWhenAsked)
 {
-    const char* directory = std::getenv("INTERI_WRITE_FUZZ_CORPUS");
+    const char* directory = Env("INTERI_WRITE_FUZZ_CORPUS");
     if (directory == nullptr || *directory == '\0')
     {
         GTEST_SKIP() << "INTERI_WRITE_FUZZ_CORPUS is not set";

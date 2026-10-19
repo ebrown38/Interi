@@ -5,6 +5,7 @@
 #include <interi/editor/Thumbnails.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 #include <limits>

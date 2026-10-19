@@ -102,3 +102,23 @@
 - **Task:** Milestone 20, 20.5 Engine removal
 - **Context:** In-tree builds of `modules/*` need `find_package(Jolt)`, and the engine's vcpkg manifest no longer lists it after M20.5.
 - **Assumption made:** the root CMake skips a module whose dependencies are missing (`modules/physics`, `modules/destruction` return early when Jolt is not found); the supported path is the standalone build against an installed engine (`cmake --install`, then `find_package(Interi COMPONENTS Vulkan)`), with the module's own `vcpkg.json` and the overlay port in `modules/physics/ports`. Destruction's standalone build adds the sibling `../physics` folder (`INTERI_PHYSICS_MODULE_DIR`), because the Jolt module has no install rules.
+
+## Should M21 ship KTX2 and a BC7 encoder?
+- **Task:** Milestone 21, 21.3 Textures ("optionally KTX2", "block compression (encoder chosen by license)")
+- **Context:** `engine/assets/src/Texture.cpp`. vcpkg has a `ktx` port, but it pulls Basis Universal and several encoders, and no permissive BC7 encoder is in the baseline.
+- **Assumption made:** the engine ships its own BC1, BC4 and BC5 encoders and decoders (tested by decode error bound; colour, single-channel and normal-map textures) and no KTX2 container. BC7 and KTX2 are left for when a renderer path needs them (the forward renderer samples no textures from assets yet).
+
+## Do importers store a source path or a guid in an authored material's texture slots?
+- **Task:** Milestone 21, 21.4 Materials
+- **Context:** `.material.json` (`engine/assets/include/interi/assets/Material.h`) holds `TextureRef{path, guid, uvSet}`; the asset database resolves a path to the cooked `.itex` and guid when it cooks (`AssetDatabase::ResolveTexture`).
+- **Assumption made:** authors (and the material editor) write the source path (`tex/a.png`); a cooked `.imat` carries the cooked path plus the texture source's guid. A renamed source loses the link unless its `.meta` moves with it and the material is edited; a guid-first lookup is the alternative.
+
+## Should the asset browser list raw source files (png, fbx...) as well as cooked assets?
+- **Task:** Milestone 21, 21.6 Asset browser v2
+- **Context:** `engine/editor/src/AssetBrowser.cpp` lists only cooked kinds and authored `.material.json`; the Import panel finds the source of a selected cooked asset (`AssetDatabase::FindByProduct`).
+- **Assumption made:** sources stay out of the list (each would appear next to its own products); import settings are reached through any product. Listing sources with an "imported from" badge is the alternative.
+
+## Is a CPU-drawn preview acceptable for the material editor and thumbnails?
+- **Task:** Milestone 21, 21.4.2 and 21.6
+- **Context:** The preview sphere and thumbnails are software-rendered (`MaterialPreview.h`, `Thumbnails.h`) and drawn into ImGui's draw list as runs of rectangles (`DrawPixels`), so they work headless in unit tests and need no GPU texture upload.
+- **Assumption made:** yes at 112 px (sphere) and 32 px (thumbnails). A GPU preview through the forward renderer (real lights, normal maps) would follow when the renderer samples UVs and textures.

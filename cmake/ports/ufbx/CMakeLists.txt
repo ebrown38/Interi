@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+cmake_minimum_required(VERSION 3.25)
+project(ufbx C)
+add_library(ufbx STATIC ufbx.c)
+target_include_directories(ufbx PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}> $<INSTALL_INTERFACE:include>)
+set_target_properties(ufbx PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 99)
+install(TARGETS ufbx EXPORT ufbxTargets ARCHIVE DESTINATION lib)
+install(FILES ufbx.h DESTINATION include)
+install(EXPORT ufbxTargets NAMESPACE ufbx:: FILE ufbxTargets.cmake DESTINATION lib/cmake/ufbx)
+install(FILES ufbxConfig.cmake.in RENAME ufbxConfig.cmake DESTINATION lib/cmake/ufbx)

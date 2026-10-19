@@ -230,4 +230,11 @@ struct Vec4
     return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
 
+/// Binary serialization (see Archive.h): x, y, z, w.
+template <typename Archive>
+void Serialize(Archive& archive, Vec4& v)
+{
+    archive(v.x, v.y, v.z, v.w);
+}
+
 } // namespace interi

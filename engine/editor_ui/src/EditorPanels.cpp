@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/Inspector.h>
 #include <interi/editor/Prefabs.h>
+#include <interi/editor_ui/AssetPanels.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ServicePanels.h>
@@ -64,6 +65,8 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout)
         ImGui::DockBuilderDockWindow(kDataTablesWindow, bottom);
         ImGui::DockBuilderDockWindow(kAssetsWindow, bottom);
         ImGui::DockBuilderDockWindow(kConsoleWindow, bottom);
+        ImGui::DockBuilderDockWindow(kMaterialEditorWindow, rightBottom);
+        ImGui::DockBuilderDockWindow(kImportWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kPreferencesWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kProjectSettingsWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kViewportWindow, centre);
@@ -355,31 +358,107 @@ ToolRequests DrawToolsPanel(ToolSettings& settings, const EditorDocument& docume
     return requests;
 }
 
-AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets)
+AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets, AssetBrowserState& state,
+                              const AssetBrowserContext& context)
 {
     AssetRequests requests;
     if (ImGui::Begin(kAssetsWindow))
     {
         requests.refresh = ImGui::Button("Refresh");
         ImGui::SameLine();
-        ImGui::TextUnformatted(
-            "Drag destructibles and meshes into the viewport; double-click a scene or level to open it.");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+        ImGui::InputTextWithHint("##search", "Search (words, kind:texture)", &state.query);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(110.0f);
+        const std::string preview =
+            state.kind < 0 ? "All kinds" : std::string(ToString(static_cast<AssetKind>(state.kind)));
+        if (ImGui::BeginCombo("##kind", preview.c_str()))
+        {
+            if (ImGui::Selectable("All kinds", state.kind < 0))
+            {
+                state.kind = -1;
+            }
+            for (std::size_t i = 0; i < kAssetKindCount; ++i)
+            {
+                const std::string name(ToString(static_cast<AssetKind>(i)));
+                if (ImGui::Selectable(name.c_str(), std::cmp_equal(state.kind, i)))
+                {
+                    state.kind = static_cast<int>(i);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        ImGui::Checkbox("Thumbnails", &state.thumbnails);
+
+        AssetQuery query = ParseAssetQuery(state.query);
+        if (state.kind >= 0)
+        {
+            query.kind = static_cast<AssetKind>(state.kind);
+        }
+        std::vector<const AssetEntry*> shown;
         for (const AssetEntry& asset : assets)
         {
-            const bool openable = asset.kind == AssetKind::Scene;
-            const std::string label = std::format("[{}] {}", ToString(asset.kind), asset.path);
-            ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
-            if (openable && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            if (Matches(query, asset))
             {
-                requests.openLevel = asset.path;
-            }
-            if (!openable && ImGui::BeginDragDropSource())
-            {
-                ImGui::SetDragDropPayload(kAssetPayload, asset.path.c_str(), asset.path.size() + 1);
-                ImGui::TextUnformatted(asset.path.c_str());
-                ImGui::EndDragDropSource();
+                shown.push_back(&asset);
             }
         }
+        ImGui::Text("%zu of %zu assets", shown.size(), assets.size());
+        const bool withThumbnails = state.thumbnails && context.files != nullptr && context.thumbnails != nullptr;
+        const float thumbnailSize = withThumbnails ? static_cast<float>(context.thumbnails->Size()) : 0.0f;
+        const float rowHeight = std::max(ImGui::GetTextLineHeightWithSpacing(), thumbnailSize + 2.0f);
+        ImGui::BeginChild("##assetlist");
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(shown.size()), rowHeight);
+        while (clipper.Step())
+        {
+            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+            {
+                const AssetEntry& asset = *shown[static_cast<std::size_t>(row)];
+                const ImVec2 origin = ImGui::GetCursorScreenPos();
+                const std::string id = "##" + asset.path;
+                if (ImGui::Selectable(id.c_str(), state.selected == asset.path, ImGuiSelectableFlags_AllowDoubleClick,
+                                      ImVec2(0.0f, rowHeight)))
+                {
+                    state.selected = asset.path;
+                    requests.selected = asset.path;
+                }
+                const bool openable = asset.kind == AssetKind::Scene;
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                {
+                    if (openable)
+                    {
+                        requests.openLevel = asset.path;
+                    }
+                    else if (asset.path.ends_with(".material.json"))
+                    {
+                        requests.openMaterial = asset.path;
+                    }
+                }
+                if (!openable && ImGui::BeginDragDropSource())
+                {
+                    ImGui::SetDragDropPayload(kAssetPayload, asset.path.c_str(), asset.path.size() + 1);
+                    ImGui::TextUnformatted(asset.path.c_str());
+                    ImGui::EndDragDropSource();
+                }
+                ImDrawList& list = *ImGui::GetWindowDrawList();
+                float textX = origin.x + 4.0f;
+                if (withThumbnails)
+                {
+                    if (const Thumbnail* thumbnail = context.thumbnails->Get(*context.files, asset))
+                    {
+                        DrawPixels(list, ImVec2(origin.x + 2.0f, origin.y + 1.0f), 1.0f, thumbnail->rgba,
+                                   thumbnail->size, thumbnail->size);
+                    }
+                    textX += thumbnailSize + 6.0f;
+                }
+                const std::string label = std::format("[{}] {}", ToString(asset.kind), asset.path);
+                list.AddText(ImVec2(textX, origin.y + (rowHeight - ImGui::GetTextLineHeight()) * 0.5f),
+                             ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
+            }
+        }
+        ImGui::EndChild();
     }
     ImGui::End();
     return requests;

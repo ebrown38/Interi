@@ -39,6 +39,8 @@
       ]
     },
     "spirv-reflect",
+    "stb",
+    "tinyobjloader",
     {
       "name": "tracy",
       "default-features": false,
@@ -46,6 +48,7 @@
         "on-demand"
       ]
     },
+    "ufbx",
     "volk",
     "vulkan-headers",
     "vulkan-memory-allocator",

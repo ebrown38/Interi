@@ -94,7 +94,7 @@ Interi is MIT open source. Every dependency must be permissive (allowlist in `to
 - Run `ctest -L license`.
 - Regenerate notices: `python3 tools/license_check/gen_notices.py --installed-dir build/<preset>/vcpkg_installed/x64-linux --output THIRD_PARTY_NOTICES.md`.
 
-The `ThirdPartyNotices_UpToDate` test runs on both Linux and Windows, so the notices must match on both platforms. Port names come from vcpkg's SPDX documents, and empty packages are skipped.
+A dependency the vendored vcpkg baseline lacks becomes an overlay port under `cmake/ports/` (`ufbx`; `VCPKG_OVERLAY_PORTS` in `CMakePresets.json`). A port without license metadata (`stb`) gets a reviewed `overrides` entry in `license_policy.json`. The `ThirdPartyNotices_UpToDate` test runs on both Linux and Windows, so the notices must match on both platforms. Port names come from vcpkg's SPDX documents, and empty packages are skipped.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -58,6 +58,7 @@ std::shared_ptr<const EventImpl> Forward(std::size_t count)
         [count](EventCall& call)
         {
             std::vector<values::Value> payload;
+            payload.reserve(count);
             for (std::size_t i = 0; i < count; ++i)
             {
                 payload.push_back(call.Input(i));
@@ -155,7 +156,7 @@ Result<ChainFunction> ParseChainFunction(std::string_view text)
             const std::string where = std::format("input {}", i);
             if (!item.is_object() || !item.contains("name") || !item["name"].is_string() || !item.contains("type"))
             {
-                return Invalid(std::format("{}: needs a \"name\" and a \"type\"", where));
+                return Invalid(std::format(R"({}: needs a "name" and a "type")", where));
             }
             INTERI_TRY_ASSIGN(type, ParseType(item["type"], where));
             function.inputs.push_back({.name = item["name"].get<std::string>(), .type = type});
@@ -188,7 +189,7 @@ Result<ChainFunction> ParseChainFunction(std::string_view text)
                     if (!field.is_object() || !field.contains("name") || !field["name"].is_string() ||
                         !field.contains("type"))
                     {
-                        return Invalid(std::format("{}: a payload field needs a \"name\" and a \"type\"", where));
+                        return Invalid(std::format(R"({}: a payload field needs a "name" and a "type")", where));
                     }
                     INTERI_TRY_ASSIGN(type, ParseType(field["type"], where));
                     output.payload.push_back({.name = field["name"].get<std::string>(), .type = type});

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <utility>
 
 namespace interi::editor
 {
@@ -110,7 +111,7 @@ Layout BuildLayout(const ChainAsset& asset, const ChainEditorHost& host)
         const auto to = std::ranges::find(asset.nodes, link.toNode, &ChainNode::id);
         if (from == asset.nodes.end() || to == asset.nodes.end())
         {
-            layout.links.push_back({});
+            layout.links.emplace_back();
             continue;
         }
         const auto fromIndex = static_cast<std::size_t>(from - asset.nodes.begin());
@@ -210,13 +211,17 @@ void DrawGrid(ImDrawList& list, const View& view, ImVec2 size)
     {
         return;
     }
-    for (float x = std::fmod(view.pan[0], step); x < size.x; x += step)
+    const float startX = std::fmod(view.pan[0], step);
+    for (int column = 0; startX + static_cast<float>(column) * step < size.x; ++column)
     {
+        const float x = startX + static_cast<float>(column) * step;
         list.AddLine(ImVec2(view.origin.x + x, view.origin.y), ImVec2(view.origin.x + x, view.origin.y + size.y),
                      kGridColor);
     }
-    for (float y = std::fmod(view.pan[1], step); y < size.y; y += step)
+    const float startY = std::fmod(view.pan[1], step);
+    for (int row = 0; startY + static_cast<float>(row) * step < size.y; ++row)
     {
+        const float y = startY + static_cast<float>(row) * step;
         list.AddLine(ImVec2(view.origin.x, view.origin.y + y), ImVec2(view.origin.x + size.x, view.origin.y + y),
                      kGridColor);
     }
@@ -536,7 +541,7 @@ CanvasOutcome DrawCanvas(ChainAsset& asset, UndoStack& undo, ChainEditorState& s
         {
             Report(state,
                    GroupChainNodes(undo, asset, {state.selected.begin(), state.selected.end()}, "Group")
-                       .transform([](std::string) {}),
+                       .transform([](const std::string&) {}),
                    outcome.edited);
         }
     }
@@ -588,7 +593,7 @@ CanvasOutcome DrawCanvas(ChainAsset& asset, UndoStack& undo, ChainEditorState& s
         {
             color = kErrorColor;
         }
-        if (static_cast<int>(i) == state.selectedLink)
+        if (std::cmp_equal(i, state.selectedLink))
         {
             thickness += 2.0f;
             color = Lerp(color, kSelectColor, 0.6f);
@@ -697,7 +702,7 @@ CanvasOutcome DrawCanvas(ChainAsset& asset, UndoStack& undo, ChainEditorState& s
         {
             for (std::size_t o = 0; o < definition->outputs.size(); ++o)
             {
-                const bool grabbing = pinNode == static_cast<int>(i) && pinOutput == o && hovered;
+                const bool grabbing = std::cmp_equal(i, pinNode) && pinOutput == o && hovered;
                 list.AddCircleFilled(view.ToScreen(ChainOutputPin(r, o)), (grabbing ? 7.0f : 5.0f) * state.zoom,
                                      grabbing ? kSelectColor : IM_COL32(200, 200, 210, 255));
             }

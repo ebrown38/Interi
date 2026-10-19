@@ -14,6 +14,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 struct ImDrawList;
@@ -34,9 +35,9 @@ struct DocumentHost
 class DocumentFacade final : public IEditorDocument
 {
 public:
-    DocumentFacade(EditorDocument& document, const DocumentHost& host) noexcept
+    DocumentFacade(EditorDocument& document, DocumentHost host) noexcept
         : m_document(&document)
-        , m_host(host)
+        , m_host(std::move(host))
     {
     }
     [[nodiscard]] World& GetWorld() override { return m_document->Scene().GetWorld(); }
@@ -47,7 +48,7 @@ public:
     [[nodiscard]] std::filesystem::path DataDirectory() const override { return m_host.dataDirectory; }
     [[nodiscard]] const IFileSystem& Files() const override { return *m_host.files; }
     [[nodiscard]] JobSystem& Jobs() override { return *m_host.jobs; }
-    [[nodiscard]] std::string ScenePath() const override { return std::string(m_document->Path()); }
+    [[nodiscard]] std::string ScenePath() const override { return m_document->Path(); }
     void FocusCamera(const Vec3& target, float distance) override;
     std::uint64_t AddMeshObject(std::string name, const Transform& transform, std::string meshAsset) override;
 

@@ -203,13 +203,14 @@ inline GltfFile MakeCubeGltf(const GltfOptions& options = {})
     {
         node[key] = value;
     }
-    nlohmann::json doc = {{"asset", {{"version", "2.0"}}},
-                          {"scene", 0},
-                          {"scenes", {{{"nodes", {0}}}}},
-                          {"nodes", {node}},
-                          {"meshes", {{{"primitives", {primitive}}}}},
-                          {"accessors", buffer.accessors},
-                          {"bufferViews", buffer.bufferViews}};
+    nlohmann::json doc = {
+        {"asset", {{"version", "2.0"}}},
+        {"scene", 0},
+        {"scenes", nlohmann::json::array({nlohmann::json{{"nodes", nlohmann::json::array({0})}}})},
+        {"nodes", nlohmann::json::array({node})},
+        {"meshes", nlohmann::json::array({nlohmann::json{{"primitives", nlohmann::json::array({primitive})}}})},
+        {"accessors", buffer.accessors},
+        {"bufferViews", buffer.bufferViews}};
     nlohmann::json bufferJson = {{"byteLength", buffer.bytes.size()}};
     GltfFile file;
     if (options.glb)
@@ -225,7 +226,7 @@ inline GltfFile MakeCubeGltf(const GltfOptions& options = {})
     {
         bufferJson["uri"] = "data:application/octet-stream;base64," + Base64(buffer.bytes);
     }
-    doc["buffers"] = {bufferJson};
+    doc["buffers"] = nlohmann::json::array({bufferJson});
     if (!options.materials.empty())
     {
         doc["materials"] = options.materials;

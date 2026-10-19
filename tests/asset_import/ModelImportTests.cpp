@@ -246,7 +246,8 @@ TEST(GltfImport, Materials_AreMapped)
                                                 {"alphaMode", "MASK"},
                                                 {"alphaCutoff", 0.4},
                                                 {"doubleSided", true}}});
-    options.extraRoot = {{"images", {{{"uri", "textures/brick%20wall.png"}}}}, {"textures", {{{"source", 0}}}}};
+    options.extraRoot = {{"images", nlohmann::json::array({nlohmann::json{{"uri", "textures/brick%20wall.png"}}})},
+                         {"textures", nlohmann::json::array({nlohmann::json{{"source", 0}}})}};
     auto model = ImportGltfBytes(MakeCubeGltf(options));
     ASSERT_TRUE(model.has_value()) << model.error().message;
     ASSERT_EQ(model->materials.size(), 1u);
@@ -296,7 +297,9 @@ TEST(GltfImport, Glb_WithEmbeddedImage)
     options.materials = nlohmann::json::array({{{"pbrMetallicRoughness", {{"baseColorTexture", {{"index", 0}}}}}}});
     // The image lives in the BIN chunk after the geometry: add a second buffer view for it.
     // (MakeCubeGltf appends views itself, so declare the image through a data URI-less bufferView at the end.)
-    options.extraRoot = {{"images", {{{"mimeType", "image/png"}, {"bufferView", 4}}}}, {"textures", {{{"source", 0}}}}};
+    options.extraRoot = {
+        {"images", nlohmann::json::array({nlohmann::json{{"mimeType", "image/png"}, {"bufferView", 4}}})},
+        {"textures", nlohmann::json::array({nlohmann::json{{"source", 0}}})}};
     GltfFile file = MakeCubeGltf(options);
     // Re-create with a bufferView 4 that points at the png: patch by building the document directly.
     auto png = MakePng(1, 1, {255, 0, 0, 255});
@@ -379,7 +382,8 @@ TEST(GltfImport, ImageOutsideTheFileSystem_IsAWarningNotARead)
 {
     GltfOptions options;
     options.materials = nlohmann::json::array({{{"pbrMetallicRoughness", {{"baseColorTexture", {{"index", 0}}}}}}});
-    options.extraRoot = {{"images", {{{"uri", "../../etc/passwd"}}}}, {"textures", {{{"source", 0}}}}};
+    options.extraRoot = {{"images", nlohmann::json::array({nlohmann::json{{"uri", "../../etc/passwd"}}})},
+                         {"textures", nlohmann::json::array({nlohmann::json{{"source", 0}}})}};
     auto model = ImportGltfBytes(MakeCubeGltf(options));
     ASSERT_TRUE(model.has_value());
     EXPECT_TRUE(model->materials[0].baseColorTexture.path.empty());

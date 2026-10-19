@@ -427,7 +427,9 @@ TEST_F(AssetDatabaseTest, Glb_EmbeddedImagesBecomeTextureAssets)
     options.glb = true;
     options.materials = nlohmann::json::array(
         {{{"name", "Painted"}, {"pbrMetallicRoughness", {{"baseColorTexture", {{"index", 0}}}}}}});
-    options.extraRoot = {{"images", {{{"mimeType", "image/png"}, {"bufferView", 4}}}}, {"textures", {{{"source", 0}}}}};
+    options.extraRoot = {
+        {"images", nlohmann::json::array({nlohmann::json{{"mimeType", "image/png"}, {"bufferView", 4}}})},
+        {"textures", nlohmann::json::array({nlohmann::json{{"source", 0}}})}};
     GltfFile file = MakeCubeGltf(options);
     const auto png = SolidPng(200);
     std::uint32_t jsonLength = 0;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Includes every public header so each one is compiled (and linted) on its own.
 #include <interi/sdk/ContributionRegistry.h>
+#include <interi/sdk/HookSignature.h>
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Manifest.h>
 #include <interi/sdk/ModuleGraph.h>

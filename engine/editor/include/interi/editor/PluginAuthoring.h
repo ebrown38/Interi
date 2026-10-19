@@ -51,10 +51,6 @@ struct PluginTarget
                                                         const chain::ChainRegistry* chains,
                                                         const sdk::HookRegistry* hooks);
 
-/// The hook signature type ("int(int)") out of the compiler's spelling of `SignatureName<T>()` (Clang/GCC
-/// `... [T = int (int)]`, MSVC `...SignatureName<int __cdecl(int)>(void)`), or nullopt.
-[[nodiscard]] std::optional<std::string> ExtractHookSignature(std::string_view spelled);
-
 struct PluginStubDesc
 {
     std::string id; ///< Reverse-DNS module id of the new Plugin.

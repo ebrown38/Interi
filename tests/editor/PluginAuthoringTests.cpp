@@ -57,35 +57,6 @@ const GeneratedFile& FileNamed(const std::vector<GeneratedFile>& files, std::str
     return *std::ranges::find_if(files, [&](const GeneratedFile& f) { return f.path.ends_with(suffix); });
 }
 
-TEST(HookSignature, Clang_Extracted)
-{
-    EXPECT_EQ(ExtractHookSignature("std::string_view interi::sdk::detail::SignatureName() [T = int (int)]"),
-              "int(int)");
-    EXPECT_EQ(ExtractHookSignature("... SignatureName() [T = std::vector<int> (const std::map<int, float> &, bool)]"),
-              "std::vector<int>(const std::map<int, float> &, bool)");
-}
-
-TEST(HookSignature, Gcc_Extracted)
-{
-    EXPECT_EQ(ExtractHookSignature("constexpr std::string_view interi::sdk::detail::SignatureName() [with T = float(); "
-                                   "std::string_view = std::basic_string_view<char>]"),
-              "float()");
-}
-
-TEST(HookSignature, Msvc_ExtractedWithoutCallingConvention)
-{
-    EXPECT_EQ(ExtractHookSignature("class std::basic_string_view<char,struct std::char_traits<char> > __cdecl "
-                                   "interi::sdk::detail::SignatureName<int __cdecl(int,bool)>(void) noexcept"),
-              "int(int, bool)");
-    EXPECT_EQ(ExtractHookSignature("SignatureName<void __cdecl(void)>(void)"), "void()");
-}
-
-TEST(HookSignature, NotAFunction_Nullopt)
-{
-    EXPECT_FALSE(ExtractHookSignature("nonsense").has_value());
-    EXPECT_FALSE(ExtractHookSignature("[T = int]").has_value());
-}
-
 TEST(PluginTarget, DescribesHookAndEventFromRegistries)
 {
     const sdk::ModuleGraph graph = interi::testing::ResolveSdkTestProject();

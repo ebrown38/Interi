@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/PluginAuthoring.h>
+#include <interi/sdk/HookSignature.h>
 
 #include <nlohmann/json.hpp>
 
@@ -15,131 +16,6 @@ namespace
 {
 
 using Json = nlohmann::json;
-
-std::string Trim(std::string_view text)
-{
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0)
-    {
-        text.remove_prefix(1);
-    }
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0)
-    {
-        text.remove_suffix(1);
-    }
-    return std::string(text);
-}
-
-/// Removes MSVC's calling convention keywords and collapses the doubled spaces that leaves.
-std::string StripCallingConvention(std::string text)
-{
-    for (const std::string_view keyword : {"__cdecl", "__stdcall", "__fastcall", "__vectorcall"})
-    {
-        for (std::size_t at = text.find(keyword); at != std::string::npos; at = text.find(keyword, at))
-        {
-            text.erase(at, keyword.size());
-        }
-    }
-    std::string result;
-    for (const char c : text)
-    {
-        if (c == ' ' && !result.empty() && result.back() == ' ')
-        {
-            continue;
-        }
-        result += c;
-    }
-    return Trim(result);
-}
-
-bool Opens(char c) noexcept
-{
-    return c == '(' || c == '<' || c == '[' || c == '{';
-}
-
-bool Closes(char c) noexcept
-{
-    return c == ')' || c == '>' || c == ']' || c == '}';
-}
-
-/// "R (A, B)" -> {"R", {"A", "B"}}; nullopt when it isn't a function type.
-struct SplitSignature
-{
-    std::string result;
-    std::vector<std::string> arguments;
-};
-
-std::optional<SplitSignature> Split(std::string_view signature)
-{
-    const std::string text = Trim(signature);
-    if (text.empty() || text.back() != ')')
-    {
-        return std::nullopt;
-    }
-    int depth = 0;
-    std::size_t open = std::string::npos;
-    for (std::size_t i = text.size(); i-- > 0;)
-    {
-        if (text[i] == ')')
-        {
-            ++depth;
-        }
-        else if (text[i] == '(' && --depth == 0)
-        {
-            open = i;
-            break;
-        }
-    }
-    if (open == std::string::npos || open == 0)
-    {
-        return std::nullopt;
-    }
-    SplitSignature split;
-    split.result = Trim(std::string_view(text).substr(0, open));
-    const std::string inner = text.substr(open + 1, text.size() - open - 2);
-    depth = 0;
-    std::string current;
-    for (const char c : inner)
-    {
-        if (Opens(c))
-        {
-            ++depth;
-        }
-        else if (Closes(c))
-        {
-            --depth;
-        }
-        if (c == ',' && depth == 0)
-        {
-            split.arguments.push_back(Trim(current));
-            current.clear();
-            continue;
-        }
-        current += c;
-    }
-    if (const std::string last = Trim(current); !last.empty())
-    {
-        split.arguments.push_back(last);
-    }
-    if (split.arguments.size() == 1 && split.arguments[0] == "void")
-    {
-        split.arguments.clear();
-    }
-    if (split.result.empty() || std::ranges::any_of(split.arguments, [](const std::string& a) { return a.empty(); }))
-    {
-        return std::nullopt;
-    }
-    return split;
-}
-
-std::string ToType(const SplitSignature& split)
-{
-    std::string text = split.result + "(";
-    for (std::size_t i = 0; i < split.arguments.size(); ++i)
-    {
-        text += (i == 0 ? "" : ", ") + split.arguments[i];
-    }
-    return text + ")";
-}
 
 std::string Pascal(std::string_view text)
 {
@@ -191,7 +67,7 @@ std::string Quote(std::string_view text)
     return Json(std::string(text)).dump();
 }
 
-std::string HookSource(const PluginStubDesc& desc, const SplitSignature& split)
+std::string HookSource(const PluginStubDesc& desc, const sdk::FunctionType& split)
 {
     std::string parameters;
     std::string forwarded;
@@ -259,7 +135,7 @@ std::string EventSource(const PluginStubDesc& desc)
                        target.eventOutputs.empty() ? "(void)call;" : "call.Fire(0);", install);
 }
 
-std::string SourceText(const PluginStubDesc& desc, const std::optional<SplitSignature>& split)
+std::string SourceText(const PluginStubDesc& desc, const std::optional<sdk::FunctionType>& split)
 {
     const bool hook = desc.target.kind == PluginTargetKind::Hook;
     std::string text = std::format("// SPDX-License-Identifier: {}\n", desc.license);
@@ -271,7 +147,7 @@ std::string SourceText(const PluginStubDesc& desc, const std::optional<SplitSign
     {
         text += "#include <interi/hotreload/ModuleApi.h>\n#include <interi/sdk/Hooks.h>\n\nnamespace\n{\n\n"
                 "using interi::sdk::HookNext;\n";
-        text += std::format("using Target = {};\n\n", ToType(*split));
+        text += std::format("using Target = {};\n\n", split->Text());
         text += HookSource(desc, *split);
     }
     else
@@ -298,60 +174,6 @@ std::vector<std::filesystem::path> LibraryFileNames(std::string_view base)
 
 } // namespace
 
-std::optional<std::string> ExtractHookSignature(std::string_view spelled)
-{
-    std::string type;
-    if (const std::size_t at = spelled.find("SignatureName<"); at != std::string_view::npos)
-    {
-        // MSVC: ...SignatureName<int __cdecl(int)>(void) noexcept
-        int depth = 1;
-        const std::size_t start = at + std::string_view("SignatureName<").size();
-        for (std::size_t i = start; i < spelled.size(); ++i)
-        {
-            if (spelled[i] == '<')
-            {
-                ++depth;
-            }
-            else if (spelled[i] == '>' && --depth == 0)
-            {
-                type = std::string(spelled.substr(start, i - start));
-                break;
-            }
-        }
-    }
-    else if (const std::size_t eq = spelled.find("T = "); eq != std::string_view::npos)
-    {
-        // Clang: [T = int (int)]; GCC: [with T = int(int); std::string_view = ...]
-        int depth = 0;
-        const std::size_t start = eq + 4;
-        std::size_t end = spelled.size();
-        for (std::size_t i = start; i < spelled.size(); ++i)
-        {
-            const char c = spelled[i];
-            if (Opens(c))
-            {
-                ++depth;
-            }
-            else if (depth == 0 && (c == ']' || c == ';'))
-            {
-                end = i;
-                break;
-            }
-            else if (Closes(c))
-            {
-                --depth;
-            }
-        }
-        type = std::string(spelled.substr(start, end - start));
-    }
-    type = StripCallingConvention(std::move(type));
-    if (const std::optional<SplitSignature> split = Split(type))
-    {
-        return ToType(*split);
-    }
-    return std::nullopt;
-}
-
 Result<PluginTarget> DescribePluginTarget(PluginTargetKind kind, std::string_view id, const sdk::ModuleGraph& graph,
                                           const chain::ChainRegistry* chains, const sdk::HookRegistry* hooks)
 {
@@ -375,7 +197,7 @@ Result<PluginTarget> DescribePluginTarget(PluginTargetKind kind, std::string_vie
         {
             return MakeError(ErrorCode::NotFound, std::format("no hook '{}' is declared", id));
         }
-        const std::optional<std::string> signature = ExtractHookSignature(stack.back().value.signature);
+        const std::optional<std::string> signature = sdk::ExtractHookSignature(stack.back().value.signature);
         if (!signature)
         {
             return MakeError(ErrorCode::InvalidArgument, std::format("can't read the signature of hook '{}': {}", id,
@@ -411,10 +233,10 @@ Result<std::vector<GeneratedFile>> GeneratePluginStub(const PluginStubDesc& desc
     {
         return MakeError(ErrorCode::InvalidArgument, "a Plugin needs a name and a target");
     }
-    std::optional<SplitSignature> split;
+    std::optional<sdk::FunctionType> split;
     if (desc.target.kind == PluginTargetKind::Hook)
     {
-        split = Split(desc.target.hookSignature);
+        split = sdk::ParseFunctionType(desc.target.hookSignature);
         if (!split)
         {
             return MakeError(ErrorCode::InvalidArgument,

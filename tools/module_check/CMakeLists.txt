@@ -16,3 +16,14 @@ if(INTERI_BUILD_SHARED)
         LABELS unit
         PASS_REGULAR_EXPRESSION "hook com.test.a:Fire: com.test.plugin \\(override\\) com.test.b \\(override\\) com.test.a")
 endif()
+
+# --docs writes a Markdown page per loaded module (the Module Manager's docs generator).
+if(INTERI_BUILD_SHARED)
+    add_test(NAME ModuleCheck_Docs_WritesPagePerModule
+        COMMAND interi_module_check --search $<TARGET_FILE_DIR:interi_sdk_test_a>
+                --docs ${CMAKE_CURRENT_BINARY_DIR}/docs
+                ${PROJECT_SOURCE_DIR}/tests/sdk/modules/b ${PROJECT_SOURCE_DIR}/tests/sdk/modules/a
+                ${PROJECT_SOURCE_DIR}/tests/sdk/modules/ext)
+    set_tests_properties(ModuleCheck_Docs_WritesPagePerModule PROPERTIES
+        LABELS unit PASS_REGULAR_EXPRESSION "docs [^\n]*com.test.a.md")
+endif()

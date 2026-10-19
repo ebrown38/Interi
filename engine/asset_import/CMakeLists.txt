@@ -59,8 +59,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT INTERI_SANITIZER STREQUAL "tsan
         target_include_directories(interi_import_fuzzer PRIVATE ${_tests})
         target_compile_options(interi_import_fuzzer PRIVATE -fsanitize=fuzzer-no-link)
         target_link_options(interi_import_fuzzer PRIVATE -fsanitize=fuzzer)
+        # libFuzzer writes the inputs it finds into the first directory: keep that in the build tree.
+        file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fuzz-smoke)
         add_test(NAME ImportFuzzer_CorpusSmoke
-            COMMAND interi_import_fuzzer ${_tests}/fuzz/corpus -runs=2000 -seed=1 -max_len=65536 -timeout=20)
+            COMMAND interi_import_fuzzer ${CMAKE_CURRENT_BINARY_DIR}/fuzz-smoke ${_tests}/fuzz/corpus
+                    -runs=2000 -seed=1 -max_len=65536 -timeout=20)
         set_tests_properties(ImportFuzzer_CorpusSmoke PROPERTIES LABELS stress)
     endif()
 endif()

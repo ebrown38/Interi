@@ -4,6 +4,7 @@
 #include <interi/core/Log.h>
 #include <interi/hotreload/ModuleHost.h>
 #include <interi/platform/DynamicLibrary.h>
+#include <interi/platform/PrivateFiles.h>
 #include <interi/sdk/Ai.h>
 #include <interi/sdk/Toolchain.h>
 
@@ -13,6 +14,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -96,6 +98,13 @@ struct ModuleHost::Loaded
 
 namespace
 {
+
+/// Unpredictable, so nobody can plant a file under the name a shadow copy will get.
+std::uint64_t RandomSuffix()
+{
+    thread_local std::mt19937_64 random{std::random_device{}()};
+    return random();
+}
 
 class Registrar final : public ModuleRegistrar
 {
@@ -408,8 +417,15 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     INTERI_VERIFY(navigation.has_value(), "the navigation library must register");
     if (m_desc.shadowDirectory.empty())
     {
-        std::error_code ignored;
-        m_desc.shadowDirectory = std::filesystem::temp_directory_path(ignored) / "interi_modules";
+        // Never the shared temp directory: another user could swap a copy before it is loaded.
+        if (auto directory = PerUserDataDirectory())
+        {
+            m_desc.shadowDirectory = *directory / "modules";
+        }
+        else
+        {
+            INTERI_LOG_WARN("HotReload", "no private directory for module copies: {}", directory.error().message);
+        }
     }
 }
 
@@ -444,16 +460,17 @@ Result<void> ModuleHost::OpenLibrary(const std::filesystem::path& library, Dynam
     {
         return MakeError(ErrorCode::NotFound, std::format("no module library at '{}'", library.string()));
     }
-    std::filesystem::create_directories(m_desc.shadowDirectory, error);
-    // A unique name per load: the OS would hand back the already loaded library for a path it has open.
-    const std::filesystem::path shadow =
-        m_desc.shadowDirectory /
-        std::format("{}.{}{}", library.stem().string(), m_shadowCounter++, library.extension().string());
-    if (!std::filesystem::copy_file(library, shadow, std::filesystem::copy_options::overwrite_existing, error))
+    if (m_desc.shadowDirectory.empty())
     {
-        return MakeError(ErrorCode::IoError,
-                         std::format("copying '{}' to '{}': {}", library.string(), shadow.string(), error.message()));
+        return MakeError(ErrorCode::IoError, "no private directory for module copies");
     }
+    INTERI_TRY(EnsurePrivateDirectory(m_desc.shadowDirectory));
+    // A unique, unpredictable name per load: the OS would hand back the already loaded library for a path it has
+    // open, and the copy is created exclusively so nothing planted under that name is ever loaded.
+    const std::filesystem::path shadow =
+        m_desc.shadowDirectory / std::format("{}.{:016x}.{}{}", library.stem().string(), RandomSuffix(),
+                                             m_shadowCounter++, library.extension().string());
+    INTERI_TRY(CopyFileExclusive(library, shadow));
     shadowPath = shadow;
     INTERI_TRY_ASSIGN(library_, DynamicLibrary::Open(shadow.string()));
     opened = std::move(library_);

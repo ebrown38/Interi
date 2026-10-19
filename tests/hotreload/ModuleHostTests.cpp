@@ -313,3 +313,28 @@ TEST_F(ModuleHostTest, Unload_KeepsHostLoggerAndAssertHandler)
     EXPECT_NE(interi::ComponentInfoOf(id).destroy, nullptr);
     (void)interi::SetGlobalLogger(previousLogger);
 }
+
+#if !defined(_WIN32)
+TEST_F(ModuleHostTest, Load_ShadowDirectoryWritableByOthers_Refused)
+{
+    interi::hotreload::ModuleHostDesc desc;
+    desc.shadowDirectory = m_temp.Path() / "open";
+    std::filesystem::create_directory(desc.shadowDirectory);
+    std::filesystem::permissions(desc.shadowDirectory, std::filesystem::perms::all);
+    ModuleHost host(world, desc);
+    EXPECT_FALSE(host.Load(kModuleV1).has_value());
+    EXPECT_FALSE(host.IsLoaded());
+    EXPECT_TRUE(std::filesystem::is_empty(desc.shadowDirectory));
+}
+
+TEST_F(ModuleHostTest, Load_ShadowDirectoryIsSymlink_Refused)
+{
+    std::filesystem::create_directory(m_temp.Path() / "real");
+    interi::hotreload::ModuleHostDesc desc;
+    desc.shadowDirectory = m_temp.Path() / "link";
+    std::filesystem::create_directory_symlink(m_temp.Path() / "real", desc.shadowDirectory);
+    ModuleHost host(world, desc);
+    EXPECT_FALSE(host.Load(kModuleV1).has_value());
+    EXPECT_TRUE(std::filesystem::is_empty(m_temp.Path() / "real"));
+}
+#endif

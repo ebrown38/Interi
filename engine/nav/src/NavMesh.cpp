@@ -18,6 +18,8 @@
 #include <format>
 #include <optional>
 #include <string>
+#include <utility>
+#include <utility>
 
 namespace interi::nav
 {
@@ -134,7 +136,7 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
         }
         for (unsigned k = 0; k < poly.vertCount; ++k)
         {
-            if (poly.verts[k] >= static_cast<unsigned>(h.vertCount))
+            if (std::cmp_greater_equal(poly.verts[k], h.vertCount))
             {
                 return corrupt("polygon vertex index");
             }

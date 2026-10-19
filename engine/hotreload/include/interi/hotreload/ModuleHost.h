@@ -37,7 +37,8 @@ inline constexpr std::string_view kLocalModuleId = "local.module";
 struct ModuleHostDesc
 {
     /// Where loaded modules are copied before opening them (so a rebuild can overwrite the original, which Windows
-    /// locks while it is loaded). Empty: a directory under the system temp directory.
+    /// locks while it is loaded). Empty: a private directory under the per-user data directory (PerUserDataDirectory);
+    /// an existing directory must be owned by the current user and not writable by others.
     std::filesystem::path shadowDirectory;
     /// Searched for a manifest's library after the manifest's own directory (e.g. a build output directory).
     std::vector<std::filesystem::path> librarySearchPaths;

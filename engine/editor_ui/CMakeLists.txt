@@ -14,6 +14,7 @@ target_link_libraries(interi_editor_api INTERFACE interi::hotreload interi::rend
 
 interi_add_module(editor_ui
     SOURCES
+        src/AssetPanels.cpp
         src/DataPanels.cpp
         src/EditorExtensions.cpp
         src/EditorPanels.cpp
@@ -24,9 +25,10 @@ interi_add_module(editor_ui
         src/ServicePanels.cpp
         src/ValueWidgets.cpp
         src/ViewportOverlay.cpp
-    DEPS interi::editor interi::hotreload interi::hud interi::render interi::rhi interi::platform imgui::imgui
+    DEPS interi::asset_import interi::editor interi::hotreload interi::hud interi::render interi::rhi interi::platform imgui::imgui
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/AssetPanelsTests.cpp
         ${_tests}/DataPanelsTests.cpp
         ${_tests}/EditorExtensionsTests.cpp
         ${_tests}/EditorPanelsTests.cpp

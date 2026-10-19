@@ -39,7 +39,7 @@ protected:
         ImGui::SetNextWindowSize(ImVec2(400.0f, 500.0f));
         DrawInspector(m_document);
         m_toolRequests = DrawToolsPanel(m_tools, m_document);
-        m_assetRequests = DrawAssetsPanel(m_assets);
+        m_assetRequests = DrawAssetsPanel(m_assets, m_assetState, {});
     }
 
     editor::testing::ImGuiTestContext m_context;
@@ -49,6 +49,7 @@ protected:
     std::vector<AssetEntry> m_assets{{.path = "levels/a.scene.json", .kind = AssetKind::Scene},
                                      {.path = "walls/wall.imesh", .kind = AssetKind::Mesh}};
     AssetRequests m_assetRequests;
+    AssetBrowserState m_assetState;
 };
 
 } // namespace

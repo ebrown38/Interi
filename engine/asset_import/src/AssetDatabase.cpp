@@ -755,6 +755,18 @@ const AssetRecord* AssetDatabase::FindByPath(std::string_view path) const noexce
     return m_impl->FindPath(path);
 }
 
+const AssetRecord* AssetDatabase::FindByProduct(std::string_view path) const noexcept
+{
+    for (const AssetRecord& record : m_impl->records)
+    {
+        if (std::ranges::find(record.products, path, &CookedProduct::path) != record.products.end())
+        {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
 Result<void> AssetDatabase::Scan()
 {
     Impl& impl = *m_impl;

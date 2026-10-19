@@ -192,3 +192,22 @@ TEST(ThumbnailCache, MakesOnceAndRemembersFailures)
     cache.Clear();
     EXPECT_EQ(cache.Count(), 0u);
 }
+
+TEST(TextureSampler, ReadsCookedAndSourceNamedTextures)
+{
+    MemoryFileSystem files;
+    assets::Image8 image{.width = 1, .height = 1, .texels = {0, 255, 0, 255}};
+    Write(files, "imported/tex/g.png.itex",
+          assets::WriteTextureAsset(
+              *assets::BuildTexture(image, {.colorSpace = assets::ColorSpace::Linear, .generateMips = false})));
+    const TextureSampler sampler = MakeTextureSampler(files);
+    assets::TextureRef cooked;
+    cooked.path = "imported/tex/g.png.itex";
+    assets::TextureRef source;
+    source.path = "tex/g.png"; // as authored
+    assets::TextureRef missing;
+    missing.path = "tex/none.png";
+    EXPECT_EQ(sampler(cooked, 0.5f, 0.5f), Vec4(0.0f, 1.0f, 0.0f, 1.0f));
+    EXPECT_EQ(sampler(source, 0.5f, 0.5f), Vec4(0.0f, 1.0f, 0.0f, 1.0f));
+    EXPECT_EQ(sampler(missing, 0.5f, 0.5f), Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+}

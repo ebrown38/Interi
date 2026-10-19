@@ -8,6 +8,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <memory>
 
 namespace interi::editor
 {
@@ -87,18 +88,7 @@ Result<Thumbnail> MaterialThumbnail(const IFileSystem& files, const AssetEntry& 
         INTERI_TRY_ASSIGN(loaded, assets::LoadMaterialAsset(files, entry.path));
         material = std::move(loaded);
     }
-    // Textures the material points to: cooked ones can be read, anything else previews as white.
-    std::map<std::string, TextureReader> readers;
-    const TextureSampler sampler = [&](const assets::TextureRef& ref, float u, float v)
-    {
-        auto found = readers.find(ref.path);
-        if (found == readers.end())
-        {
-            auto texture = assets::LoadTextureAsset(files, ref.path);
-            found = readers.emplace(ref.path, TextureReader(texture ? *texture : assets::TextureAsset{}, 16)).first;
-        }
-        return found->second.Sample(u, v);
-    };
+    const TextureSampler sampler = MakeTextureSampler(files);
     const assets::Image8 image = RenderMaterialPreview(material, size, sampler);
     return Thumbnail{.size = size, .rgba = image.texels};
 }
@@ -133,6 +123,25 @@ Result<Thumbnail> ModelThumbnail(const IFileSystem& files, const AssetEntry& ent
 }
 
 } // namespace
+
+TextureSampler MakeTextureSampler(const IFileSystem& files, std::string importedFolder)
+{
+    auto readers = std::make_shared<std::map<std::string, TextureReader>>();
+    return [&files, readers, folder = std::move(importedFolder)](const assets::TextureRef& ref, float u, float v)
+    {
+        auto found = readers->find(ref.path);
+        if (found == readers->end())
+        {
+            auto texture = assets::LoadTextureAsset(files, ref.path);
+            if (!texture && !ref.path.ends_with(".itex"))
+            {
+                texture = assets::LoadTextureAsset(files, std::format("{}/{}.itex", folder, ref.path));
+            }
+            found = readers->emplace(ref.path, TextureReader(texture ? *texture : assets::TextureAsset{}, 16)).first;
+        }
+        return found->second.Sample(u, v);
+    };
+}
 
 Thumbnail TextureThumbnail(const assets::TextureAsset& texture, std::uint32_t size)
 {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <interi/asset_import/AssetDatabase.h>
 #include <interi/chain/Event.h>
 #include <interi/core/Result.h>
 #include <interi/editor/AssetBrowser.h>
@@ -11,6 +12,8 @@
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/ScenePlay.h>
+#include <interi/editor/Thumbnails.h>
+#include <interi/editor_ui/AssetPanels.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/EditorPanels.h>
@@ -127,6 +130,9 @@ private:
     void ApplyProjectChange(Result<sdk::Project> changed, const std::string& what);
     /// Panels for the editor services, autosave and profiler frame marks.
     void UpdateServices(float seconds);
+    /// Scans the data directory for importable sources, cooks what is out of date and starts watching it.
+    void OpenAssetDatabase();
+    void RefreshAssets();
     /// Carries out the Tools panel's modeling requests on the selection.
     void HandleModeling(const ToolRequests& tools, bool groupShortcut);
     /// The mesh an object draws (its primitive's, cached by parameters, or its mesh asset's); nullptr if none.
@@ -149,6 +155,14 @@ private:
     OrbitCamera m_camera;
     ToolSettings m_tools;
     std::vector<AssetEntry> m_assetList;
+    /// Imports the project's models and images (cooked under imported/) and re-imports them when they change.
+    std::unique_ptr<asset_import::AssetDatabase> m_assetDb;
+    std::unique_ptr<asset_import::AssetWatcher> m_assetWatcher;
+    AssetBrowserState m_assetBrowser;
+    ThumbnailCache m_thumbnails{32};
+    MaterialEditorState m_materialEditor;
+    ImportPanelState m_importPanel;
+    float m_assetPollSeconds = 0.0f;
     /// The gizmo drag in progress: what it moves and that entity's state when it started.
     std::optional<GizmoDrag> m_drag;
     EditorEntityId m_dragTarget = 0;

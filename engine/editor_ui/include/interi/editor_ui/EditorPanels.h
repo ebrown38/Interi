@@ -5,6 +5,7 @@
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Modeling.h>
+#include <interi/editor/Thumbnails.h>
 #include <interi/scene/Primitives.h>
 
 #include <cstdint>
@@ -101,12 +102,33 @@ struct ToolRequests
 struct AssetRequests
 {
     std::optional<std::string> openLevel;
+    std::optional<std::string>
+        openMaterial; ///< An authored `.material.json` (double-click): open it in the material editor.
+    std::optional<std::string> selected; ///< The asset clicked this frame.
     bool refresh = false;
 };
 
-/// The data directory's assets. Meshes and prefabs drag into the viewport (payload kAssetPayload); double-clicking
-/// a scene opens it.
-[[nodiscard]] AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets);
+/// What the asset browser remembers between frames.
+struct AssetBrowserState
+{
+    std::string query; ///< Search text (see AssetQuery: words and `kind:<name>`).
+    int kind = -1;     ///< Kind filter: -1 all, otherwise an AssetKind.
+    bool thumbnails = true;
+    std::string selected; ///< Path of the selected asset.
+};
+
+/// Where thumbnails come from. Both null: the browser shows text only.
+struct AssetBrowserContext
+{
+    const IFileSystem* files = nullptr;
+    ThumbnailCache* thumbnails = nullptr;
+};
+
+/// The assets of the project: search box, kind filter, rows with thumbnails. Every asset except scenes can be dragged
+/// (payload kAssetPayload: meshes, prefabs and models into the viewport, textures into the material editor);
+/// double-clicking a scene opens it and double-clicking an authored material opens the material editor.
+[[nodiscard]] AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets, AssetBrowserState& state,
+                                            const AssetBrowserContext& context);
 
 struct ScenePlayStatus
 {

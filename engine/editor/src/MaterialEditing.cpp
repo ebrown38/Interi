@@ -62,6 +62,16 @@ Result<void> EditMaterial(UndoStack& undo, assets::PbrMaterial& material, assets
     return {};
 }
 
+std::string TextureSourceOf(std::string_view assetPath, std::string_view importedFolder)
+{
+    const std::string prefix = std::string(importedFolder) + "/";
+    if (assetPath.starts_with(prefix) && assetPath.ends_with(".itex") && assetPath.size() > prefix.size() + 5)
+    {
+        return std::string(assetPath.substr(prefix.size(), assetPath.size() - prefix.size() - 5));
+    }
+    return std::string(assetPath);
+}
+
 Result<assets::PbrMaterial> OpenMaterialFile(const IFileSystem& files, std::string_view path)
 {
     INTERI_TRY_ASSIGN(bytes, files.ReadFile(path));

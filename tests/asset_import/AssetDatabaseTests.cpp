@@ -555,3 +555,16 @@ TEST_F(AssetDatabaseTest, Watcher_PicksUpNewSources)
     EXPECT_EQ(outcome.report.cooked, (std::vector<std::string>{"new.obj"}));
     EXPECT_EQ(db.Records().size(), 1u);
 }
+
+TEST_F(AssetDatabaseTest, FindByProduct_NamesTheSource)
+{
+    WriteText(Root(), "models/cube.obj", MakeCubeObj());
+    AssetDatabase db = Make();
+    ASSERT_TRUE(db.Scan().has_value());
+    EXPECT_EQ(db.FindByProduct("imported/models/cube.obj/mesh.imesh"), nullptr); // not cooked yet
+    ASSERT_TRUE(db.CookAll().failed.empty());
+    const AssetRecord* record = db.FindByProduct("imported/models/cube.obj/mesh.imesh");
+    ASSERT_NE(record, nullptr);
+    EXPECT_EQ(record->path, "models/cube.obj");
+    EXPECT_EQ(db.FindByProduct("imported/nothing.imesh"), nullptr);
+}

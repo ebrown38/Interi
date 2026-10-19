@@ -97,6 +97,8 @@ public:
     [[nodiscard]] const std::vector<AssetRecord>& Records() const noexcept;
     [[nodiscard]] const AssetRecord* Find(const assets::Guid& guid) const noexcept;
     [[nodiscard]] const AssetRecord* FindByPath(std::string_view path) const noexcept;
+    /// The source whose last cook wrote the file at `path` (a cooked mesh, texture, ...), or nullptr.
+    [[nodiscard]] const AssetRecord* FindByProduct(std::string_view path) const noexcept;
     /// Warnings from the last Scan.
     [[nodiscard]] const std::vector<std::string>& ScanWarnings() const noexcept;
 

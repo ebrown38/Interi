@@ -104,3 +104,13 @@ TEST(MaterialEditing, OpenAndSave_RejectBadMaterials)
     EXPECT_FALSE(SaveMaterialFile(files, "x.material.json", bad).has_value());
     EXPECT_FALSE(files.Exists("x.material.json"));
 }
+
+TEST(MaterialEditing, TextureSourceOf_UndoesTheImportedPath)
+{
+    EXPECT_EQ(TextureSourceOf("imported/tex/a.png.itex"), "tex/a.png");
+    EXPECT_EQ(TextureSourceOf("imported/a.tga.itex"), "a.tga");
+    EXPECT_EQ(TextureSourceOf("cache/tex/a.png.itex", "cache"), "tex/a.png");
+    EXPECT_EQ(TextureSourceOf("tex/a.png"), "tex/a.png");
+    EXPECT_EQ(TextureSourceOf("imported/.itex"), "imported/.itex");
+    EXPECT_EQ(TextureSourceOf("elsewhere/a.png.itex"), "elsewhere/a.png.itex");
+}

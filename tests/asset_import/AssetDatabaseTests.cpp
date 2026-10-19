@@ -593,8 +593,10 @@ TEST_F(AssetDatabaseTest, Cook_MetaProductsOutsideImported_NothingDeleted)
     WriteText(outside.Path(), "victim.txt", "keep");
     WriteText(Root(), "keep/inside.txt", "keep");
     const std::string absolute = (outside.Path() / "victim.txt").generic_string();
-    for (const std::string& hostile : {absolute, std::string("../outside_victim.txt"),
-                                       std::string("imported/../keep/inside.txt"), std::string("keep/inside.txt")})
+    // The traversal path names the same victim file from inside the root.
+    const std::string traversal = "../" + outside.Path().filename().string() + "/victim.txt";
+    for (const std::string& hostile :
+         {absolute, traversal, std::string("imported/../keep/inside.txt"), std::string("keep/inside.txt")})
     {
         WriteFile(Root(), "a.png", SolidPng(10));
         std::filesystem::remove(Root() / "a.png.meta");
@@ -607,7 +609,10 @@ TEST_F(AssetDatabaseTest, Cook_MetaProductsOutsideImported_NothingDeleted)
         WriteFile(Root(), "a.png", SolidPng(200)); // a new source cooks again and forgets the old products
         AssetDatabase db = Make();
         ASSERT_TRUE(db.Scan().has_value());
-        db.CookAll();
+        ASSERT_NE(db.FindByPath("a.png"), nullptr);
+        EXPECT_TRUE(db.FindByPath("a.png")->products.empty()) << hostile; // the hostile entry was dropped on load
+        const CookReport report = db.CookAll();
+        EXPECT_EQ(report.cooked, (std::vector<std::string>{"a.png"})) << hostile;
         EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt")) << hostile;
         EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt")) << hostile;
     }
@@ -618,16 +623,48 @@ TEST_F(AssetDatabaseTest, Prune_MetaProductsOutsideImported_NothingDeleted)
     interi::testing::ScopedTempDir outside;
     WriteText(outside.Path(), "victim.txt", "keep");
     WriteText(Root(), "keep/inside.txt", "keep");
+    const std::string absolute = (outside.Path() / "victim.txt").generic_string();
+    const std::string traversal = "../" + outside.Path().filename().string() + "/victim.txt";
+    for (const std::string& hostile :
+         {absolute, traversal, std::string("imported/../keep/inside.txt"), std::string("keep/inside.txt")})
+    {
+        WriteFile(Root(), "a.png", SolidPng(10));
+        std::filesystem::remove(Root() / "a.png.meta");
+        {
+            AssetDatabase db = Make();
+            ASSERT_TRUE(db.Scan().has_value());
+            ASSERT_TRUE(db.CookAll().failed.empty());
+        }
+        PoisonProductPath(Root(), hostile);
+        std::filesystem::remove(Root() / "a.png");
+        AssetDatabase db = Make();
+        (void)db.Prune();
+        EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt")) << hostile;
+        EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt")) << hostile;
+    }
+}
+
+TEST_F(AssetDatabaseTest, Prune_ProductSymlinkedOutside_TargetSurvives)
+{
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "victim.txt", "keep");
     WriteFile(Root(), "a.png", SolidPng(10));
     {
         AssetDatabase db = Make();
         ASSERT_TRUE(db.Scan().has_value());
         ASSERT_TRUE(db.CookAll().failed.empty());
     }
-    PoisonProductPath(Root(), (outside.Path() / "victim.txt").generic_string());
+    // The recorded product becomes a link to a file outside the root, and the directory above it does too.
+    std::filesystem::remove(Root() / "imported/a.png.itex");
+    std::error_code error;
+    std::filesystem::create_symlink(outside.Path() / "victim.txt", Root() / "imported/a.png.itex", error);
+    if (error)
+    {
+        GTEST_SKIP() << "symlinks are not available: " << error.message();
+    }
     std::filesystem::remove(Root() / "a.png");
     AssetDatabase db = Make();
-    db.Prune();
+    (void)db.Prune();
     EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt"));
-    EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt"));
+    EXPECT_FALSE(std::filesystem::exists(Root() / "a.png.meta"));
 }

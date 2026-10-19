@@ -126,11 +126,21 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
     {
         return corrupt("non-finite coordinates");
     }
+    if (!(h.bmax[0] > h.bmin[0]) || !(h.bmax[2] > h.bmin[2]))
+    {
+        return corrupt("tile bounds");
+    }
     const auto polyCount = static_cast<unsigned>(h.polyCount);
     for (std::size_t i = 0; i < polyCount; ++i)
     {
         const auto poly = ReadAt<dtPoly>(base, polysAt, i);
-        if (poly.vertCount > DT_VERTS_PER_POLYGON)
+        // Detour reads verts[0] and verts[1] of an off-mesh polygon unchecked, so the type must match the range.
+        const bool offMesh = poly.getType() == DT_POLYTYPE_OFFMESH_CONNECTION;
+        if (offMesh != (i >= static_cast<std::size_t>(h.offMeshBase)))
+        {
+            return corrupt("polygon type");
+        }
+        if (poly.vertCount > DT_VERTS_PER_POLYGON || (offMesh ? poly.vertCount != 2 : poly.vertCount < 3))
         {
             return corrupt("polygon vertex count");
         }
@@ -176,7 +186,8 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
     }
     for (int i = 0; i < h.offMeshConCount; ++i)
     {
-        if (ReadAt<dtOffMeshConnection>(base, offMeshAt, static_cast<std::size_t>(i)).poly >= polyCount ||
+        const unsigned conPoly = ReadAt<dtOffMeshConnection>(base, offMeshAt, static_cast<std::size_t>(i)).poly;
+        if (conPoly < static_cast<unsigned>(h.offMeshBase) || conPoly >= polyCount ||
             !FiniteFloats(base, offMeshAt + static_cast<std::size_t>(i) * sizeof(dtOffMeshConnection), 7))
         {
             return corrupt("off-mesh connection");

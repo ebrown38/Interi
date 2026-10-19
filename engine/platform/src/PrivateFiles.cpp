@@ -149,7 +149,9 @@ Result<void> CopyFileExclusive(const std::filesystem::path& from, const std::fil
             ::close(in);
             if (::close(out) != 0 && !failed)
             {
-                return fail("closing the copy");
+                const auto closeError = fail("closing the copy");
+                ::unlink(to.c_str());
+                return closeError;
             }
             if (failed)
             {

@@ -1,7 +1,9 @@
 # Content-Pipeline-Tools — Remediation
 
 How to move from the issues in Issues.md to the end state in Goal.md.
-Nothing here has been applied. These are instructions, not changes.
+Baseline plan written before milestone M-01. These are instructions, not changes.
+
+**Status update:** CPT-009 was applied by WI-002 (milestone M-01); the steps below for it are kept for reference. Everything else here is unapplied.
 
 ## Recommended order
 1. CPT-009, CPT-007, CPT-013: small, local fixes to correctness and safety in the existing database and watcher.

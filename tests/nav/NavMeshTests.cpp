@@ -103,9 +103,66 @@ TEST(NavMesh, Read_HostileTileHeader_Corrupt)
 
 TEST(NavMesh, Read_TruncatedTile_Corrupt)
 {
-    const auto bytes = WithEditedTile([](auto& payload, std::size_t) { payload.resize(payload.size() - 8); });
+    // Cut the tile's last four bytes and fix its length prefix, so the damage reaches the tile validation.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::uint32_t length = 0;
+            std::memcpy(&length, payload.data() + tile - sizeof length, sizeof length);
+            payload.erase(payload.begin() + static_cast<std::ptrdiff_t>(tile + length - 4),
+                          payload.begin() + static_cast<std::ptrdiff_t>(tile + length));
+            length -= 4;
+            std::memcpy(payload.data() + tile - sizeof length, &length, sizeof length);
+        });
     const auto mesh = NavMesh::Read(bytes);
     ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_FlatTileBounds_Corrupt)
+{
+    // bmin is at byte 72 of the header and bmax at 84; make the tile zero wide.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            float bmax[3];
+            std::memcpy(bmax, payload.data() + tile + 84, sizeof bmax);
+            std::memcpy(payload.data() + tile + 72, bmax, sizeof bmax);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_OffMeshRangeWithGroundPolygons_Corrupt)
+{
+    // The last polygon is claimed to be an off-mesh connection but is a ground polygon.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::int32_t polyCount = 0;
+            std::memcpy(&polyCount, payload.data() + tile + kPolyCount, sizeof polyCount);
+            SetInt(payload, tile, kOffMeshBase, polyCount - 1);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_PolygonWithoutVertices_Corrupt)
+{
+    // dtPoly: firstLink (4), verts (12), neis (12), flags (2), vertCount (1), areaAndtype (1).
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::int32_t vertCount = 0;
+            std::memcpy(&vertCount, payload.data() + tile + kVertCount, sizeof vertCount);
+            const std::size_t polys = tile + 100 + static_cast<std::size_t>(vertCount) * 12;
+            payload[polys + 30] = std::byte{0};
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
 }
 
 TEST(NavMesh, Read_PolygonVertexIndexOutOfRange_Corrupt)

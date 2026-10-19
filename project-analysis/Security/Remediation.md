@@ -1,7 +1,9 @@
 # Security — Remediation
 
 How to move from the issues in Issues.md to the end state in Goal.md.
-Nothing here has been applied. These are instructions, not changes.
+Baseline plan written before milestone M-01. These are instructions, not changes.
+
+**Status update:** SEC-001, SEC-002 and SEC-003 were applied by WI-001 to WI-003 (milestone M-01); their steps are kept for reference. Everything else here is unapplied.
 
 ## Recommended order
 1. **SEC-002, SEC-001.** Hostile content alone can trigger these, with no native code and no prompt: one deletes files, the other corrupts memory. Both fixes are small and local.

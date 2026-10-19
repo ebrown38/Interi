@@ -179,7 +179,6 @@ Json MetaToJson(const AssetRecord& record)
     return meta;
 }
 
-/// Fills `record` (whose path and kind are known) from a .meta; false if the text is unusable.
 // A product path must be a normalised virtual path inside the imported folder: Cook and Prune delete it.
 bool IsContainedProduct(std::string_view path, std::string_view importedFolder)
 {
@@ -212,6 +211,8 @@ bool RemoveProduct(const fs::path& root, std::string_view importedFolder, std::s
     return fs::remove(file, error);
 }
 
+/// Fills `record` (whose path and kind are known) from a .meta; false if the text is unusable. Products outside the
+/// imported folder are dropped with a warning.
 bool ReadMeta(std::string_view text, AssetRecord& record, std::string_view importedFolder)
 {
     const Json meta = Json::parse(text, nullptr, false);
@@ -405,6 +406,11 @@ struct AssetDatabase::Impl
         : options(std::move(o))
         , files(options.root)
     {
+        // Product paths are compared with this folder in normalised form ("imported/", "./imported" and so on).
+        if (auto folder = NormalizeVirtualPath(options.importedFolder))
+        {
+            options.importedFolder = std::move(*folder);
+        }
         if (!options.guids)
         {
             options.guids = &assets::NewGuid;

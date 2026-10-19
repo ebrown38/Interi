@@ -53,10 +53,11 @@ constexpr MetadataField kQuietFields[] = {
 
 // The data sections ("values" to "dataTables") are parsed by interi::values (ParseModuleContent).
 constexpr std::string_view kKnownKeys[] = {
-    "id",          "name",      "version",        "kind",    "author",     "license",         "copyright",
-    "description", "icon",      "homepage",       "engine",  "library",    "toolchain",       "dependencies",
-    "conflicts",   "contracts", "overrides",      "values",  "attributes", "attributeSets",   "archetypes",
-    "dataTables",  "templates", "physicsEngines", "extends", "behaviours", "computerPlayers", "animationSets",
+    "id",           "name",      "version",        "kind",    "author",     "license",         "copyright",
+    "description",  "icon",      "homepage",       "engine",  "library",    "toolchain",       "dependencies",
+    "conflicts",    "contracts", "overrides",      "values",  "attributes", "attributeSets",   "archetypes",
+    "dataTables",   "templates", "physicsEngines", "extends", "behaviours", "computerPlayers", "animationSets",
+    "localization",
 };
 
 Result<std::string> GetString(const nlohmann::json& object, std::string_view key, std::string_view where)
@@ -191,6 +192,19 @@ Result<void> ParseGameplaySections(const nlohmann::json& root, ModuleManifest& m
                 parsed.description = std::move(description);
             }
             manifest.computerPlayers.push_back(std::move(parsed));
+        }
+    }
+    INTERI_TRY_ASSIGN(tables, GetArray(root, "localization"));
+    if (tables != nullptr)
+    {
+        for (std::size_t i = 0; i < tables->size(); ++i)
+        {
+            const nlohmann::json& entry = (*tables)[i];
+            if (!entry.is_string() || !IsModuleRelativePath(entry.get<std::string>()))
+            {
+                return Invalid(std::format("localization[{}] must be a string table file inside the module", i));
+            }
+            manifest.localization.push_back(entry.get<std::string>());
         }
     }
     INTERI_TRY_ASSIGN(sets, GetArray(root, "animationSets"));

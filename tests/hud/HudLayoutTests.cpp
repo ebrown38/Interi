@@ -147,3 +147,96 @@ TEST(HudLayout, DisplayText_Types)
     EXPECT_EQ(DisplayText(values::Value(values::EnumValue{"Hard"})), "Hard");
     EXPECT_EQ(DisplayText(values::Value(values::ValueList{.element = values::ValueType::Int, .items = {}})), "0 items");
 }
+
+namespace
+{
+
+loc::Localization MakeLocalization()
+{
+    loc::Localization localization("en");
+    EXPECT_TRUE(localization
+                    .AddTable("t", {.language = "en",
+                                    .strings = {{"hud.coins", "Coins {coins}/{total}"},
+                                                {"menu.play", "Play"},
+                                                {"menu.nested", "{@menu.play}!"}}})
+                    .has_value());
+    EXPECT_TRUE(
+        localization.AddTable("t", {.language = "fr", .strings = {{"hud.coins", "Pi\u00e8ces {coins}/{total}"}}})
+            .has_value());
+    return localization;
+}
+
+} // namespace
+
+TEST(HudLocalization, KeyTokens_AreTranslatedAndFilledFromValues)
+{
+    hudtest::MapValues vals;
+    vals.Set("coins", std::int32_t{3});
+    vals.Set("total", std::int32_t{8});
+    loc::Localization localization = MakeLocalization();
+    EXPECT_EQ(FormatHudText("{@hud.coins}", vals, &localization), "Coins 3/8");
+    ASSERT_TRUE(localization.SetLanguage("fr").has_value());
+    EXPECT_EQ(FormatHudText("{@hud.coins}", vals, &localization), "Pi\u00e8ces 3/8");
+    // Mixed with plain text and Values; a key missing in French falls back to English.
+    EXPECT_EQ(FormatHudText("[{@menu.play}] {coins}", vals, &localization), "[Play] 3");
+}
+
+TEST(HudLocalization, WithoutLocalizer_ShowsTheKey)
+{
+    hudtest::MapValues vals;
+    EXPECT_EQ(FormatHudText("{@menu.play}", vals), "menu.play");
+    const loc::Localization empty;
+    EXPECT_EQ(FormatHudText("{@menu.play}", vals, &empty), "menu.play");
+}
+
+TEST(HudLocalization, KeyInsideATranslation_IsNotExpandedAgain)
+{
+    hudtest::MapValues vals;
+    const loc::Localization localization = MakeLocalization();
+    EXPECT_EQ(FormatHudText("{@menu.nested}", vals, &localization), "menu.play!");
+}
+
+TEST(HudLocalization, BuildFrame_UsesTheLocalizerForTextAndButtons)
+{
+    const HudDocument document = hudtest::MustParse(R"json({
+      "version": 1, "referenceSize": [100, 50],
+      "widgets": [
+        { "id": "score", "type": "text", "anchor": "topLeft", "size": [40, 10], "text": "{@hud.coins}" },
+        { "id": "play", "type": "button", "anchor": "center", "size": [20, 10], "text": "{@menu.play}",
+          "action": "game.start" } ]})json");
+    hudtest::MapValues vals;
+    vals.Set("coins", std::int32_t{1});
+    vals.Set("total", std::int32_t{2});
+    loc::Localization localization = MakeLocalization();
+    ASSERT_TRUE(localization.SetLanguage("fr").has_value());
+    const HudFrame frame = BuildFrame(document, 100, 50, vals, {}, &localization);
+    const DrawItem* score = FindItem(frame, "score", DrawKind::Text);
+    ASSERT_NE(score, nullptr);
+    EXPECT_EQ(score->text, "Pi\u00e8ces 1/2");
+    const DrawItem* play = FindItem(frame, "play", DrawKind::Text);
+    ASSERT_NE(play, nullptr);
+    EXPECT_EQ(play->text, "Play");
+}
+
+TEST(HudLocalization, BoundValuesIgnoreKeysAndLocalizationKeysListThem)
+{
+    const HudDocument document = hudtest::MustParse(R"json({
+      "version": 1, "referenceSize": [100, 50],
+      "widgets": [
+        { "id": "a", "type": "text", "anchor": "center", "size": [40, 10], "text": "{@menu.play} {coins} {@menu.quit}" },
+        { "id": "b", "type": "text", "anchor": "center", "size": [40, 10], "text": "{@menu.play}" } ]})json");
+    EXPECT_EQ(BoundValues(document), (std::vector<std::string>{"coins"}));
+    EXPECT_EQ(LocalizationKeys(document), (std::vector<std::string>{"menu.play", "menu.quit"}));
+}
+
+TEST(HudLocalization, DocumentWithKeys_RoundTripsUnchanged)
+{
+    const char* text = R"json({
+      "version": 1, "referenceSize": [100, 50],
+      "widgets": [ { "id": "a", "type": "text", "anchor": "center", "size": [40, 10], "text": "{@menu.play}" } ]})json";
+    const auto parsed = ParseHud(text);
+    ASSERT_TRUE(parsed.has_value());
+    const auto again = ParseHud(WriteHud(parsed->document));
+    ASSERT_TRUE(again.has_value());
+    EXPECT_EQ(again->document.widgets[0].text, "{@menu.play}");
+}

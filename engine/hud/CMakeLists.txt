@@ -11,7 +11,7 @@ interi_add_module(hud SHARED
         src/HudDocument.cpp
         src/HudLayout.cpp
         src/MenuStack.cpp
-    DEPS interi::chain interi::values interi::platform interi::core
+    DEPS interi::loc interi::chain interi::values interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES

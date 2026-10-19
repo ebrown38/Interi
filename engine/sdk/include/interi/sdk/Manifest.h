@@ -119,6 +119,7 @@ struct AnimationSetDecl
 ///       "templates": [ { "name": "Coin game", "path": "templates/coins", "description": "..." } ],
 ///       "behaviours": [ { "name": "Patrol", "description": "...", "chain": "content/chains/patrol.chain.json" } ],
 ///       "computerPlayers": [ { "name": "Guard", "behaviour": "Patrol", "description": "..." } ],
+///       "localization": [ "i18n/en.strings.json", "i18n/fr.strings.json" ],
 ///       "animationSets": [ { "name": "hero", "skeleton": "anim/hero.skeleton.json",
 ///                            "clips": ["anim/idle.clip.json"], "graph": "anim/hero.animstates.json",
 ///                            "archetypes": ["com.author.fps:Hero"] } ],
@@ -159,6 +160,7 @@ struct ModuleManifest
     std::vector<AiBehaviourDecl> behaviours;
     std::vector<ComputerPlayerDecl> computerPlayers;
     std::vector<AnimationSetDecl> animationSets;
+    std::vector<std::string> localization; ///< String table files inside the module (`.strings.json`).
     std::vector<PhysicsEngineEntry> physicsEngines;
     std::optional<PhysicsEngineRef> extends; ///< PhysicsEngine only.
 

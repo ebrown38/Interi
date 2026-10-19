@@ -48,6 +48,8 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Build-system conventions
 
+- **Module projects** (`/modules/<name>/`, gitignored, each with its own nested git history): the root CMake adds every folder that has a `CMakeLists.txt` (`-DINTERI_MODULE_DIRS=` skips them all; the engine builds and passes without them, which is what CI sees). `modules/physics` is the Jolt Physics Engine (M19); its README.md and CLAUDE.md describe it, and it builds standalone through `find_package(Interi)` too.
+
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
 - **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk, values, chain, scene and hotreload: everything the host and a gameplay module both link. The rest stay static.
   - Windows exports every function (`WINDOWS_EXPORT_ALL_SYMBOLS`) but no data. **Keep globals out of public headers**: put them in a `.cpp` behind a function.
@@ -168,6 +170,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - The selected engine joins the graph as an implicit module with its bases directly below it, below the lowest-priority declaring module. `ModuleGraph::physicsEngine`/`physicsEngineChain`/`physicsEngineReason` (Pinned, Default, Fallback)/`physicsEngineChosenBy` record it; `ResolvedModule::loadAfter` holds the effective load edges (dependencies plus declaring module -> engine, engine -> base), which the loader and `ModuleHost::Reload` follow.
   - `CanAddModule(project, available, candidate, host, position)` resolves the project with the candidate added (top by default) and returns why it would be refused; the project is unchanged. The editor's Project menu uses it (`AddProjectModule`).
   - `service.Physics*` contract ids (`kPhysicsContractPrefix`; `PhysicsContracts()` are declared by every host) are reserved: only a `PhysicsEngine` provider may provide them. An extender ranks above its base, so it overrides the base's items one by one.
+- **`service.PhysicsQueries`** has a typed signature (`PhysicsQueries.h`): the engine provides a hook `const IPhysicsQueries*()` (raycast, sphere cast, overlap by layer-bit mask) so physics-agnostic modules never name an engine.
 - **`ContributionRegistry<T>`** implements the identity rule. Each id holds a stack ordered by rank (engine 0, a module's priority + 1). `Resolve` returns the top; `Provenance` lists the winner and every shadowed provider.
   - Local ids (`<module id>:<name>`) are provided only by their owner. A higher module or Plugin replaces one only with `Override`, declared in its manifest's `overrides` with a range of the owner's version.
   - Shared ids (no `:`) must be declared by the engine (`ModuleHostDesc::engineContracts`) or an Extension's `contracts`. The highest provider wins outright.
@@ -355,7 +358,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - They skip without a device unless `INTERI_REQUIRE_GPU` is set, which Linux CI does.
   - Locally, install `vulkan-validation-layers`, or nothing is validated. Without root, build the vcpkg port `vulkan-validationlayers` in classic mode into a scratch directory and set `VK_ADD_LAYER_PATH` (its `share/vulkan/explicit_layer.d`) and `LD_LIBRARY_PATH` (its `lib`).
   - HLSL `discard` compiles to demote-to-helper (SM 6.6), so the device requires `shaderDemoteToHelperInvocation`.
-  - `tests/rhi_vulkan/VulkanTestSupport.cpp` holds the LSan/TSan suppressions for Mesa, LLVM, the loader and the validation layer. Lavapipe stays loaded so LSan can symbolize its frames.
+  - `tests/rhi_vulkan/VulkanTestSupport.cpp` holds the LSan/TSan suppressions for Mesa, LLVM, the loader and the validation layer. Lavapipe stays loaded so LSan can symbolize its frames. A process has one TSan list: an executable that needs another library's suppression defines `INTERI_EXTRA_TSAN_SUPPRESSIONS` (a string literal; `interi::physics_testing` sets it for Jolt) and `VulkanTestSupport.cpp` appends it.
 
 ## Renderer (`engine/render`, namespace `interi::render`)
 
@@ -494,7 +497,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`ChunkMeshCache`** uploads every chunk of an asset into the `MeshPool` once (every hierarchy level, so size the pool for it). **`ChunkGatherer`** turns pieces (anchored ones as occluders), debris (with opacity, skipped when not visible) and rubble into `RenderObject`s, one per chunk submesh, with `ChunkMaterials` (surface and interior tables).
 - **Interior materials** (`InteriorMaterials.h`): tileable procedural albedos (concrete aggregate, rusted steel, wood, glass, sheet metal) by `interiorMaterialId`, generated with integer arithmetic only (a test pins the concrete hash), mapped triplanar.
 - **Effects:** `DestructionWorld::BreakEvents()` lists the bonds broken in the last Update (recording them does not change the simulation). `BreakEffects` spawns per-material particles from them (dust and chips, sparks, splinters, shards) with seeded integer randomness. `GatherCrackDecals` puts a crack decal on every damaged bond whose chunks still move together, with `CrackOverlayIntensity` (none until 10% of the bond's health is lost, full at 90%).
-- **Tests and goldens:** `interi_destruction_render_gpu_tests` (integration) and `interi_destruction_render_golden_tests` (`tests/destruction_render/golden`) run on lavapipe with Jolt. The fractured-wall and decal goldens depend on the simulation, so a Jolt bump or a destruction change can move them. An executable linking both `physics_testing` and `vulkan_testing` gets one merged TSan suppression list.
+- **Tests and goldens:** `interi_destruction_render_gpu_tests` (integration) and `interi_destruction_render_golden_tests` (`tests/destruction_render/golden`) run on lavapipe with Jolt. The fractured-wall and decal goldens depend on the simulation, so a Jolt bump or a destruction change can move them. An executable linking both `physics_testing` and `vulkan_testing` gets one merged TSan suppression list (`TsanSuppressions.JoltAndLavapipe_BothInTheOneList` checks it under TSan).
 
 ## Editor (`engine/editor`, `engine/editor_ui`, `tools/editor`, namespace `interi::editor`)
 

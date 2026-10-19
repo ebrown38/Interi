@@ -49,7 +49,7 @@ public:
         out.clear();
         for (std::uint64_t bit = 0; bit < 32; ++bit)
         {
-            if ((layers >> bit & 1U) != 0U)
+            if (((layers >> bit) & 1U) != 0U)
             {
                 PhysicsHit hit;
                 hit.object = bit + 1;

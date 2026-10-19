@@ -67,3 +67,8 @@
 - **Task:** Milestone 19, 19.4 Events
 - **Context:** The plan lists OnContact, OnOverlap, ApplyImpulse, Raycast; the scene runtime already raises `trigger.Overlap` for physics-free volumes.
 - **Assumption made:** `OnContact` is raised by `RaiseContactTriggers` from the step's contact list; `OnOverlap` is declared (same payload) for a game to raise from `OverlapSphere` results, since Jolt sensors are not wired. 
+
+## How does the Jolt module contribute "rigid body and character controller components" (19.4)?
+- **Task:** Milestone 19, 19.4 Manifest contributions (Physics rules)
+- **Context:** A module can register hooks, events, Values and tables, but `ModuleRegistrar` has no reflection registration (values::Reflection is a host-side registry), and `RigidBodyComponent` / `ColliderComponent` are not reflected in the engine today either. `DeclareComponent` needs trivially copyable components with a `kComponentName`, which the copied physics components do not have (they register by compiler type name).
+- **Assumption made:** M19 ships the components as library types (`interi/physics/Components.h`, `Character.h`) without module-side reflection; reflection registration for module components (and giving the physics components a `kComponentName`) is left for M20 together with the editor tie-ins (20.1.5).

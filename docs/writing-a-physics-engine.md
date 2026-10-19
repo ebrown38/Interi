@@ -2,8 +2,8 @@
 
 A Physics Engine is a module of kind `PhysicsEngine` (for example `com.interi.physics.jolt`). The engine repository
 ships none: anyone can write one. It is a sort of Extension: other modules are built against it, and it provides the
-reserved `service.Physics*` contracts (`interi::sdk::PhysicsContracts()`, currently `service.PhysicsQueries`; the
-real signatures arrive with the first engine, Jolt, in M19).
+reserved `service.Physics*` contracts (`interi::sdk::PhysicsContracts()`, currently `service.PhysicsQueries`, whose signature is
+`sdk::PhysicsQueriesService` in `interi/sdk/PhysicsQueries.h`).
 
 ## Scaffold it
 

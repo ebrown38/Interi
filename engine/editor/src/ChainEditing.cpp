@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
-#include <interi/editor/ChainEditing.h>
-
 #include <interi/chain/CoreLibrary.h>
+#include <interi/editor/ChainEditing.h>
 
 #include <algorithm>
 #include <cctype>
@@ -60,7 +59,8 @@ private:
 
 void Apply(UndoStack& undo, ChainAsset& asset, ChainAsset after, std::string label, std::string mergeKey = {})
 {
-    undo.Execute(std::make_unique<ChainSnapshotCommand>(&asset, std::move(after), std::move(label), std::move(mergeKey)));
+    undo.Execute(
+        std::make_unique<ChainSnapshotCommand>(&asset, std::move(after), std::move(label), std::move(mergeKey)));
 }
 
 void ApplySealed(UndoStack& undo, ChainAsset& asset, ChainAsset after, std::string label)
@@ -144,10 +144,12 @@ std::vector<chain::Diagnostic> CompileDiagnostics(const ChainAsset& asset, const
         for (const ChainNode& node : asset.nodes)
         {
             const chain::EventDefinition* definition = Resolve(context, node.event);
-            const bool linked = std::ranges::any_of(asset.links, [&](const ChainLink& l) { return l.toNode == node.id; });
+            const bool linked =
+                std::ranges::any_of(asset.links, [&](const ChainLink& l) { return l.toNode == node.id; });
             if (!linked && definition != nullptr && definition->kind == chain::EventKind::Action)
             {
-                copy.links.push_back({.fromNode = std::string(kProbe), .fromOutput = {}, .toNode = node.id, .condition = {}});
+                copy.links.push_back(
+                    {.fromNode = std::string(kProbe), .fromOutput = {}, .toNode = node.id, .condition = {}});
             }
         }
     }
@@ -193,7 +195,8 @@ Result<void> CheckEdit(const ChainAsset& before, const ChainAsset& after, const 
     {
         return {};
     }
-    if (auto error = IntroducedError(CompileDiagnostics(before, context, true), CompileDiagnostics(after, context, true)))
+    if (auto error =
+            IntroducedError(CompileDiagnostics(before, context, true), CompileDiagnostics(after, context, true)))
     {
         return Invalid(*error);
     }
@@ -235,8 +238,8 @@ std::vector<const chain::Diagnostic*> DiagnosticsForLink(const std::vector<chain
 
 bool HasErrors(const std::vector<chain::Diagnostic>& diagnostics) noexcept
 {
-    return std::ranges::any_of(diagnostics,
-                               [](const chain::Diagnostic& d) { return d.severity == chain::Diagnostic::Severity::Error; });
+    return std::ranges::any_of(diagnostics, [](const chain::Diagnostic& d)
+                               { return d.severity == chain::Diagnostic::Severity::Error; });
 }
 
 // ---- Palette -----------------------------------------------------------------------------------------------------
@@ -275,8 +278,7 @@ std::vector<PaletteEntry> BuildPalette(const chain::ChainRegistry& registry)
         }
         entries.push_back(std::move(entry));
     }
-    std::ranges::sort(entries,
-                      [](const PaletteEntry& a, const PaletteEntry& b)
+    std::ranges::sort(entries, [](const PaletteEntry& a, const PaletteEntry& b)
                       { return std::tie(a.module, a.category, a.id) < std::tie(b.module, b.category, b.id); });
     return entries;
 }
@@ -286,7 +288,8 @@ std::vector<const PaletteEntry*> FilterPalette(const std::vector<PaletteEntry>& 
     const auto lower = [](std::string_view text)
     {
         std::string result(text);
-        std::ranges::transform(result, result.begin(), [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
+        std::ranges::transform(result, result.begin(),
+                               [](char c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(c))); });
         return result;
     };
     std::vector<std::string> words;
@@ -314,6 +317,126 @@ std::vector<const PaletteEntry*> FilterPalette(const std::vector<PaletteEntry>& 
         }
     }
     return result;
+}
+
+// ---- Binding pickers ---------------------------------------------------------------------------------------------
+
+bool Assignable(values::ValueType input, values::ValueType source) noexcept
+{
+    return input == source || (input == values::ValueType::Float &&
+                               (source == values::ValueType::Int || source == values::ValueType::U32));
+}
+
+std::vector<BindingChoice> PayloadChoices(const ChainAsset& asset, const ChainEditContext& context,
+                                          std::string_view node)
+{
+    std::vector<BindingChoice> result;
+    bool first = true;
+    for (const ChainLink& link : asset.links)
+    {
+        if (link.toNode != node)
+        {
+            continue;
+        }
+        const ChainNode* from = FindNode(asset, link.fromNode);
+        const chain::EventDefinition* definition = from == nullptr ? nullptr : Resolve(context, from->event);
+        const chain::EventOutput* output = nullptr;
+        if (definition != nullptr)
+        {
+            output = link.fromOutput.empty() ? (definition->outputs.empty() ? nullptr : &definition->outputs.front())
+                                             : definition->FindOutput(link.fromOutput);
+        }
+        std::vector<BindingChoice> fields;
+        if (output != nullptr)
+        {
+            for (const chain::PayloadField& field : output->payload)
+            {
+                fields.push_back({.name = field.name, .type = field.type});
+            }
+        }
+        if (first)
+        {
+            result = std::move(fields);
+            first = false;
+            continue;
+        }
+        std::erase_if(result,
+                      [&](const BindingChoice& c)
+                      {
+                          return !std::ranges::any_of(fields, [&](const BindingChoice& f)
+                                                      { return f.name == c.name && f.type == c.type; });
+                      });
+    }
+    return result;
+}
+
+std::vector<BindingChoice> ValueChoices(const values::ValueRegistry* values)
+{
+    std::vector<BindingChoice> result;
+    if (values == nullptr)
+    {
+        return result;
+    }
+    for (const std::string& id : values->Ids())
+    {
+        if (const values::ValueDefinition* definition = values->Definition(id))
+        {
+            result.push_back({.name = id, .type = definition->schema.type});
+        }
+    }
+    return result;
+}
+
+std::vector<BindingChoice> FilterChoices(const std::vector<BindingChoice>& choices, values::ValueType type)
+{
+    std::vector<BindingChoice> result;
+    std::ranges::copy_if(choices, std::back_inserter(result),
+                         [&](const BindingChoice& c) { return Assignable(type, c.type); });
+    return result;
+}
+
+bool NeedsChainLayout(const ChainAsset& asset) noexcept
+{
+    return asset.nodes.size() > 1 &&
+           std::ranges::all_of(asset.nodes, [](const ChainNode& n) { return n.pos[0] == 0.0f && n.pos[1] == 0.0f; });
+}
+
+void AutoLayoutChain(ChainAsset& asset, const ChainEditContext& context)
+{
+    // Longest path from a root, with a bound so a cycle in the links can't loop forever.
+    std::map<std::string, std::size_t> depth;
+    for (const ChainNode& node : asset.nodes)
+    {
+        depth[node.id] = 0;
+    }
+    for (std::size_t round = 0; round < asset.nodes.size(); ++round)
+    {
+        bool changed = false;
+        for (const ChainLink& link : asset.links)
+        {
+            const std::size_t wanted = depth[link.fromNode] + 1;
+            if (wanted > depth[link.toNode] && wanted <= asset.nodes.size())
+            {
+                depth[link.toNode] = wanted;
+                changed = true;
+            }
+        }
+        if (!changed)
+        {
+            break;
+        }
+    }
+    std::map<std::size_t, float> nextY;
+    for (ChainNode& node : asset.nodes)
+    {
+        const std::size_t column = depth[node.id];
+        const chain::EventDefinition* definition = Resolve(context, node.event);
+        const std::size_t rows =
+            definition == nullptr ? 1
+                                  : std::max<std::size_t>({1, definition->inputs.size(), definition->outputs.size()});
+        node.pos = {static_cast<float>(column) * 280.0f, nextY[column]};
+        nextY[column] += 24.0f + static_cast<float>(rows) * 20.0f + 6.0f + 30.0f;
+    }
 }
 
 // ---- Editing -----------------------------------------------------------------------------------------------------
@@ -434,8 +557,9 @@ Result<void> MoveChainNodes(UndoStack& undo, ChainAsset& asset, const std::vecto
     return {};
 }
 
-Result<void> AddChainLink(UndoStack& undo, ChainAsset& asset, const ChainEditContext& context, std::string_view fromNode,
-                          std::string_view fromOutput, std::string_view toNode, std::string_view condition)
+Result<void> AddChainLink(UndoStack& undo, ChainAsset& asset, const ChainEditContext& context,
+                          std::string_view fromNode, std::string_view fromOutput, std::string_view toNode,
+                          std::string_view condition)
 {
     const ChainNode* from = FindNode(asset, fromNode);
     const ChainNode* to = FindNode(asset, toNode);
@@ -544,7 +668,8 @@ Result<void> BindChainInput(UndoStack& undo, ChainAsset& asset, const ChainEditC
         return {};
     }
     INTERI_TRY(CheckEdit(asset, after, context));
-    Apply(undo, asset, std::move(after), std::format("Bind {}.{}", node, input), std::format("bind:{}.{}", node, input));
+    Apply(undo, asset, std::move(after), std::format("Bind {}.{}", node, input),
+          std::format("bind:{}.{}", node, input));
     return {};
 }
 

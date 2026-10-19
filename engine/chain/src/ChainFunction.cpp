@@ -111,7 +111,8 @@ Result<void> ValidateChainFunction(const ChainFunction& function)
     {
         if (!IsName(output.name) || !seen.insert(output.name).second)
         {
-            return Invalid(std::format("function '{}': output '{}' is invalid or duplicate", function.name, output.name));
+            return Invalid(
+                std::format("function '{}': output '{}' is invalid or duplicate", function.name, output.name));
         }
         std::set<std::string> fields;
         for (const PayloadField& field : output.payload)
@@ -287,8 +288,8 @@ Result<ChainAsset> ExpandChainFunctions(const ChainAsset& asset, std::string_vie
     ChainAsset result = asset;
     for (int depth = 0; depth <= kMaxFunctionDepth; ++depth)
     {
-        const auto call = std::ranges::find_if(result.nodes, [&](const ChainNode& node)
-                                               { return FindFor(lookup, node) != nullptr; });
+        const auto call =
+            std::ranges::find_if(result.nodes, [&](const ChainNode& node) { return FindFor(lookup, node) != nullptr; });
         if (call == result.nodes.end())
         {
             return result;
@@ -337,8 +338,8 @@ Result<ChainAsset> ExpandChainFunctions(const ChainAsset& asset, std::string_vie
             }
             if (entryId.empty())
             {
-                return Invalid(std::format("function '{}': the body has no Entry node ({})", function->name,
-                                           entryEvent));
+                return Invalid(
+                    std::format("function '{}': the body has no Entry node ({})", function->name, entryEvent));
             }
             for (ChainLink link : function->body.links)
             {

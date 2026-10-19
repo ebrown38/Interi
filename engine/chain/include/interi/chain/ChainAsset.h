@@ -114,12 +114,12 @@ struct ChainAsset
     std::vector<ChainLink> links;
     std::vector<ChainComment> comments; ///< Editor only.
     std::vector<ChainGroup> groups;     ///< Editor only.
-    std::vector<std::string> warnings; ///< From parsing; not written.
+    std::vector<std::string> warnings;  ///< From parsing; not written.
 
     friend bool operator==(const ChainAsset& a, const ChainAsset& b)
     {
-        return a.priority == b.priority && a.nodes == b.nodes && a.links == b.links &&
-               a.comments == b.comments && a.groups == b.groups;
+        return a.priority == b.priority && a.nodes == b.nodes && a.links == b.links && a.comments == b.comments &&
+               a.groups == b.groups;
     }
 };
 

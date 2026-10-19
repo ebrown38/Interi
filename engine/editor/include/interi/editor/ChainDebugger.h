@@ -38,7 +38,7 @@ struct TimelineEntry
     std::uint64_t step = 0;
     chain::TraceRecord::Kind kind = chain::TraceRecord::Kind::Fired;
     std::string node;
-    std::string detail; ///< Output name, link index, or the message.
+    std::string detail;  ///< Output name, link index, or the message.
     bool passed = false; ///< Condition results.
     std::string payload; ///< The payload formatted: "damage=20, target=1".
 };
@@ -64,7 +64,10 @@ public:
     // Breakpoints (by node id and asset link index). Toggling returns whether it is set afterwards.
     bool ToggleNodeBreakpoint(std::string_view node);
     bool ToggleLinkBreakpoint(std::size_t link);
-    [[nodiscard]] bool HasNodeBreakpoint(std::string_view node) const { return m_nodeBreakpoints.contains(std::string(node)); }
+    [[nodiscard]] bool HasNodeBreakpoint(std::string_view node) const
+    {
+        return m_nodeBreakpoints.contains(std::string(node));
+    }
     [[nodiscard]] bool HasLinkBreakpoint(std::size_t link) const { return m_linkBreakpoints.contains(link); }
     void ClearBreakpoints();
 

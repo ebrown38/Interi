@@ -31,7 +31,8 @@ TraceRecord Condition(std::uint64_t step, std::size_t link, bool passed)
     return record;
 }
 
-const auto kPath = [](std::uint32_t chainId) { return chainId == 0 ? std::string_view("a.chain.json") : std::string_view("b.chain.json"); };
+const auto kPath = [](std::uint32_t chainId)
+{ return chainId == 0 ? std::string_view("a.chain.json") : std::string_view("b.chain.json"); };
 
 } // namespace
 

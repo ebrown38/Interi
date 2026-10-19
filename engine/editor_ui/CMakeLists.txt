@@ -14,6 +14,7 @@ target_link_libraries(interi_editor_api INTERFACE interi::hotreload interi::rend
 
 interi_add_module(editor_ui
     SOURCES
+        src/ChainEditor.cpp
         src/DataPanels.cpp
         src/EditorExtensions.cpp
         src/EditorPanels.cpp
@@ -27,6 +28,7 @@ interi_add_module(editor_ui
     DEPS interi::editor interi::hotreload interi::hud interi::render interi::rhi interi::platform imgui::imgui
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/ChainEditorTests.cpp
         ${_tests}/DataPanelsTests.cpp
         ${_tests}/EditorExtensionsTests.cpp
         ${_tests}/EditorPanelsTests.cpp

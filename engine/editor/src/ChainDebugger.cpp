@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/ChainDebugger.h>
-
 #include <interi/scene/SceneRuntime.h>
 
 #include <algorithm>

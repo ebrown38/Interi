@@ -48,9 +48,8 @@ ChainFunction Function()
 
 FunctionLookup LookupOf(const ChainFunction& function)
 {
-    return [&function](std::string_view event) -> const ChainFunction* {
-        return event == FunctionCallEvent("com.test.a", function.name) ? &function : nullptr;
-    };
+    return [&function](std::string_view event) -> const ChainFunction*
+    { return event == FunctionCallEvent("com.test.a", function.name) ? &function : nullptr; };
 }
 
 } // namespace
@@ -105,8 +104,9 @@ TEST(ChainFunction, Expand_InlinesBodyAndRewiresLinks)
     EXPECT_EQ(in->params[0].first, "n");
     EXPECT_TRUE(std::ranges::any_of(expanded->links, [](const ChainLink& l)
                                     { return l.fromNode == "start" && l.toNode == "call__in"; }));
-    EXPECT_TRUE(std::ranges::any_of(expanded->links, [](const ChainLink& l)
-                                    { return l.fromNode == "call__out" && l.fromOutput == "Out" && l.toNode == "add"; }));
+    EXPECT_TRUE(
+        std::ranges::any_of(expanded->links, [](const ChainLink& l)
+                            { return l.fromNode == "call__out" && l.fromOutput == "Out" && l.toNode == "add"; }));
 }
 
 TEST(ChainFunction, Expand_Executes_ReturnsTypedOutputs)

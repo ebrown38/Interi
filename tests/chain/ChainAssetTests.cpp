@@ -94,7 +94,8 @@ TEST(ChainAsset, LinkToMissingNode_Error)
 
 TEST(ChainAsset, UnknownKeys_Warn)
 {
-    auto asset = ParseChain(R"({"version": 1, "colour": "red", "nodes": [{"id": "a", "event": "x", "zorder": [1, 2]}]})");
+    auto asset =
+        ParseChain(R"({"version": 1, "colour": "red", "nodes": [{"id": "a", "event": "x", "zorder": [1, 2]}]})");
     ASSERT_TRUE(asset.has_value());
     EXPECT_EQ(asset->warnings.size(), 2u);
 }

@@ -182,8 +182,7 @@ Result<void> ParseEditorData(const Json& json, ChainAsset& asset)
             group.title = std::move(title);
             if (const auto nodes = item.find("nodes"); nodes != item.end())
             {
-                if (!nodes->is_array() ||
-                    !std::ranges::all_of(*nodes, [](const Json& n) { return n.is_string(); }))
+                if (!nodes->is_array() || !std::ranges::all_of(*nodes, [](const Json& n) { return n.is_string(); }))
                 {
                     return Invalid(std::format("{}: \"nodes\" must be an array of strings", where));
                 }
@@ -411,7 +410,8 @@ std::string WriteChain(const ChainAsset& asset)
         Json comments = Json::array();
         for (const ChainComment& comment : asset.comments)
         {
-            comments.push_back({{"id", comment.id}, {"text", comment.text}, {"pos", comment.pos}, {"size", comment.size}});
+            comments.push_back(
+                {{"id", comment.id}, {"text", comment.text}, {"pos", comment.pos}, {"size", comment.size}});
         }
         editor["comments"] = std::move(comments);
     }

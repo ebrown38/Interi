@@ -81,7 +81,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v7.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v8.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -219,7 +219,8 @@ chain::ChainRegistry& EditorApp::ActiveChains() noexcept
 
 void EditorApp::LoadProjectModulesHost(const sdk::Project& project)
 {
-    m_modules.reset(); // unloads the old modules (their extensions leave first)
+    ++m_chain.revision; // the chain registry is replaced: the chain editor's palette rebuilds
+    m_modules.reset();  // unloads the old modules (their extensions leave first)
     if (project.modules.empty() || !hotreload::ModuleHost::Supported())
     {
         return;
@@ -647,13 +648,17 @@ void EditorApp::HandlePlay(const ScenePlayRequests& requests, float seconds)
     values::ValueRegistry* values = data != nullptr ? &data->Values() : nullptr;
     if (requests.play && m_scenePlay == nullptr)
     {
-        auto session = ScenePlaySession::Start(m_document.Scene(), ActiveChains(), values, m_files, m_jobs);
+        auto session = ScenePlaySession::Start(m_document.Scene(), ActiveChains(), values, m_files, m_jobs, true);
         if (!session)
         {
             INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
             return;
         }
         m_scenePlay = std::move(*session);
+        m_chain.debugger.Reset();
+        m_chain.debugger.SetTarget(m_chain.path);
+        m_scenePlay->SetStepObserver([this](const ScenePlaySession& play)
+                                     { return m_chain.debugger.Observe(play.Runtime()).has_value(); });
         m_playUndoMark = m_document.Undo().Applied();
         for (const std::string& warning : m_scenePlay->Runtime().Warnings())
         {
@@ -975,6 +980,100 @@ private:
 
 } // namespace
 
+void EditorApp::OpenChain(const std::string& path)
+{
+    m_chain.show = true;
+    m_chain.path = path;
+    if (auto loaded = chain::LoadChain(m_files, path))
+    {
+        m_chain.asset = std::move(*loaded);
+        if (NeedsChainLayout(m_chain.asset))
+        {
+            AutoLayoutChain(m_chain.asset, {.registry = &ActiveChains(), .values = nullptr});
+        }
+        m_chain.undo.Clear();
+        m_chain.ui = {};
+        m_chain.message = std::format("loaded {} nodes", m_chain.asset.nodes.size());
+        for (const std::string& warning : m_chain.asset.warnings)
+        {
+            INTERI_LOG_WARN("Editor", "{}: {}", path, warning);
+        }
+    }
+    else
+    {
+        m_chain.message = loaded.error().message;
+    }
+}
+
+void EditorApp::DrawChainEditorWindow()
+{
+    if (!m_chain.show)
+    {
+        return;
+    }
+    ImGui::SetNextWindowPos(ImVec2(60.0f, 710.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(520.0f, 90.0f), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Chain File", &m_chain.show))
+    {
+        ImGui::InputText("path", &m_chain.path);
+        if (ImGui::Button("Load"))
+        {
+            OpenChain(m_chain.path);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("New"))
+        {
+            m_chain.asset = {};
+            m_chain.undo.Clear();
+            m_chain.ui = {};
+            m_chain.message = "new chain";
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Save"))
+        {
+            const std::string text = chain::WriteChain(m_chain.asset);
+            const auto saved = m_files.WriteFile(m_chain.path, std::as_bytes(std::span(text)));
+            m_chain.message = saved ? std::format("saved {}", m_chain.path) : saved.error().message;
+            if (saved)
+            {
+                m_chain.undo.MarkClean();
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted(m_chain.undo.IsDirty() ? "*" : "");
+        ImGui::TextUnformatted(m_chain.message.c_str());
+    }
+    ImGui::End();
+    const values::DataRegistry* data = ActiveData();
+    const RegistryValues values(data != nullptr ? &data->Values() : nullptr);
+    ChainEditorHost host;
+    host.context = {.registry = &ActiveChains(), .values = data != nullptr ? &data->Values() : nullptr};
+    host.revision = m_chain.revision;
+    host.debugger = &m_chain.debugger;
+    host.playing = m_scenePlay != nullptr;
+    host.paused = m_scenePlay != nullptr && m_scenePlay->Paused();
+    host.playStep = m_scenePlay != nullptr ? m_scenePlay->StepIndex() : 0;
+    host.values = m_scenePlay != nullptr
+                      ? static_cast<const chain::IValueReader*>(&m_scenePlay->Runtime().Executor().Values())
+                      : static_cast<const chain::IValueReader*>(&values);
+    const ChainEditorResult result = DrawChainEditor(m_chain.asset, m_chain.undo, m_chain.ui, host);
+    if (m_scenePlay != nullptr)
+    {
+        if (result.pauseRequested)
+        {
+            m_scenePlay->SetPaused(true);
+        }
+        if (result.resumeRequested)
+        {
+            m_scenePlay->SetPaused(false);
+        }
+        if (result.stepRequested)
+        {
+            m_scenePlay->StepOnce();
+        }
+    }
+}
+
 void EditorApp::DrawHud()
 {
     if (!m_hud.show)
@@ -1071,6 +1170,7 @@ FrameResult EditorApp::Frame()
     {
         m_extensions.DrawMenu();
         ImGui::MenuItem("HUD Designer", nullptr, &m_hud.show);
+        ImGui::MenuItem("Chain Editor", nullptr, &m_chain.show);
         ImGui::EndMainMenuBar();
     }
     {
@@ -1078,6 +1178,7 @@ FrameResult EditorApp::Frame()
         m_extensions.DrawPanels(document);
     }
     DrawHud();
+    DrawChainEditorWindow();
     DrawConsolePanel(*m_log, m_console);
     const ProjectSettingsRequests settings = DrawProjectSettingsPanel(m_physicsEngine);
     if (DrawPreferencesPanel(m_preferences, INTERI_PROFILING_ACTIVE != 0, ProfilerConnected()))

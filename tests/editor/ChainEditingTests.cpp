@@ -83,8 +83,7 @@ TEST(ChainEditor, AddLink_Refused_WhenInvalid)
     EXPECT_FALSE(AddChainLink(e.undo, e.asset, e.Context(), shoot, "", shoot).has_value());
     ASSERT_TRUE(AddChainLink(e.undo, e.asset, e.Context(), start, "", shoot).has_value());
     EXPECT_FALSE(AddChainLink(e.undo, e.asset, e.Context(), start, "", shoot).has_value()); // duplicate
-    EXPECT_FALSE(
-        AddChainLink(e.undo, e.asset, e.Context(), "Start1", "", shoot, "payload.nothing > 1").has_value());
+    EXPECT_FALSE(AddChainLink(e.undo, e.asset, e.Context(), "Start1", "", shoot, "payload.nothing > 1").has_value());
     EXPECT_EQ(e.undo.Size(), steps + 1);
     EXPECT_EQ(e.asset.links.size(), 1u);
 }
@@ -302,8 +301,9 @@ TEST(ChainEditor, Palette_GroupsByModule_AndShowsOverrides)
     ASSERT_NE(start, palette.end());
     EXPECT_TRUE(start->indicator.empty());
     EXPECT_EQ(start->kind, EventKind::Trigger);
-    EXPECT_TRUE(std::ranges::is_sorted(palette, [](const PaletteEntry& a, const PaletteEntry& b)
-                                       { return std::tie(a.module, a.category, a.id) < std::tie(b.module, b.category, b.id); }));
+    EXPECT_TRUE(std::ranges::is_sorted(
+        palette, [](const PaletteEntry& a, const PaletteEntry& b)
+        { return std::tie(a.module, a.category, a.id) < std::tie(b.module, b.category, b.id); }));
 }
 
 TEST(ChainEditor, Palette_Filter_MatchesAllWordsCaseInsensitively)
@@ -330,4 +330,57 @@ TEST(ChainEditor, Asset_RoundTripsThroughFile)
     ASSERT_TRUE(again.has_value());
     EXPECT_EQ(*again, e.asset);
     EXPECT_FALSE(HasErrors(ValidateChain(*again, e.Context())));
+}
+
+TEST(ChainEditor, BindingChoices_AreFilteredByType)
+{
+    Editor e;
+    const std::string start = e.Add("trigger.Start");
+    const std::string shoot = e.Add("com.test.a:Shoot");
+    const std::string add = e.Add("com.test.a:AddScore");
+    EXPECT_TRUE(PayloadChoices(e.asset, e.Context(), add).empty()); // nothing linked yet
+    ASSERT_TRUE(AddChainLink(e.undo, e.asset, e.Context(), start, "", shoot).has_value());
+    ASSERT_TRUE(AddChainLink(e.undo, e.asset, e.Context(), shoot, "Hit", add).has_value());
+    const auto payload = PayloadChoices(e.asset, e.Context(), add);
+    ASSERT_EQ(payload.size(), 2u); // damage: float, target: entity
+    EXPECT_TRUE(FilterChoices(payload, values::ValueType::Int).empty());
+    const auto floats = FilterChoices(payload, values::ValueType::Float);
+    ASSERT_EQ(floats.size(), 1u);
+    EXPECT_EQ(floats[0].name, "damage");
+    // A second incoming link that lacks the fields narrows the choices to the common ones.
+    ASSERT_TRUE(AddChainLink(e.undo, e.asset, e.Context(), shoot, "Miss", add).has_value());
+    EXPECT_TRUE(PayloadChoices(e.asset, e.Context(), add).empty());
+
+    const auto values = ValueChoices(e.project.values.get());
+    EXPECT_EQ(FilterChoices(values, values::ValueType::Int).size(), 1u);   // Score
+    EXPECT_EQ(FilterChoices(values, values::ValueType::Float).size(), 2u); // Health, and Score promotes
+    EXPECT_TRUE(ValueChoices(nullptr).empty());
+    EXPECT_TRUE(Assignable(values::ValueType::Float, values::ValueType::U32));
+    EXPECT_FALSE(Assignable(values::ValueType::Int, values::ValueType::Float));
+}
+
+TEST(ChainEditor, AutoLayout_PlacesNodesLeftToRightAlongLinks)
+{
+    Editor e;
+    e.asset = chain::testing::Chain(R"json({"version": 1, "nodes": [
+        {"id": "s", "event": "trigger.Start"}, {"id": "a", "event": "com.test.a:Shoot"},
+        {"id": "b", "event": "com.test.a:AddScore"}, {"id": "c", "event": "com.test.a:Echo"}],
+        "links": [{"from": "s", "to": "a"}, {"from": "a.Hit", "to": "b"}, {"from": "s", "to": "c"}]})json");
+    ASSERT_TRUE(NeedsChainLayout(e.asset));
+    AutoLayoutChain(e.asset, e.Context());
+    EXPECT_FALSE(NeedsChainLayout(e.asset));
+    const auto x = [&](std::string_view id) { return std::ranges::find(e.asset.nodes, id, &ChainNode::id)->pos[0]; };
+    const auto y = [&](std::string_view id) { return std::ranges::find(e.asset.nodes, id, &ChainNode::id)->pos[1]; };
+    EXPECT_LT(x("s"), x("a"));
+    EXPECT_LT(x("a"), x("b"));
+    EXPECT_FLOAT_EQ(x("a"), x("c"));
+    EXPECT_NE(y("a"), y("c")); // one column, separate rows
+    // A cycle doesn't hang it.
+    e.asset.links.push_back({.fromNode = "b", .fromOutput = "", .toNode = "a", .condition = ""});
+    for (ChainNode& node : e.asset.nodes)
+    {
+        node.pos = {0.0f, 0.0f};
+    }
+    AutoLayoutChain(e.asset, e.Context());
+    EXPECT_FALSE(NeedsChainLayout(e.asset));
 }

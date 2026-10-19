@@ -39,7 +39,8 @@ struct ChainEditContext
 // ---- Validation (22.5) -------------------------------------------------------------------------------------------
 
 /// The compile diagnostics of `asset` (errors and warnings such as unreachable nodes), as the compiler reports them.
-[[nodiscard]] std::vector<chain::Diagnostic> ValidateChain(const chain::ChainAsset& asset, const ChainEditContext& context);
+[[nodiscard]] std::vector<chain::Diagnostic> ValidateChain(const chain::ChainAsset& asset,
+                                                           const ChainEditContext& context);
 /// Diagnostics located at node `id` (including its inputs and the conditions of links leaving it).
 [[nodiscard]] std::vector<const chain::Diagnostic*> DiagnosticsForNode(const std::vector<chain::Diagnostic>& all,
                                                                        std::string_view id);
@@ -69,6 +70,32 @@ struct PaletteEntry
                                                              std::string_view query);
 
 // ---- Editing (22.3) ----------------------------------------------------------------------------------------------
+
+// ---- Binding pickers (22.3.1) -------------------------------------------------------------------------------------
+
+/// A payload field or Value an input can be bound to.
+struct BindingChoice
+{
+    std::string name;
+    values::ValueType type = values::ValueType::Float;
+};
+
+/// Whether a source of type `source` can feed an input of type `input` (the same type; int and u32 promote to float).
+[[nodiscard]] bool Assignable(values::ValueType input, values::ValueType source) noexcept;
+/// The payload fields `node`'s links bring in: those every incoming link's output carries, with one type.
+[[nodiscard]] std::vector<BindingChoice> PayloadChoices(const chain::ChainAsset& asset, const ChainEditContext& context,
+                                                        std::string_view node);
+/// Every Value the project defines, sorted by id.
+[[nodiscard]] std::vector<BindingChoice> ValueChoices(const values::ValueRegistry* values);
+/// The choices an input of `type` accepts.
+[[nodiscard]] std::vector<BindingChoice> FilterChoices(const std::vector<BindingChoice>& choices,
+                                                       values::ValueType type);
+
+/// Whether a chain with several nodes has none placed yet (a hand-written file): every node is at the origin.
+[[nodiscard]] bool NeedsChainLayout(const chain::ChainAsset& asset) noexcept;
+/// Places the nodes in columns by their distance from the triggers (left to right along the links), one row per node
+/// in a column. Not an undo step: it is for a file just opened.
+void AutoLayoutChain(chain::ChainAsset& asset, const ChainEditContext& context);
 
 /// A new node of `event` at `pos` with a unique id ("Shoot1"). InvalidArgument if the event isn't registered.
 Result<std::string> AddChainNode(UndoStack& undo, chain::ChainAsset& asset, const ChainEditContext& context,

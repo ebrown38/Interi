@@ -56,8 +56,8 @@ protected:
 
     std::unique_ptr<ScenePlaySession> Start(bool trace = false)
     {
-        auto session = ScenePlaySession::Start(m_document.Scene(), *m_chains, &m_project->Data().Values(), m_files,
-                                               m_jobs, trace);
+        auto session =
+            ScenePlaySession::Start(m_document.Scene(), *m_chains, &m_project->Data().Values(), m_files, m_jobs, trace);
         EXPECT_TRUE(session.has_value()) << session.error().message;
         return session ? std::move(*session) : nullptr;
     }
@@ -146,7 +146,8 @@ TEST_F(ScenePlayTest, Debugger_NodeBreakpoint_PausesAfterTheStep_AndStepContinue
     ChainDebugger debugger;
     debugger.SetTarget("chains/mover.chain.json");
     debugger.ToggleNodeBreakpoint("move");
-    session->SetStepObserver([&](const ScenePlaySession& play) { return debugger.Observe(play.Runtime()).has_value(); });
+    session->SetStepObserver([&](const ScenePlaySession& play)
+                             { return debugger.Observe(play.Runtime()).has_value(); });
     session->Advance(101ms); // would be six steps
     EXPECT_TRUE(session->Paused());
     EXPECT_EQ(session->StepIndex(), 1u); // paused after the first step, never mid-wave
@@ -157,7 +158,12 @@ TEST_F(ScenePlayTest, Debugger_NodeBreakpoint_PausesAfterTheStep_AndStepContinue
     session->StepOnce();
     EXPECT_EQ(session->StepIndex(), 2u);
     EXPECT_FALSE(debugger.Timeline().empty());
-    const auto watches = [&] { debugger.AddWatch(std::string(kJump)); debugger.AddWatch("nothing"); return debugger.ReadWatches(session->Runtime().Executor().Values()); }();
+    const auto watches = [&]
+    {
+        debugger.AddWatch(std::string(kJump));
+        debugger.AddWatch("nothing");
+        return debugger.ReadWatches(session->Runtime().Executor().Values());
+    }();
     ASSERT_EQ(watches.size(), 2u);
     EXPECT_TRUE(watches[0].value.has_value());
     EXPECT_FALSE(watches[1].value.has_value());
@@ -170,7 +176,8 @@ TEST_F(ScenePlayTest, Debugger_OtherChainsAreIgnored_WhenTargeted)
     ChainDebugger debugger;
     debugger.SetTarget("chains/other.chain.json");
     debugger.ToggleNodeBreakpoint("move");
-    session->SetStepObserver([&](const ScenePlaySession& play) { return debugger.Observe(play.Runtime()).has_value(); });
+    session->SetStepObserver([&](const ScenePlaySession& play)
+                             { return debugger.Observe(play.Runtime()).has_value(); });
     session->Advance(34ms);
     EXPECT_FALSE(session->Paused());
     EXPECT_TRUE(debugger.Timeline().empty());

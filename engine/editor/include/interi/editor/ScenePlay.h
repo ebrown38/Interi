@@ -27,13 +27,11 @@ class ScenePlaySession
 {
 public:
     /// Copies the scene (expanded prefab instances collapsed to their current overrides, then expanded again by
-    /// the runtime) and starts it; `trace` records the chain executor's trace for the debugger. `chains` (with at least the core library), `values` (may be nullptr), `files`
-    /// and `jobs` must outlive the session.
-    [[nodiscard]] static Result<std::unique_ptr<ScenePlaySession>> Start(const EditorScene& scene,
-                                                                         chain::ChainRegistry& chains,
-                                                                         values::ValueRegistry* values,
-                                                                         const IFileSystem& files, JobSystem& jobs,
-                                                                         bool trace = false);
+    /// the runtime) and starts it; `trace` records the chain executor's trace for the debugger. `chains` (with at least
+    /// the core library), `values` (may be nullptr), `files` and `jobs` must outlive the session.
+    [[nodiscard]] static Result<std::unique_ptr<ScenePlaySession>>
+    Start(const EditorScene& scene, chain::ChainRegistry& chains, values::ValueRegistry* values,
+          const IFileSystem& files, JobSystem& jobs, bool trace = false);
 
     /// Runs the fixed steps `elapsed` adds up to (none while paused).
     void Advance(std::chrono::nanoseconds elapsed);

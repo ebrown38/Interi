@@ -3,21 +3,23 @@
 // one contributes. Module authors run it (and the scaffolded load test does) to check that a module builds against
 // this engine, resolves, and registers.
 //
-//   interi_module_check [--search <library dir>]... <module dir>...
+//   interi_module_check [--search <library dir>]... [--docs <output dir>] <module dir>...
 //
 // Every <module dir> holds a module.json; the project order is the order given (first = highest priority). A
 // PhysicsEngine module is not part of the order (engines are reached through the modules' physicsEngines): it is
 // installed and pinned, so it loads even when no other module declares it.
 // Libraries are looked up in each module's folder, then in the --search directories. Exit code 0 when the project
-// loads.
+// loads. --docs also writes a Markdown page per loaded module (<id>.md).
 #include <interi/core/Log.h>
 #include <interi/ecs/World.h>
+#include <interi/hotreload/ModuleDocs.h>
 #include <interi/hotreload/ModuleHost.h>
 #include <interi/sdk/Manifest.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -26,7 +28,8 @@
 namespace
 {
 
-constexpr const char* kUsage = "usage: interi_module_check [--search <library dir>]... <module dir>...\n";
+constexpr const char* kUsage =
+    "usage: interi_module_check [--search <library dir>]... [--docs <output dir>] <module dir>...\n";
 
 } // namespace
 
@@ -34,12 +37,17 @@ int main(int argc, char** argv)
 {
     std::vector<std::filesystem::path> searchPaths;
     std::vector<std::filesystem::path> moduleDirectories;
+    std::filesystem::path docsDirectory;
     for (int i = 1; i < argc; ++i)
     {
         const std::string_view argument = argv[i];
         if (argument == "--search" && i + 1 < argc)
         {
             searchPaths.emplace_back(argv[++i]);
+        }
+        else if (argument == "--docs" && i + 1 < argc)
+        {
+            docsDirectory = argv[++i];
         }
         else if (argument == "--help" || argument == "-h")
         {
@@ -124,6 +132,39 @@ int main(int argc, char** argv)
             std::printf(" %s%s", entry.provider.c_str(), entry.isOverride ? " (override)" : "");
         }
         std::printf("\n");
+    }
+    const auto& events = host.Chains().Events().Registry();
+    for (const std::string& id : events.Ids())
+    {
+        std::printf("event %s:", id.c_str());
+        for (const auto& entry : events.Provenance(id))
+        {
+            std::printf(" %s%s", entry.provider.c_str(), entry.isOverride ? " (override)" : "");
+        }
+        std::printf("\n");
+    }
+    if (!docsDirectory.empty())
+    {
+        // One page per loaded module, from its manifest and what its code registered.
+        std::error_code error;
+        std::filesystem::create_directories(docsDirectory, error);
+        for (const std::string& id : host.LoadedModules())
+        {
+            const auto manifest = std::ranges::find(manifests, id, &interi::sdk::ModuleManifest::id);
+            if (manifest == manifests.end())
+            {
+                continue;
+            }
+            auto page = interi::hotreload::GenerateModuleDocs(*manifest, &host.Chains(), &host.Hooks());
+            if (!page)
+            {
+                std::fprintf(stderr, "error: docs for %s: %s\n", id.c_str(), page.error().message.c_str());
+                return 1;
+            }
+            const std::filesystem::path path = docsDirectory / (id + ".md");
+            std::ofstream(path, std::ios::binary | std::ios::trunc) << *page;
+            std::printf("docs %s\n", path.string().c_str());
+        }
     }
     return 0;
 }

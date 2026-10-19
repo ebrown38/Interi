@@ -12,6 +12,7 @@
 #include <interi/editor/Prefabs.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ViewportOverlay.h>
+#include <interi/hotreload/ModuleDocs.h>
 #include <interi/jobs/JobSystem.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/scene/Mesh.h>
@@ -24,8 +25,10 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -81,7 +84,7 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_dataDir(desc.dataDir)
     , m_dataFiles(desc.dataDir)
     // Versioned: a layout saved before a window existed would leave that window floating.
-    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v8.ini").string())
+    , m_iniPath((std::filesystem::temp_directory_path() / "interi_editor_layout_v9.ini").string())
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
@@ -103,6 +106,15 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     else
     {
         INTERI_LOG_WARN("Editor", "{}: {} (using defaults)", m_preferencesPath.string(), preferences.error().message);
+    }
+    m_trustPath = TrustStorePath(m_preferencesPath);
+    if (auto trust = TrustStore::Load(m_trustPath))
+    {
+        m_trust = std::move(*trust);
+    }
+    else
+    {
+        INTERI_LOG_WARN("Editor", "{}: {} (no module is trusted)", m_trustPath.string(), trust.error().message);
     }
     m_tools.snap = m_preferences.snap;
     m_tools.moveSnap = m_preferences.moveSnap;
@@ -220,7 +232,9 @@ chain::ChainRegistry& EditorApp::ActiveChains() noexcept
 void EditorApp::LoadProjectModulesHost(const sdk::Project& project)
 {
     ++m_chain.revision; // the chain registry is replaced: the chain editor's palette rebuilds
-    m_modules.reset();  // unloads the old modules (their extensions leave first)
+    m_moduleViewDirty = true;
+    m_libraryWatcher = {};
+    m_modules.reset(); // unloads the old modules (their extensions leave first)
     if (project.modules.empty() || !hotreload::ModuleHost::Supported())
     {
         return;
@@ -236,6 +250,9 @@ void EditorApp::LoadProjectModulesHost(const sdk::Project& project)
     }
     m_modules = std::move(*modules);
     INTERI_LOG_INFO("Editor", "loaded {} modules", m_modules->Host().LoadedModules().size());
+    m_libraryWatcher = {};
+    const std::vector<std::filesystem::path> libraries = FindModuleLibraries(m_projectManifests, m_moduleLibraries);
+    m_libraryWatcher.Watch(libraries);
 }
 
 void EditorApp::SaveProjectData()
@@ -572,6 +589,7 @@ void EditorApp::OpenProjectFolder(const std::filesystem::path& folder)
         }
     }
     m_window.SetTitle(std::format("Interi Editor - {}", project->name));
+    m_moduleViewDirty = true;
     INTERI_LOG_INFO("Editor", "opened project {} ({} modules)", project->name, graph->loadOrder.size());
 }
 
@@ -598,12 +616,8 @@ void EditorApp::HandleProjectRequests(const ProjectRequests& requests)
     }
     if (requests.addModule && m_projectDef)
     {
-        const auto candidate = std::ranges::find(m_projectManifests, *requests.addModule, &sdk::ModuleManifest::id);
-        if (candidate != m_projectManifests.end())
-        {
-            ApplyProjectChange(AddProjectModule(*m_projectDef, m_projectManifests, *candidate, sdk::CurrentHost()),
-                               std::format("add module {}", *requests.addModule));
-        }
+        // The Module Manager checks the module graph and asks before native code is enabled.
+        m_moduleManager.Queue({.kind = ModuleAction::Kind::Enable, .id = *requests.addModule, .position = 0});
     }
 }
 
@@ -1057,6 +1071,10 @@ void EditorApp::DrawChainEditorWindow()
                       ? static_cast<const chain::IValueReader*>(&m_scenePlay->Runtime().Executor().Values())
                       : static_cast<const chain::IValueReader*>(&values);
     const ChainEditorResult result = DrawChainEditor(m_chain.asset, m_chain.undo, m_chain.ui, host);
+    if (result.overrideEvent)
+    {
+        m_moduleManager.SetPluginTarget(PluginTargetKind::Event, *result.overrideEvent);
+    }
     if (m_scenePlay != nullptr)
     {
         if (result.pauseRequested)
@@ -1071,6 +1089,255 @@ void EditorApp::DrawChainEditorWindow()
         {
             m_scenePlay->StepOnce();
         }
+    }
+}
+
+namespace
+{
+
+/// Runs `command` through the shell and returns its combined output; an error (with the output) for a non-zero exit.
+Result<std::string> RunShell(const std::string& command)
+{
+#if defined(_WIN32)
+    std::FILE* pipe = _popen((command + " 2>&1").c_str(), "r");
+#else
+    std::FILE* pipe = popen((command + " 2>&1").c_str(), "r");
+#endif
+    if (pipe == nullptr)
+    {
+        return MakeError(ErrorCode::IoError, "can't run: " + command);
+    }
+    std::string output;
+    std::array<char, 4096> buffer{};
+    constexpr std::size_t kMaxOutput = 256 * 1024;
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr)
+    {
+        if (output.size() < kMaxOutput)
+        {
+            output += buffer.data();
+        }
+    }
+#if defined(_WIN32)
+    const int status = _pclose(pipe);
+#else
+    const int status = pclose(pipe);
+#endif
+    if (status != 0)
+    {
+        return MakeError(ErrorCode::Unsupported, std::format("{}\nbuild failed (exit status {})", output, status));
+    }
+    return output;
+}
+
+} // namespace
+
+void EditorApp::RefreshModuleManager()
+{
+    m_moduleViewDirty = false;
+    m_moduleModel = {};
+    m_moduleGraph = {};
+    m_moduleConflicts = {};
+    m_resolvedGraph = {};
+    if (!m_projectDef)
+    {
+        return;
+    }
+    const sdk::HostInfo host = sdk::CurrentHost();
+    m_moduleModel = BuildModuleManagerModel(*m_projectDef, m_projectManifests, host, m_trust);
+    auto graph = sdk::ResolveModuleGraph(m_projectDef->modules, m_projectManifests, host, m_projectDef->physicsEngine);
+    if (!graph)
+    {
+        return;
+    }
+    m_resolvedGraph = std::move(*graph);
+    m_moduleGraph = BuildDependencyGraph(m_resolvedGraph);
+    m_moduleConflicts = CollectConflicts(m_resolvedGraph, m_modules != nullptr ? &m_modules->Chains() : nullptr,
+                                         ActiveData(), m_modules != nullptr ? &m_modules->Host().Hooks() : nullptr);
+}
+
+void EditorApp::RunModuleLoop(bool build)
+{
+    const bool wasPlaying = m_scenePlay != nullptr;
+    DevLoopHooks hooks;
+    hooks.stopPlay = [this]
+    {
+        if (m_scenePlay != nullptr)
+        {
+            (void)EndPlay(*m_scenePlay, false, ActiveData(), m_document.Undo(), m_playUndoMark);
+            m_scenePlay.reset();
+        }
+    };
+    if (build && !m_moduleManager.buildCommand.empty())
+    {
+        hooks.build = [this] { return RunShell(m_moduleManager.buildCommand); };
+    }
+    hooks.reload = [this]() -> Result<std::string>
+    {
+        if (m_modules == nullptr)
+        {
+            return MakeError(ErrorCode::NotFound, "no modules are loaded");
+        }
+        std::string text;
+        for (const sdk::ModuleManifest& manifest : m_projectManifests)
+        {
+            const auto& loaded = m_modules->Host().LoadedModules();
+            if (manifest.library.empty() || std::ranges::find(loaded, manifest.id) == loaded.end())
+            {
+                continue;
+            }
+            auto stats = m_modules->Reload(manifest.id);
+            if (!stats)
+            {
+                return MakeError(stats.error().code, std::format("{}: {}", manifest.id, stats.error().message));
+            }
+            text += std::format("reloaded {}\n", manifest.id);
+        }
+        return text;
+    };
+    if (wasPlaying)
+    {
+        hooks.replay = [this]() -> Result<void>
+        {
+            HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f);
+            return m_scenePlay != nullptr ? Result<void>{} : MakeError(ErrorCode::Unsupported, "play didn't start");
+        };
+    }
+    const DevLoopReport report = RunDevLoop(hooks);
+    m_moduleManager.loopOutput = report.success ? report.output : report.output + "\n" + report.message;
+    m_moduleManager.loopFailed = !report.success;
+    if (report.success)
+    {
+        INTERI_LOG_INFO("Editor", "modules reloaded");
+    }
+    else
+    {
+        INTERI_LOG_ERROR("Editor", "module loop failed: {}", report.message);
+    }
+    ++m_chain.revision; // events and functions came from new instances: the palette rebuilds
+    m_moduleViewDirty = true;
+}
+
+void EditorApp::DrawModuleManager()
+{
+    if (m_moduleViewDirty)
+    {
+        RefreshModuleManager();
+    }
+    const sdk::HostInfo host = sdk::CurrentHost();
+    ModuleManagerView view;
+    view.model = &m_moduleModel;
+    view.graph = &m_moduleGraph;
+    view.conflicts = &m_moduleConflicts;
+    view.canBuild = true;
+    view.plan = [this, host](const ModuleAction& action) -> Result<ModuleChange>
+    {
+        if (!m_projectDef)
+        {
+            return MakeError(ErrorCode::NotFound, "no project is open");
+        }
+        switch (action.kind)
+        {
+        case ModuleAction::Kind::Enable:
+            return EnableModule(*m_projectDef, m_projectManifests, action.id, host, m_trust, action.position);
+        case ModuleAction::Kind::Disable:
+            return DisableModule(*m_projectDef, m_projectManifests, action.id, host, m_trust);
+        case ModuleAction::Kind::Move:
+            return MoveModule(*m_projectDef, m_projectManifests, action.id, action.position, host, m_trust);
+        }
+        return MakeError(ErrorCode::InvalidArgument, "unknown action");
+    };
+    const ModuleManagerRequests requests = DrawModuleManagerPanel(m_moduleManager, view);
+    if (!m_moduleManager.refusal.empty())
+    {
+        m_projectMenu.refusal = m_moduleManager.refusal;
+    }
+    m_moduleRequests = requests;
+}
+
+void EditorApp::HandleModuleManager()
+{
+    const ModuleManagerRequests requests = std::move(m_moduleRequests);
+    m_moduleRequests = {};
+    // A library rebuilt outside the editor: reload and play again.
+    if (m_modules != nullptr && m_moduleManager.autoReload && m_libraryWatcher.Poll())
+    {
+        INTERI_LOG_INFO("Editor", "a module library changed: reloading");
+        RunModuleLoop(false);
+    }
+    for (const std::string& id : requests.trust)
+    {
+        if (const auto manifest = std::ranges::find(m_projectManifests, id, &sdk::ModuleManifest::id);
+            manifest != m_projectManifests.end())
+        {
+            m_trust.Trust(*manifest);
+        }
+    }
+    if (!requests.trust.empty())
+    {
+        if (auto saved = m_trust.Save(m_trustPath); !saved)
+        {
+            INTERI_LOG_WARN("Editor", "{}: {}", m_trustPath.string(), saved.error().message);
+        }
+    }
+    if (requests.apply)
+    {
+        ApplyProjectChange(requests.apply->project, "change the project's modules");
+    }
+    if (requests.createPlugin)
+    {
+        PluginStubDesc desc = requests.createPlugin->desc;
+        std::filesystem::path folder = requests.createPlugin->folder;
+        if (folder.is_relative() && m_projectDef)
+        {
+            folder = m_projectDef->directory / folder;
+        }
+        auto target = DescribePluginTarget(desc.target.kind, desc.target.id, m_resolvedGraph,
+                                           m_modules != nullptr ? &m_modules->Chains() : nullptr,
+                                           m_modules != nullptr ? &m_modules->Host().Hooks() : nullptr);
+        if (!target)
+        {
+            m_moduleManager.pluginStatus = target.error().message;
+        }
+        else
+        {
+            desc.target = std::move(*target);
+            auto written = WritePluginStub(folder, desc);
+            m_moduleManager.pluginStatus =
+                written ? std::format("Wrote {} files to {}. Build it against the engine (see the generated "
+                                      "CMakeLists.txt), put it above the module it overrides and enable it.",
+                                      written->size(), folder.string())
+                        : written.error().message;
+        }
+    }
+    if (requests.generateDocs || requests.saveDocs)
+    {
+        const std::string& id = requests.generateDocs ? *requests.generateDocs : *requests.saveDocs;
+        const auto manifest = std::ranges::find(m_projectManifests, id, &sdk::ModuleManifest::id);
+        if (manifest != m_projectManifests.end())
+        {
+            auto page = hotreload::GenerateModuleDocs(*manifest, m_modules != nullptr ? &m_modules->Chains() : nullptr,
+                                                      m_modules != nullptr ? &m_modules->Host().Hooks() : nullptr);
+            if (!page)
+            {
+                m_moduleManager.docsText = page.error().message;
+            }
+            else if (requests.generateDocs)
+            {
+                m_moduleManager.docsText = std::move(*page);
+            }
+            else if (m_projectDef)
+            {
+                const std::filesystem::path path = m_projectDef->directory / "docs" / "modules" / (id + ".md");
+                std::error_code error;
+                std::filesystem::create_directories(path.parent_path(), error);
+                std::ofstream(path, std::ios::binary | std::ios::trunc) << *page;
+                INTERI_LOG_INFO("Editor", "wrote {}", path.string());
+            }
+        }
+    }
+    if (requests.runLoop)
+    {
+        RunModuleLoop(true);
     }
 }
 
@@ -1171,6 +1438,7 @@ FrameResult EditorApp::Frame()
         m_extensions.DrawMenu();
         ImGui::MenuItem("HUD Designer", nullptr, &m_hud.show);
         ImGui::MenuItem("Chain Editor", nullptr, &m_chain.show);
+        ImGui::MenuItem("Module Manager", nullptr, &m_moduleManager.show);
         ImGui::EndMainMenuBar();
     }
     {
@@ -1179,6 +1447,7 @@ FrameResult EditorApp::Frame()
     }
     DrawHud();
     DrawChainEditorWindow();
+    DrawModuleManager();
     DrawConsolePanel(*m_log, m_console);
     const ProjectSettingsRequests settings = DrawProjectSettingsPanel(m_physicsEngine);
     if (DrawPreferencesPanel(m_preferences, INTERI_PROFILING_ACTIVE != 0, ProfilerConnected()))
@@ -1196,6 +1465,7 @@ FrameResult EditorApp::Frame()
     }
     DrawViewport();
     HandleProjectRequests(projectRequests);
+    HandleModuleManager();
     HandleProjectSettings(settings);
     ImGui::Render();
 

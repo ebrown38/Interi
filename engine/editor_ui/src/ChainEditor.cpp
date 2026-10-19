@@ -841,7 +841,8 @@ CanvasOutcome DrawCanvas(ChainAsset& asset, UndoStack& undo, ChainEditorState& s
 
 // ---- Palette -----------------------------------------------------------------------------------------------------
 
-void DrawPalette(ChainAsset& asset, UndoStack& undo, ChainEditorState& state, const ChainEditorHost& host, bool& edited)
+void DrawPalette(ChainAsset& asset, UndoStack& undo, ChainEditorState& state, const ChainEditorHost& host, bool& edited,
+                 std::optional<std::string>& overrideEvent)
 {
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputTextWithHint("##palette", "search events", &state.paletteQuery);
@@ -888,6 +889,14 @@ void DrawPalette(ChainAsset& asset, UndoStack& undo, ChainEditorState& state, co
             ImGui::SetDragDropPayload("CHAIN_EVENT", entry->id.c_str(), entry->id.size() + 1);
             ImGui::TextUnformatted(entry->id.c_str());
             ImGui::EndDragDropSource();
+        }
+        if (ImGui::BeginPopupContextItem("palette_entry"))
+        {
+            if (ImGui::MenuItem("Create Plugin override..."))
+            {
+                overrideEvent = entry->id;
+            }
+            ImGui::EndPopup();
         }
         if (ImGui::IsItemHovered() && (!entry->tooltip.empty() || !entry->indicator.empty()))
         {
@@ -1535,7 +1544,7 @@ ChainEditorResult DrawChainEditor(ChainAsset& asset, UndoStack& undo, ChainEdito
     {
         if (ImGui::BeginChild("chain_palette", ImVec2(230.0f, 0.0f), ImGuiChildFlags_Borders))
         {
-            DrawPalette(asset, undo, state, host, result.edited);
+            DrawPalette(asset, undo, state, host, result.edited, result.overrideEvent);
         }
         ImGui::EndChild();
         ImGui::SameLine();

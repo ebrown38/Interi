@@ -1,0 +1,19 @@
+{
+  "author": "Interi",
+  "copyright": "Copyright (c) Interi",
+  "dependencies": [],
+  "description": "Hook Plugin: overrides com.interi.starter:Example.",
+  "engine": "^0.1",
+  "id": "com.interi.test.hookplugin",
+  "kind": "Plugin",
+  "library": "com_interi_test_hookplugin",
+  "license": "MIT",
+  "name": "Hook Plugin",
+  "overrides": [
+    {
+      "target": "com.interi.starter:Example",
+      "version": "^0.1"
+    }
+  ],
+  "version": "0.1.0"
+}

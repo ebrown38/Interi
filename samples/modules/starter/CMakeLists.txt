@@ -15,5 +15,5 @@ interi_add_gameplay_module(com_interi_starter SOURCES src/StarterModule.cpp)
 enable_testing()
 interi_add_module_load_test(com_interi_starter)
 if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    set_tests_properties(com_interi_starter_Loads PROPERTIES LABELS integration) # in tree: CI runs it
+    set_tests_properties(com_interi_starter_Loads PROPERTIES LABELS integration RESOURCE_LOCK module_shadow_copy) # in tree: CI runs it
 endif()

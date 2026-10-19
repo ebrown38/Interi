@@ -7,6 +7,7 @@ interi_add_module(sdk SHARED
     SOURCES
         src/ContributionRegistry.cpp
         src/HeaderCheck.cpp
+        src/HookSignature.cpp
         src/Manifest.cpp
         src/ModuleGraph.cpp
         src/Project.cpp
@@ -17,6 +18,7 @@ interi_add_module(sdk SHARED
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/ContributionRegistryTests.cpp
+        ${_tests}/HookSignatureTests.cpp
         ${_tests}/HooksTests.cpp
         ${_tests}/ManifestTests.cpp
         ${_tests}/ModuleGraphTests.cpp

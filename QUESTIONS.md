@@ -112,3 +112,18 @@
 - **Task:** 22.1.1 node canvas
 - **Context:** The plan says imgui-node-editor or imnodes after a license check; the engine uses imgui 1.92 with the new texture API.
 - **Assumption made:** The canvas (pan, zoom, minimap, links) is drawn directly on ImDrawList like DrawHudFrame, avoiding a dependency, license-policy and notices changes.
+
+## What does "trusted" key on, and are projects that already list modules confirmed?
+- **Task:** Milestone 23, 23.4 Trust UI
+- **Context:** The plan says the panel "shows the author and license and asks for confirmation the first time a module is enabled." `engine/editor/ModuleManager.h`, `docs/module-manager.md`.
+- **Assumption made:** Trust is keyed by id + author + license (a changed author or license asks again) and stored in `trusted_modules.json` beside the editor preferences. Only enabling asks (Module Manager and the Project menu's Add module, covering implicit Extensions and a newly selected Physics Engine); opening a project that already lists modules does not, and the docs say so.
+
+## Where does the module docs generator live, and does it cover modules that aren't loaded?
+- **Task:** Milestone 23, 23.5 Module docs generator ("from a manifest")
+- **Context:** Events and hooks are registered by a module's code, so they exist only in a loaded host's registries; Values and Tables are in module.json.
+- **Assumption made:** `hotreload::GenerateModuleDocs` takes the manifest plus optional registries, and `interi_module_check --docs <dir>` loads the modules itself so command-line docs include Events and hooks. The editor's Docs tab covers modules loaded in the open project. A module that can't load only gets its manifest, Values and Tables.
+
+## Which module libraries does the editor reload in the hot-reload loop?
+- **Task:** Milestone 23, 23.3.2 Hot-reload loop
+- **Context:** `EditorApp::RunModuleLoop` reloads each loaded module that has a library, in project manifest order (`Reload` also reopens dependents), rather than only the one that was rebuilt, because the watcher only reports that some library changed.
+- **Assumption made:** Reloading all is correct but redundant for large projects; a per-library watcher could narrow it.

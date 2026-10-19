@@ -10,7 +10,10 @@
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorModules.h>
 #include <interi/editor/Gizmo.h>
+#include <interi/editor/ModuleConflicts.h>
+#include <interi/editor/ModuleManager.h>
 #include <interi/editor/Picking.h>
+#include <interi/editor/PluginAuthoring.h>
 #include <interi/editor/ScenePlay.h>
 #include <interi/editor_ui/ChainEditor.h>
 #include <interi/editor_ui/DataPanels.h>
@@ -18,6 +21,7 @@
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/HudDesigner.h>
 #include <interi/editor_ui/ImGuiInput.h>
+#include <interi/editor_ui/ModuleManagerPanel.h>
 #include <interi/editor_ui/ServicePanels.h>
 #include <interi/platform/FileSystem.h>
 
@@ -78,6 +82,8 @@ public:
     [[nodiscard]] FrameResult Frame();
     /// Opens the Chain Editor on a chain asset (errors show in its file bar).
     void OpenChain(const std::string& path);
+    /// Shows the Module Manager (smoke runs: --module-manager 1).
+    void ShowModuleManager() noexcept { m_moduleManager.show = true; }
     void SetChainBreakpoint(const std::string& node) { m_chain.debugger.ToggleNodeBreakpoint(node); }
     /// Starts play-in-editor of the open scene (smoke runs: --play 1).
     void PlayScene() { HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f); }
@@ -122,6 +128,14 @@ private:
     void LoadProjectModulesHost(const sdk::Project& project);
     void DrawHud();
     void DrawChainEditorWindow();
+    /// The Module Manager window: draws it and carries out what it asks for (changes, trust, Plugin stubs, docs).
+    void DrawModuleManager();
+    /// After the frame is drawn (reopening the project or reloading modules mid-frame would pull panels away).
+    void HandleModuleManager();
+    /// Rebuilds the Module Manager's models from the open project and the loaded registries.
+    void RefreshModuleManager();
+    /// Stop play, build (when a command is set), reload the modules and play again if it was playing.
+    void RunModuleLoop(bool build);
 
     void HandlePlay(const ScenePlayRequests& requests, float seconds);
     /// Opens a project folder: mounts it (its paths are the project's), resolves its modules, loads its data and
@@ -184,6 +198,18 @@ private:
     /// What modules add to the editor. Declared before m_modules: the host takes the entries back while unloading.
     EditorExtensions m_extensions{m_document.Reflection()};
     std::unique_ptr<EditorModules> m_modules; ///< The open project's loaded modules (null: none, or they didn't load).
+    /// The Module Manager (23): view state, the trust the user confirmed, the models it draws and the watcher that
+    /// reloads rebuilt module libraries.
+    ModuleManagerState m_moduleManager;
+    ModuleManagerRequests m_moduleRequests;
+    TrustStore m_trust;
+    std::filesystem::path m_trustPath;
+    ModuleManagerModel m_moduleModel;
+    DependencyGraphView m_moduleGraph;
+    ConflictReport m_moduleConflicts;
+    sdk::ModuleGraph m_resolvedGraph;
+    LibraryWatcher m_libraryWatcher;
+    bool m_moduleViewDirty = true;
     struct HudState
     {
         bool show = false;

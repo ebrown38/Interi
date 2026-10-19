@@ -21,6 +21,7 @@ interi_add_module(editor
         src/HudEditing.cpp
         src/Inspector.cpp
         src/Modeling.cpp
+        src/ModuleManager.cpp
         src/Picking.cpp
         src/Prefabs.cpp
         src/Projects.cpp
@@ -43,6 +44,7 @@ interi_add_module(editor
         ${_tests}/HudEditingTests.cpp
         ${_tests}/InspectorTests.cpp
         ${_tests}/ModelingTests.cpp
+        ${_tests}/ModuleManagerTests.cpp
         ${_tests}/PickingTests.cpp
         ${_tests}/PrefabsTests.cpp
         ${_tests}/ReflectionTests.cpp

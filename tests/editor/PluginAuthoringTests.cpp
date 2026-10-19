@@ -52,6 +52,17 @@ PluginStubDesc EventStub()
     return desc;
 }
 
+/// INTERI_UPDATE_GOLDEN is set (read-only getenv during single-threaded test setup, without MSVC's C4996).
+bool UpdateRequested()
+{
+#if defined(_MSC_VER)
+#pragma warning(suppress : 4996)
+    return std::getenv("INTERI_UPDATE_GOLDEN") != nullptr;
+#else
+    return std::getenv("INTERI_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
+#endif
+}
+
 const GeneratedFile& FileNamed(const std::vector<GeneratedFile>& files, std::string_view suffix)
 {
     return *std::ranges::find_if(files, [&](const GeneratedFile& f) { return f.path.ends_with(suffix); });
@@ -159,10 +170,7 @@ TEST(PluginStub, Write_RefusesNonEmptyFolder)
 TEST(PluginStub, GeneratorOutput_MatchesCommittedStubs)
 {
     const std::filesystem::path root = INTERI_PLUGIN_STUB_DIR;
-#if defined(_MSC_VER)
-#pragma warning(suppress : 4996) // getenv: read-only, during single-threaded test setup
-#endif
-    const bool update = std::getenv("INTERI_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
+    const bool update = UpdateRequested();
     for (const auto& [folder, desc] : {std::pair{"hook", HookStub()}, std::pair{"event", EventStub()}})
     {
         auto files = GeneratePluginStub(desc);

@@ -26,10 +26,15 @@
 // "from" is "<node>.<output>", or "<node>" for the event's first output; its optional "condition" is a bool
 // expression over the upstream payload and Values that makes the link an "if". Node ids are names
 // ([A-Za-z0-9_], unique). Malformed content is an error naming where; unknown keys are warnings.
+//
+// Editor data (optional, ignored at run time, omitted from the file when empty or default): a node's canvas position
+// `"pos": [x, y]`, and an `"editor"` object with `"comments"` (`{id, text, pos, size}`) and `"groups"`
+// (`{id, title, nodes: [...], color: [r,g,b,a]}`).
 
 #include <interi/core/Result.h>
 #include <interi/platform/FileSystem.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -64,6 +69,7 @@ struct ChainNode
     std::string id;
     std::string event;
     std::vector<std::pair<std::string, Binding>> params; ///< Input name -> binding, sorted by name.
+    std::array<float, 2> pos = {0.0f, 0.0f};             ///< Canvas position (editor only).
 
     friend bool operator==(const ChainNode&, const ChainNode&) = default;
 };
@@ -78,17 +84,42 @@ struct ChainLink
     friend bool operator==(const ChainLink&, const ChainLink&) = default;
 };
 
+/// A free-floating note on the canvas (editor only).
+struct ChainComment
+{
+    std::string id;
+    std::string text;
+    std::array<float, 2> pos = {0.0f, 0.0f};
+    std::array<float, 2> size = {200.0f, 80.0f};
+
+    friend bool operator==(const ChainComment&, const ChainComment&) = default;
+};
+
+/// A titled frame around some nodes (editor only).
+struct ChainGroup
+{
+    std::string id;
+    std::string title;
+    std::vector<std::string> nodes; ///< Node ids.
+    std::array<float, 4> color = {0.3f, 0.5f, 0.8f, 0.25f};
+
+    friend bool operator==(const ChainGroup&, const ChainGroup&) = default;
+};
+
 struct ChainAsset
 {
     /// Orders this chain's activations against other chains' in a step (lower first).
     std::int32_t priority = 0;
     std::vector<ChainNode> nodes;
     std::vector<ChainLink> links;
+    std::vector<ChainComment> comments; ///< Editor only.
+    std::vector<ChainGroup> groups;     ///< Editor only.
     std::vector<std::string> warnings; ///< From parsing; not written.
 
     friend bool operator==(const ChainAsset& a, const ChainAsset& b)
     {
-        return a.priority == b.priority && a.nodes == b.nodes && a.links == b.links;
+        return a.priority == b.priority && a.nodes == b.nodes && a.links == b.links &&
+               a.comments == b.comments && a.groups == b.groups;
     }
 };
 

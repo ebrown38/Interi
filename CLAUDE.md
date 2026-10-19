@@ -471,8 +471,8 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`tools/export`** (`interi_export`) and **`tools/player`** (`interi_player`, the engine without the editor: verifies the
   package, opens `game/` as a `GameSession`, `--steps`, `--press action@step`, `--print id`, `--realtime`). The player is
   headless by default; `--window` opens an SDL window (`--video-driver dummy` in tests), feeds `content/input.json` bindings into the chains and runs in real time. It does not draw the scene: a renderer plugs into that loop.
-  `cmake --install` installs both. `GameSession` still reads `project_data.json`; `cooked.ival` is written and tested but
-  not yet consumed by the player.
+  `cmake --install` installs both. `GameSession` still reads `project_data.json`; `cooked.ival` is written, and the player checks at startup that it equals what the
+  modules and project data resolve to (`CookData`); the runtime still builds its registry from the JSON.
 - **Platform audit** (`tools/platform_audit/platform_audit.py`, ctest `PlatformAudit_*`): Vulkan, SDL, POSIX and Win32
   headers and names stay in `rhi_vulkan`, `platform_sdl` and the platform layers (allowlists in the script); public
   headers never include OS headers; `d3d12`/`dxgi`/console SDK headers are never allowed here; CMake may link the backends

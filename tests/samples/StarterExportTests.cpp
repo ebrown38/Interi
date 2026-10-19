@@ -138,6 +138,7 @@ TEST_F(StarterExportTest, ExportToolAndPlayer_ExportThenPlayThePackage)
               0)
         << output;
     EXPECT_NE(output.find("Played 40 steps"), std::string::npos) << output;
+    EXPECT_NE(output.find("Cooked data matches"), std::string::npos) << output;
     EXPECT_NE(output.find("com.interi.starter:won=true"), std::string::npos) << output;
 }
 

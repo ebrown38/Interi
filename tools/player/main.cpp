@@ -20,6 +20,7 @@
 #include <interi/platform/InputMapper.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/runtime/FixedStepClock.h>
+#include <interi/values/ProjectData.h>
 #include <interi/values/Value.h>
 
 #include <chrono>
@@ -163,6 +164,18 @@ int main(int argc, char** argv)
     for (const std::string& warning : session.Warnings())
     {
         std::fprintf(stderr, "warning: %s\n", warning.c_str());
+    }
+
+    // The cooked data the exporter wrote must be what this build resolves from the modules and project data.
+    if (auto cooked = session.Files().ReadFile("cooked.ival"))
+    {
+        auto expected = interi::values::ReadCookedData(*cooked);
+        if (!expected || !(*expected == interi::values::CookData(session.Data())))
+        {
+            std::fprintf(stderr, "the cooked data doesn't match the modules' data\n");
+            return 1;
+        }
+        std::printf("Cooked data matches\n");
     }
 
     interi::FixedStepClock clock;

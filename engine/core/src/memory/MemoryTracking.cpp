@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/Assert.h>
-#include <interi/core/Log.h>
 #include <interi/core/memory/MemoryTracking.h>
 
 #include <array>
@@ -27,15 +26,9 @@ std::array<TagCounters, static_cast<std::size_t>(MemoryTag::Count)> g_counters;
 std::mutex g_policyMutex;
 OutOfBudgetPolicy g_policy;
 
-BudgetAction DefaultPolicy(const BudgetViolation& violation, void*) noexcept
+BudgetAction DefaultPolicy(const BudgetViolation&, void*) noexcept
 {
-    if (GetBudgetOverruns(violation.tag) == 1)
-    {
-        INTERI_LOG_WARN("memory", "Memory budget of {} exceeded: {} live + {} requested > {} bytes",
-                        ToString(violation.tag), violation.currentBytes, violation.requestedBytes,
-                        violation.budgetBytes);
-    }
-    return BudgetAction::Allow;
+    return BudgetAction::Allow; // counted in GetBudgetOverruns; formatting a log line here could throw
 }
 
 TagCounters& CountersFor(MemoryTag tag) noexcept

@@ -455,7 +455,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   repo (the private console repos); `docs/d3d12-mapping.md` maps the RHI to D3D12.
 - **Budgets** (`core/memory/MemoryTracking.h`): `SetMemoryBudget(tag, bytes)` (0 = unlimited) is enforced by
   `TrackedAllocator` only. An allocation that would pass it calls the out-of-budget policy (`SetOutOfBudgetPolicy`,
-  `ScopedOutOfBudgetHandler`; default logs once per tag and allows); `Deny` makes `Allocate` return nullptr. The check is
+  `ScopedOutOfBudgetHandler`; default allows and only counts (`GetBudgetOverruns`)); `Deny` makes `Allocate` return nullptr. The check is
   a soft limit (relaxed loads): concurrent allocations may overshoot slightly. A module that installs a handler restores
   the previous one before it unloads.
 - **Fuzzing and soak** (`tests/fuzz`, `tests/samples/StarterSoakTests.cpp`): seeded mutation of the starter sample's

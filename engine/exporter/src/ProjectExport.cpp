@@ -384,7 +384,7 @@ Result<PackageInfo> VerifyPackage(const fs::path& root)
         std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), nullptr, false);
     if (!manifest.is_object() || !manifest.contains("format") || !manifest["format"].is_number_unsigned() ||
         !manifest.contains("files") || !manifest["files"].is_array() || !manifest.contains("modules") ||
-        !manifest["modules"].is_array() || !manifest.value("toolchain", std::string{}).size())
+        !manifest["modules"].is_array() || manifest.value("toolchain", std::string{}).empty())
     {
         return MakeError(ErrorCode::Corrupt, "package.json is malformed");
     }
@@ -404,8 +404,8 @@ Result<PackageInfo> VerifyPackage(const fs::path& root)
     info.engineVersion = manifest.value("engine", std::string{});
     for (const nlohmann::json& file : manifest["files"])
     {
-        if (!file.is_object() || !file.value("path", std::string{}).size() || !file.contains("size") ||
-            !file["size"].is_number_unsigned() || !file.value("hash", std::string{}).size())
+        if (!file.is_object() || file.value("path", std::string{}).empty() || !file.contains("size") ||
+            !file["size"].is_number_unsigned() || file.value("hash", std::string{}).empty())
         {
             return MakeError(ErrorCode::Corrupt, "package.json lists a malformed file");
         }

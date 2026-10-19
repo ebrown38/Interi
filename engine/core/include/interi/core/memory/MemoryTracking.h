@@ -59,7 +59,7 @@ struct BudgetViolation
 
 /// The out-of-budget policy. Called on the allocating thread, before the allocation, so it must be quick, must not
 /// allocate through a TrackedAllocator and must be thread-safe. A game or module may free caches in it (and answer
-/// Allow) or refuse. The default logs the first overrun per tag and answers Allow.
+/// Allow) or refuse. The default answers Allow (the overrun is still counted).
 using OutOfBudgetHandler = BudgetAction (*)(const BudgetViolation& violation, void* user) noexcept;
 
 /// A tag's budget in bytes of live allocations; 0 (the default) is unlimited. Only TrackedAllocator enforces it.

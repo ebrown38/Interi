@@ -469,8 +469,7 @@ public:
         }
         if (m_program.nodes.size() > kMaxNodes)
         {
-            return Fail("the expression is too long",
-                        {.begin = 0, .end = static_cast<std::uint32_t>(m_tokens.back().span.end)});
+            return Fail("the expression is too long", {.begin = 0, .end = m_tokens.back().span.end});
         }
         m_program.root = root->node;
         std::ranges::sort(m_program.valueReads);

@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT
+#include <interi/core/Archive.h>
+#include <interi/core/Hash.h>
 #include <interi/nav/NavMesh.h>
 
 #include "NavTestUtil.h"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <thread>
 
 using namespace interi;
@@ -28,7 +33,97 @@ NavMesh Bake(const Geometry& g)
     return std::move(*mesh);
 }
 
+// Rewrites a baked `.inav` with `edit` applied to the Detour tile inside, hashing the result so the damage reaches the
+// tile validation instead of stopping at the payload hash.
+template <class Edit>
+std::vector<std::byte> WithEditedTile(Edit&& edit)
+{
+    const std::vector<std::byte> bytes = Bake(SimpleFloor()).Write();
+    auto outer = ArchiveReader::Open(bytes, MakeFourCC("INAV"), 1);
+    EXPECT_TRUE(outer.has_value());
+    std::uint64_t hash = 0;
+    std::vector<std::byte> payload;
+    (*outer)(hash, payload);
+    constexpr std::array<std::byte, 4> kTileMagic = {std::byte{'V'}, std::byte{'A'}, std::byte{'N'}, std::byte{'D'}};
+    const auto it = std::search(payload.begin(), payload.end(), kTileMagic.begin(), kTileMagic.end());
+    EXPECT_NE(it, payload.end());
+    const auto tileStart = static_cast<std::size_t>(it - payload.begin());
+    edit(payload, tileStart);
+    std::vector<std::byte> file;
+    ArchiveWriter writer(file, MakeFourCC("INAV"), 1);
+    hash = HashBytes(payload.data(), payload.size());
+    writer(hash, payload);
+    return file;
+}
+
+void SetInt(std::vector<std::byte>& payload, std::size_t tileStart, std::size_t fieldOffset, std::int32_t value)
+{
+    std::memcpy(payload.data() + tileStart + fieldOffset, &value, sizeof value);
+}
+
+// Offsets inside dtMeshHeader (ints from the start): magic, version, x, y, layer, userId, polyCount, vertCount,
+// maxLinkCount, detailMeshCount, detailVertCount, detailTriCount, bvNodeCount, offMeshConCount, offMeshBase.
+constexpr std::size_t kPolyCount = 6 * 4;
+constexpr std::size_t kVertCount = 7 * 4;
+constexpr std::size_t kMaxLinkCount = 8 * 4;
+constexpr std::size_t kDetailVertCount = 10 * 4;
+constexpr std::size_t kBvNodeCount = 12 * 4;
+constexpr std::size_t kOffMeshBase = 14 * 4;
+
 } // namespace
+
+TEST(NavMesh, Read_UnmodifiedEditedTile_StillLoads)
+{
+    const auto bytes = WithEditedTile([](auto&, std::size_t) {});
+    EXPECT_TRUE(NavMesh::Read(bytes).has_value());
+}
+
+TEST(NavMesh, Read_HostileTileHeader_Corrupt)
+{
+    const std::array<std::pair<std::size_t, std::int32_t>, 9> edits = {{
+        {kPolyCount, -1},
+        {kPolyCount, 0x7fffffff},
+        {kPolyCount, 1 << 22},
+        {kVertCount, -5},
+        {kVertCount, 1 << 20},
+        {kMaxLinkCount, 0},
+        {kDetailVertCount, 0x40000000},
+        {kBvNodeCount, 0x7fffffff},
+        {kOffMeshBase, -1},
+    }};
+    for (const auto& [offset, value] : edits)
+    {
+        const auto bytes =
+            WithEditedTile([&](auto& payload, std::size_t tile) { SetInt(payload, tile, offset, value); });
+        const auto mesh = NavMesh::Read(bytes);
+        ASSERT_FALSE(mesh.has_value()) << "offset " << offset << " value " << value;
+        EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+    }
+}
+
+TEST(NavMesh, Read_TruncatedTile_Corrupt)
+{
+    const auto bytes = WithEditedTile([](auto& payload, std::size_t) { payload.resize(payload.size() - 8); });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+}
+
+TEST(NavMesh, Read_PolygonVertexIndexOutOfRange_Corrupt)
+{
+    // The first polygon's verts[0] sits right after its firstLink, in the polygon array after the vertex array.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::int32_t vertCount = 0;
+            std::memcpy(&vertCount, payload.data() + tile + kVertCount, sizeof vertCount);
+            const std::size_t polys = tile + 100 + static_cast<std::size_t>(vertCount) * 12;
+            const std::uint16_t bad = 0xFFFF;
+            std::memcpy(payload.data() + polys + 4, &bad, sizeof bad);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
 
 TEST(NavMesh, OpenFloor_PathIsAStraightLine)
 {

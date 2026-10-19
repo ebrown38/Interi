@@ -11,9 +11,13 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <format>
+#include <optional>
+#include <string>
 
 namespace interi::nav
 {
@@ -27,6 +31,157 @@ constexpr std::uint32_t kVersion = 1;
 constexpr std::uint8_t kWalkFlag = 1;
 constexpr int kMaxPathPolys = 256;
 constexpr int kMaxStraightPoints = 256;
+
+constexpr int kMaxTileItems = 1 << 20;
+
+static_assert(DT_NAVMESH_VERSION == 7,
+              "ValidateTileData mirrors Detour 1.6.0's tile layout: review it when Detour changes");
+
+std::optional<std::size_t> Aligned4Size(int count, std::size_t elementSize)
+{
+    if (count < 0 || count > kMaxTileItems)
+    {
+        return std::nullopt;
+    }
+    return (static_cast<std::size_t>(count) * elementSize + 3U) & ~std::size_t{3};
+}
+
+template <class T>
+T ReadAt(const std::byte* base, std::size_t offset, std::size_t index = 0)
+{
+    T value;
+    std::memcpy(&value, base + offset + index * sizeof(T), sizeof(T));
+    return value;
+}
+
+bool FiniteFloats(const std::byte* base, std::size_t offset, std::size_t count)
+{
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (!std::isfinite(ReadAt<float>(base, offset, i)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Detour trusts a tile's header and indexes its arrays without checks, so every count, section size and index a
+// query follows is verified here before the tile is handed over.
+Result<void> ValidateTileData(std::span<const std::byte> data)
+{
+    const auto corrupt = [](const char* what)
+    { return MakeError(ErrorCode::Corrupt, std::string("navigation tile: ") + what); };
+    if (data.size() < sizeof(dtMeshHeader) || data.size() > static_cast<std::size_t>(INT_MAX) || data.size() % 4 != 0)
+    {
+        return corrupt("size");
+    }
+    dtMeshHeader h;
+    std::memcpy(&h, data.data(), sizeof h);
+    if (h.magic != DT_NAVMESH_MAGIC || h.version != DT_NAVMESH_VERSION)
+    {
+        return corrupt("header");
+    }
+    if (h.x != 0 || h.y != 0 || h.layer != 0)
+    {
+        return corrupt("tile position");
+    }
+    if (h.maxLinkCount < 1 || h.polyCount < 1 || h.vertCount < 1 || h.detailMeshCount != h.polyCount ||
+        h.offMeshBase < 0 || h.offMeshBase > h.polyCount || h.offMeshConCount > h.polyCount - h.offMeshBase)
+    {
+        return corrupt("counts");
+    }
+    const auto vertsSize = Aligned4Size(h.vertCount, sizeof(float) * 3);
+    const auto polysSize = Aligned4Size(h.polyCount, sizeof(dtPoly));
+    const auto linksSize = Aligned4Size(h.maxLinkCount, sizeof(dtLink));
+    const auto detailMeshesSize = Aligned4Size(h.detailMeshCount, sizeof(dtPolyDetail));
+    const auto detailVertsSize = Aligned4Size(h.detailVertCount, sizeof(float) * 3);
+    const auto detailTrisSize = Aligned4Size(h.detailTriCount, 4);
+    const auto bvSize = Aligned4Size(h.bvNodeCount, sizeof(dtBVNode));
+    const auto offMeshSize = Aligned4Size(h.offMeshConCount, sizeof(dtOffMeshConnection));
+    if (!vertsSize || !polysSize || !linksSize || !detailMeshesSize || !detailVertsSize || !detailTrisSize || !bvSize ||
+        !offMeshSize)
+    {
+        return corrupt("counts");
+    }
+    const std::size_t headerSize = (sizeof(dtMeshHeader) + 3U) & ~std::size_t{3};
+    const std::size_t vertsAt = headerSize;
+    const std::size_t polysAt = vertsAt + *vertsSize;
+    const std::size_t linksAt = polysAt + *polysSize;
+    const std::size_t detailMeshesAt = linksAt + *linksSize;
+    const std::size_t detailVertsAt = detailMeshesAt + *detailMeshesSize;
+    const std::size_t detailTrisAt = detailVertsAt + *detailVertsSize;
+    const std::size_t bvAt = detailTrisAt + *detailTrisSize;
+    const std::size_t offMeshAt = bvAt + *bvSize;
+    if (offMeshAt + *offMeshSize != data.size())
+    {
+        return corrupt("section sizes do not match the data size");
+    }
+    const std::byte* base = data.data();
+    if (!FiniteFloats(base, offsetof(dtMeshHeader, bmin), 6) || !std::isfinite(h.bvQuantFactor) ||
+        !FiniteFloats(base, vertsAt, static_cast<std::size_t>(h.vertCount) * 3) ||
+        !FiniteFloats(base, detailVertsAt, static_cast<std::size_t>(h.detailVertCount) * 3))
+    {
+        return corrupt("non-finite coordinates");
+    }
+    const auto polyCount = static_cast<unsigned>(h.polyCount);
+    for (std::size_t i = 0; i < polyCount; ++i)
+    {
+        const auto poly = ReadAt<dtPoly>(base, polysAt, i);
+        if (poly.vertCount > DT_VERTS_PER_POLYGON)
+        {
+            return corrupt("polygon vertex count");
+        }
+        for (unsigned k = 0; k < poly.vertCount; ++k)
+        {
+            if (poly.verts[k] >= static_cast<unsigned>(h.vertCount))
+            {
+                return corrupt("polygon vertex index");
+            }
+            const unsigned nei = poly.neis[k];
+            if ((nei & DT_EXT_LINK) == 0 && nei > polyCount)
+            {
+                return corrupt("polygon neighbour");
+            }
+        }
+        const auto detail = ReadAt<dtPolyDetail>(base, detailMeshesAt, i);
+        if (std::uint64_t{detail.vertBase} + detail.vertCount > static_cast<unsigned>(h.detailVertCount) ||
+            std::uint64_t{detail.triBase} + detail.triCount > static_cast<unsigned>(h.detailTriCount))
+        {
+            return corrupt("detail mesh range");
+        }
+        for (unsigned t = 0; t < detail.triCount; ++t)
+        {
+            for (unsigned k = 0; k < 3; ++k)
+            {
+                const auto index =
+                    std::to_integer<unsigned>(base[detailTrisAt + (std::size_t{detail.triBase} + t) * 4 + k]);
+                if (index >= unsigned{poly.vertCount} + detail.vertCount)
+                {
+                    return corrupt("detail triangle index");
+                }
+            }
+        }
+    }
+    for (int i = 0; i < h.bvNodeCount; ++i)
+    {
+        const auto node = ReadAt<dtBVNode>(base, bvAt, static_cast<std::size_t>(i));
+        const bool leaf = node.i >= 0;
+        if (leaf ? node.i >= h.polyCount : (node.i == INT_MIN || -node.i > h.bvNodeCount - i))
+        {
+            return corrupt("bounding volume node");
+        }
+    }
+    for (int i = 0; i < h.offMeshConCount; ++i)
+    {
+        if (ReadAt<dtOffMeshConnection>(base, offMeshAt, static_cast<std::size_t>(i)).poly >= polyCount ||
+            !FiniteFloats(base, offMeshAt + static_cast<std::size_t>(i) * sizeof(dtOffMeshConnection), 7))
+        {
+            return corrupt("off-mesh connection");
+        }
+    }
+    return {};
+}
 
 /// Recast logs through a context; the engine reports failures through Result instead.
 class SilentContext final : public rcContext
@@ -122,6 +277,7 @@ NavMesh::~NavMesh() = default;
 
 Result<NavMesh> NavMesh::FromData(std::vector<std::byte> data, const NavBakeSettings& settings)
 {
+    INTERI_TRY(ValidateTileData(data));
     // Detour keeps the tile and frees it (DT_TILE_FREE_DATA), so it gets its own copy from dtAlloc.
     auto* tile = static_cast<unsigned char*>(dtAlloc(data.size(), DT_ALLOC_PERM));
     if (tile == nullptr)

@@ -127,3 +127,28 @@
 - **Task:** Milestone 23, 23.3.2 Hot-reload loop
 - **Context:** `EditorApp::RunModuleLoop` reloads each loaded module that has a library, in project manifest order (`Reload` also reopens dependents), rather than only the one that was rebuilt, because the watcher only reports that some library changed.
 - **Assumption made:** Reloading all is correct but redundant for large projects; a per-library watcher could narrow it.
+
+## M21 (importers, skeletal data) is not on this branch; where do skeletons and clips come from?
+- **Task:** Milestone 24, 24.1.1 skeletal playback "for the M21 clips"
+- **Context:** `git log` on this base goes M20, M22, M23; M21 lives unmerged on `autoflow/003-goal-implement-milestone-21-8367f0`. `engine/anim` therefore defines its own minimal `Skeleton`/`Clip` JSON assets (`Animation.h`).
+- **Assumption made:** An importer (M21's glTF/FBX skins) is expected to produce these two formats later; nothing in M24 depends on M21 code. Tests use procedural clips.
+
+## Which animation runtime: ozz-animation or in-house?
+- **Task:** Milestone 24, 24.1.1
+- **Context:** Plan says "decided by license and size".
+- **Assumption made:** In-house (about 400 lines, no dependency or notices change, nlerp instead of slerp so results are bit-identical across platforms). ozz can replace `SampleClip` later behind the same API.
+
+## What is "Management" in "computer-player spawning hooks for Management"?
+- **Task:** Milestone 24, 24.3 AI section support
+- **Context:** The plan mentions a Management game/module that isn't defined anywhere in the repo.
+- **Assumption made:** A generic engine hook `ai.SpawnComputerPlayer` (`sdk/Ai.h`) that any game module provides; the engine only collects `behaviours` and `computerPlayers` from manifests (`AiCatalog`) and calls the hook per requested player.
+
+## Is "animation states per archetype" about values-module character archetypes or ECS archetypes?
+- **Task:** Milestone 24, 24.1.2
+- **Context:** `animationSets` in module.json list `archetypes` ids.
+- **Assumption made:** Character archetype ids of the values module (`<module>:<name>`); `AnimationLibrary::BindArchetype` maps them to a set and `MakeAnimator` creates the component. Nothing attaches the component automatically at spawn yet: the game does it.
+
+## Localization of HUD text: how are Values and translations separated?
+- **Task:** Milestone 24, 24.4
+- **Context:** HUD text uses `{valueId}`; ids contain `:`.
+- **Assumption made:** See the localization phase: `{@key}` references a string-table key (keys have no `:`/`|` conflict because `@` starts the token).

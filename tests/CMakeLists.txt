@@ -30,3 +30,23 @@ add_subdirectory(package)
 
 # --- Parser fuzzing over the starter sample's documents (INTERI_FUZZ_ITERATIONS scales it for the nightly run) ----------
 add_subdirectory(fuzz)
+
+# --- Platform audit (25.2) ---------------------------------------------------------------------------------------------
+add_test(NAME InteriExternalPlatform_Hook_AddsTheFolder
+    COMMAND ${CMAKE_COMMAND}
+            -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/external_platform_hook
+            -B ${CMAKE_CURRENT_BINARY_DIR}/external_platform_hook
+            -DINTERI_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake
+            -DINTERI_EXTERNAL_PLATFORM_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/external_platform_hook/backend)
+set_tests_properties(InteriExternalPlatform_Hook_AddsTheFolder PROPERTIES
+    LABELS unit
+    PASS_REGULAR_EXPRESSION "hook-ok")
+add_test(NAME InteriExternalPlatform_MissingFolder_FailsConfigure
+    COMMAND ${CMAKE_COMMAND}
+            -S ${CMAKE_CURRENT_SOURCE_DIR}/cmake/external_platform_hook
+            -B ${CMAKE_CURRENT_BINARY_DIR}/external_platform_hook_missing
+            -DINTERI_CMAKE_DIR=${PROJECT_SOURCE_DIR}/cmake
+            -DINTERI_EXTERNAL_PLATFORM_DIR=${CMAKE_CURRENT_BINARY_DIR}/does_not_exist)
+set_tests_properties(InteriExternalPlatform_MissingFolder_FailsConfigure PROPERTIES
+    LABELS unit
+    PASS_REGULAR_EXPRESSION "is not a directory")

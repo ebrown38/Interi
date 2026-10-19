@@ -4,6 +4,7 @@
 #include <interi/sdk/Hooks.h>
 #include <interi/sdk/Manifest.h>
 #include <interi/sdk/ModuleGraph.h>
+#include <interi/sdk/PhysicsQueries.h>
 #include <interi/sdk/Project.h>
 #include <interi/sdk/SemVer.h>
 #include <interi/sdk/Toolchain.h>

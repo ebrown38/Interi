@@ -47,3 +47,28 @@
 - **Task:** Milestone 18, 18.7.2 editor_ui registration hooks
 - **Context:** The extension API is abstract so a module links no editor symbols, but a panel draws with ImGui and a module library has its own ImGui copy; it must adopt the editor's context (`PanelContext`). The installed `Interi` package does not export imgui, and the editor's vcpkg imgui is not a shared library.
 - **Assumption made:** M18 ships the API, the context hand-off and a test module that uses only the ImGui-free parts (overlays, tools, render features, and a panel that never calls ImGui). How a third-party module obtains imgui (package export, or editor_ui becoming shared) is left for M20 when the first real editor extension module needs it.
+
+## Do the Jolt module's layers become generic now (19.4)?
+- **Task:** Milestone 19, 19.4 Manifest contributions (Layers data table)
+- **Context:** `PhysicsLayers.h` hard-codes Static, Structure, Debris, DebrisSmall, Character, Vehicle and Projectile, and the copied layer, world, sync, character and determinism tests (and the golden hash) depend on them. Making layers table-driven changes the golden hash inputs and must move together with Destruction's own rows (M20.3).
+- **Assumption made:** M19 copies the layer enum faithfully so the golden hash is unchanged. The module reads the `Layers` and `PhysicsMaterials` tables (see the 19.4 entry below); a fully table-driven layer set lands with M20.3.
+
+## Which engine file does the TSan suppression mechanism change (19.2.5)?
+- **Task:** Milestone 19, 19.2.5 sanitizer suppressions
+- **Context:** The engine's own `interi::physics_testing` stays until M20.5, and `destruction_render` tests need Jolt + lavapipe suppressions in one list.
+- **Assumption made:** `VulkanTestSupport.cpp` now takes any extra suppression from an `INTERI_EXTRA_TSAN_SUPPRESSIONS` string definition (set by `interi::physics_testing` and by the module's helper), so the engine names no Jolt text; a test in `interi_destruction_render_gpu_tests` checks both sets are present under TSan.
+
+## Static vs shared physics library and the Windows shadow-copy open item
+- **Task:** Milestone 19, library layout
+- **Context:** M13 left "Windows shadow copies vs link-time imports" open (solve before M19). A module linked against another module's DLL won't bind to its shadow-renamed copy. The Jolt module's code (world, character, Jolt itself) must not be duplicated per consumer, or a process gets two `JoltRuntime`s.
+- **Assumption made:** the physics code is one shared library (`interi_jolt_physics`, a normal dependency found by the loader, not shadow-copied) and the `PhysicsEngine` entry library (`com_interi_physics_jolt`, shadow-copied) only registers hooks, events and Values, reaching the shared library's `JoltEngine` singleton. Destruction (M20) links the shared library; it is not hot reloaded. Only Linux was exercised; the Windows case (Jolt statics duplicated in consumers linking `Jolt::Jolt` statically) is untested until CI has the module, which it cannot (the module is gitignored).
+
+## What does OnOverlap mean for the Jolt engine?
+- **Task:** Milestone 19, 19.4 Events
+- **Context:** The plan lists OnContact, OnOverlap, ApplyImpulse, Raycast; the scene runtime already raises `trigger.Overlap` for physics-free volumes.
+- **Assumption made:** `OnContact` is raised by `RaiseContactTriggers` from the step's contact list; `OnOverlap` is raised by `SensorSystem` for entities with a `SensorComponent` (sphere overlap queries, begin events only), not by Jolt sensor bodies.
+
+## How does the Jolt module contribute "rigid body and character controller components" (19.4)?
+- **Task:** Milestone 19, 19.4 Manifest contributions (Physics rules)
+- **Context:** `ModuleRegistrar` has no reflection registration, so a module cannot register reflection itself.
+- **Assumption made:** the physics components now have `kComponentName`s (`com.interi.physics.RigidBody`, `.Collider`, `.Body`) and the module's library offers `RegisterPhysicsReflection(ReflectionRegistry&)` (rigid body numeric fields; motion type and layer are layer-table enums and are not reflected) for a host such as the editor to call; the character controller is the `CharacterComponent` driven by `CharacterSync`, and `SensorComponent`/`SensorSystem` wire `OnOverlap`; `hook.physics.*` has BodyBudget, ContactImpulseScale, CharacterMove and OverlapFilter. Body budget: the `bodyBudget` Value plus `hook.physics.BodyBudget` feed `MakeWorldDesc` (`maxBodies`), and `PhysicsSync` creates no body past it. `PhysicsMaterials` rows apply through `ApplyPhysicsMaterial`; `Layers` rows are table-driven: a row named like a built-in layer overrides its collisions, any other row defines a new layer (`PhysicsWorldDesc::extraLayers`, up to 32 layers in all). The built-in seven remain the defaults (golden hash unchanged); M20.3 moves Destruction's layers into rows and may then drop the built-ins.

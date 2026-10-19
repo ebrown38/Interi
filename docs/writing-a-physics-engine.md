@@ -2,8 +2,8 @@
 
 A Physics Engine is a module of kind `PhysicsEngine` (for example `com.interi.physics.jolt`). The engine repository
 ships none: anyone can write one. It is a sort of Extension: other modules are built against it, and it provides the
-reserved `service.Physics*` contracts (`interi::sdk::PhysicsContracts()`, currently `service.PhysicsQueries`; the
-real signatures arrive with the first engine, Jolt, in M19).
+reserved `service.Physics*` contracts (`interi::sdk::PhysicsContracts()`, currently `service.PhysicsQueries`, whose signature is
+`sdk::PhysicsQueriesService` in `interi/sdk/PhysicsQueries.h`).
 
 ## Scaffold it
 
@@ -43,3 +43,17 @@ for its load test: configure with `-DINTERI_BASE_ENGINE_DIR=<folder with the bas
    refuses to add such a module (Project menu), and the project stays as it was.
 
 Changing the engine (pin, module order, enabled modules) re-resolves the project; it is never swapped during play.
+
+## Worked example: the Jolt module
+
+`com.interi.physics.jolt` (the first real Physics Engine, kept in a separate repository folder, `modules/physics/`)
+shows every part:
+
+- `module.json`: kind `PhysicsEngine`, Values (`gravity`, `stepRate`, `bodyBudget`) and data tables (`Layers`,
+  `PhysicsMaterials`).
+- The entry library provides `service.PhysicsQueries` as a hook of signature `sdk::PhysicsQueriesService`
+  (`interi/sdk/PhysicsQueries.h`: `IPhysicsQueries` with `Raycast`, `SphereCast`, `OverlapSphere` and a layer mask), so
+  physics-agnostic modules query any engine the same way. Local `hook.physics.*` points can be overridden by higher
+  modules, and chain events (`OnContact`, `OnOverlap`, `ApplyImpulse`, `Raycast`) use the Chain Reaction registries.
+- The code the engine and the modules built against it share (the world, the character controller) lives in one shared
+  library, so a process has one copy of the engine's global state; the entry library only registers.

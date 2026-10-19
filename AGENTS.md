@@ -48,6 +48,8 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Build-system conventions
 
+- **Module projects** (`/modules/<name>/`, gitignored, each with its own nested git history): the root CMake adds every folder that has a `CMakeLists.txt` (`-DINTERI_MODULE_DIRS=` skips them all; the engine builds and passes without them, which is what CI sees). `modules/physics` is the Jolt Physics Engine (M19); its README.md and CLAUDE.md describe it, and it builds standalone through `find_package(Interi)` too.
+
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
 - Test sources live in `tests/<module>/`, not next to the module.
 - Tests get one CTest label per executable:

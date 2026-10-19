@@ -20,14 +20,26 @@
 namespace interi::scene
 {
 
+/// A texture coordinate; v grows downwards in the image (glTF and Vulkan convention).
+struct TexCoord
+{
+    float u = 0.0f;
+    float v = 0.0f;
+
+    friend bool operator==(const TexCoord&, const TexCoord&) = default;
+};
+
 /// Welded positions, triangles counter-clockwise seen from outside, per-corner normals and a material slot per
-/// triangle.
+/// triangle. Imported meshes also carry per-corner texture coordinates and tangents (xyz, w = bitangent sign);
+/// both stay empty for generated shapes, and the renderer ignores them until it samples UVs.
 struct TriangleMesh
 {
     std::vector<Vec3> positions;
     std::vector<std::uint32_t> indices; ///< Three per triangle.
     std::vector<Vec3> normals;          ///< One per index (corner).
     std::vector<std::uint32_t> slots;   ///< One per triangle.
+    std::vector<TexCoord> uvs;          ///< Empty, or one per index (corner).
+    std::vector<Vec4> tangents;         ///< Empty, or one per index (corner).
 
     [[nodiscard]] std::size_t TriangleCount() const noexcept { return indices.size() / 3; }
     [[nodiscard]] std::uint32_t SlotCount() const noexcept;
@@ -36,7 +48,7 @@ struct TriangleMesh
 };
 
 /// Checks the arrays agree: indices a multiple of three and in range, one normal per index, one slot per triangle,
-/// finite numbers. Corrupt with the reason.
+/// uvs and tangents empty or one per index, finite numbers. Corrupt with the reason.
 [[nodiscard]] Result<void> ValidateMesh(const TriangleMesh& mesh);
 
 /// Whether the mesh is a closed, consistently oriented 2-manifold: every directed edge appears exactly once and its
@@ -55,7 +67,8 @@ struct MeshBounds
 [[nodiscard]] MeshBounds BoundsOf(const TriangleMesh& mesh);
 
 inline constexpr FourCC kMeshMagic = MakeFourCC("IMSH");
-inline constexpr std::uint32_t kMeshVersion = 1;
+/// Version 2 appends the optional uvs and tangents.
+inline constexpr std::uint32_t kMeshVersion = 2;
 
 [[nodiscard]] std::vector<std::byte> WriteMeshAsset(const TriangleMesh& mesh);
 /// Corrupt for a bad hash or an invalid mesh, VersionMismatch for a newer version.

@@ -16,6 +16,10 @@
     "LLVM-exception"
   ],
   "overrides": {
+    "stb": {
+      "license": "MIT",
+      "reason": "vcpkg port has no license metadata. Upstream nothings/stb is dual-licensed MIT or public domain (Unlicense); Interi takes it under MIT. Reviewed 2026-10-18."
+    },
     "directx-dxc": {
       "license": "NCSA",
       "reason": "vcpkg port has no license metadata. Upstream DirectXShaderCompiler LICENSE.TXT (v1.9.2602.24) is the University of Illinois/NCSA license, reviewed 2026-10-13. The prebuilt package also contains libdxil/dxil.dll, which Interi never links or ships: dxc only runs at build time to emit SPIR-V."

@@ -6,6 +6,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/chain)
 interi_add_module(chain SHARED
     SOURCES
         src/ChainAsset.cpp
+        src/ChainFunction.cpp
         src/Compiler.cpp
         src/CoreLibrary.cpp
         src/Event.cpp
@@ -18,6 +19,7 @@ interi_add_module(chain SHARED
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/ChainAssetTests.cpp
+        ${_tests}/ChainFunctionTests.cpp
         ${_tests}/CompilerTests.cpp
         ${_tests}/EventTests.cpp
         ${_tests}/ExecutorTests.cpp

@@ -4,6 +4,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <format>
 #include <ranges>
 #include <string>
@@ -91,13 +93,122 @@ Result<Binding> ParseBinding(const Json& json, std::string_view where)
     return binding;
 }
 
+template <std::size_t N>
+Result<std::array<float, N>> ParseFloats(const Json& json, const std::string& where)
+{
+    if (!json.is_array() || json.size() != N ||
+        !std::ranges::all_of(json, [](const Json& item) { return item.is_number(); }))
+    {
+        return Invalid(std::format("{} must be an array of {} numbers", where, N));
+    }
+    std::array<float, N> result{};
+    for (std::size_t i = 0; i < N; ++i)
+    {
+        result[i] = json[i].get<float>();
+        if (!std::isfinite(result[i]))
+        {
+            return Invalid(std::format("{} must be finite", where));
+        }
+    }
+    return result;
+}
+
+Result<void> ParseEditorData(const Json& json, ChainAsset& asset)
+{
+    if (!json.is_object())
+    {
+        return Invalid("chain: \"editor\" must be an object");
+    }
+    static constexpr std::string_view kKeys[] = {"comments", "groups"};
+    WarnUnknownKeys(json, kKeys, "editor", asset.warnings);
+    if (const auto comments = json.find("comments"); comments != json.end())
+    {
+        if (!comments->is_array())
+        {
+            return Invalid("editor: \"comments\" must be an array");
+        }
+        for (std::size_t i = 0; i < comments->size(); ++i)
+        {
+            const Json& item = (*comments)[i];
+            const std::string where = std::format("comment {}", i);
+            if (!item.is_object())
+            {
+                return Invalid(std::format("{}: must be an object", where));
+            }
+            ChainComment comment;
+            INTERI_TRY_ASSIGN(id, GetString(item, "id", where, true));
+            comment.id = std::move(id);
+            if (!IsName(comment.id) || std::ranges::contains(asset.comments, comment.id, &ChainComment::id))
+            {
+                return Invalid(std::format("{}: id '{}' is not a unique name", where, comment.id));
+            }
+            INTERI_TRY_ASSIGN(text, GetString(item, "text", where, false));
+            comment.text = std::move(text);
+            if (const auto pos = item.find("pos"); pos != item.end())
+            {
+                INTERI_TRY_ASSIGN(value, ParseFloats<2>(*pos, where + ": \"pos\""));
+                comment.pos = value;
+            }
+            if (const auto size = item.find("size"); size != item.end())
+            {
+                INTERI_TRY_ASSIGN(value, ParseFloats<2>(*size, where + ": \"size\""));
+                comment.size = value;
+            }
+            asset.comments.push_back(std::move(comment));
+        }
+    }
+    if (const auto groups = json.find("groups"); groups != json.end())
+    {
+        if (!groups->is_array())
+        {
+            return Invalid("editor: \"groups\" must be an array");
+        }
+        for (std::size_t i = 0; i < groups->size(); ++i)
+        {
+            const Json& item = (*groups)[i];
+            const std::string where = std::format("group {}", i);
+            if (!item.is_object())
+            {
+                return Invalid(std::format("{}: must be an object", where));
+            }
+            ChainGroup group;
+            INTERI_TRY_ASSIGN(id, GetString(item, "id", where, true));
+            group.id = std::move(id);
+            if (!IsName(group.id) || std::ranges::contains(asset.groups, group.id, &ChainGroup::id))
+            {
+                return Invalid(std::format("{}: id '{}' is not a unique name", where, group.id));
+            }
+            INTERI_TRY_ASSIGN(title, GetString(item, "title", where, false));
+            group.title = std::move(title);
+            if (const auto nodes = item.find("nodes"); nodes != item.end())
+            {
+                if (!nodes->is_array() || !std::ranges::all_of(*nodes, [](const Json& n) { return n.is_string(); }))
+                {
+                    return Invalid(std::format("{}: \"nodes\" must be an array of strings", where));
+                }
+                for (const Json& n : *nodes)
+                {
+                    group.nodes.push_back(n.get<std::string>());
+                }
+            }
+            if (const auto color = item.find("color"); color != item.end())
+            {
+                INTERI_TRY_ASSIGN(value, ParseFloats<4>(*color, where + ": \"color\""));
+                group.color = value;
+            }
+            asset.groups.push_back(std::move(group));
+        }
+    }
+    return {};
+}
+
 Result<ChainNode> ParseNode(const Json& json, std::string_view where, std::vector<std::string>& warnings)
 {
     if (!json.is_object())
     {
         return Invalid(std::format("{}: must be an object", where));
     }
-    static constexpr std::string_view kKeys[] = {"id", "event", "params"};
+    static constexpr std::string_view kKeys[] = {"id", "event", "params", "pos"};
     WarnUnknownKeys(json, kKeys, where, warnings);
     ChainNode node;
     INTERI_TRY_ASSIGN(idValue, GetString(json, "id", where, true));
@@ -123,6 +234,11 @@ Result<ChainNode> ParseNode(const Json& json, std::string_view where, std::vecto
             INTERI_TRY_ASSIGN(binding, ParseBinding(value, std::format("{} param '{}'", where, name)));
             node.params.emplace_back(name, std::move(binding));
         }
+    }
+    if (const auto pos = json.find("pos"); pos != json.end())
+    {
+        INTERI_TRY_ASSIGN(position, ParseFloats<2>(*pos, std::format("{}: \"pos\"", where)));
+        node.pos = position;
     }
     return node;
 }
@@ -164,7 +280,7 @@ Result<ChainAsset> ParseChain(std::string_view text)
         return Invalid("chain: not a JSON object");
     }
     ChainAsset asset;
-    static constexpr std::string_view kKeys[] = {"version", "priority", "nodes", "links"};
+    static constexpr std::string_view kKeys[] = {"version", "priority", "nodes", "links", "editor"};
     WarnUnknownKeys(json, kKeys, "chain", asset.warnings);
     if (const auto version = json.find("version"); version != json.end())
     {
@@ -230,6 +346,10 @@ Result<ChainAsset> ParseChain(std::string_view text)
             asset.links.push_back(std::move(link));
         }
     }
+    if (const auto editor = json.find("editor"); editor != json.end())
+    {
+        INTERI_TRY(ParseEditorData(*editor, asset));
+    }
     return asset;
 }
 
@@ -265,6 +385,10 @@ std::string WriteChain(const ChainAsset& asset)
             }
             entry["params"] = std::move(params);
         }
+        if (node.pos != std::array<float, 2>{})
+        {
+            entry["pos"] = node.pos;
+        }
         nodes.push_back(std::move(entry));
     }
     json["nodes"] = std::move(nodes);
@@ -280,6 +404,31 @@ std::string WriteChain(const ChainAsset& asset)
         links.push_back(std::move(entry));
     }
     json["links"] = std::move(links);
+    Json editor = Json::object();
+    if (!asset.comments.empty())
+    {
+        Json comments = Json::array();
+        for (const ChainComment& comment : asset.comments)
+        {
+            comments.push_back(
+                {{"id", comment.id}, {"text", comment.text}, {"pos", comment.pos}, {"size", comment.size}});
+        }
+        editor["comments"] = std::move(comments);
+    }
+    if (!asset.groups.empty())
+    {
+        Json groups = Json::array();
+        for (const ChainGroup& group : asset.groups)
+        {
+            groups.push_back(
+                {{"id", group.id}, {"title", group.title}, {"nodes", group.nodes}, {"color", group.color}});
+        }
+        editor["groups"] = std::move(groups);
+    }
+    if (!editor.empty())
+    {
+        json["editor"] = std::move(editor);
+    }
     return json.dump(2) + "\n";
 }
 

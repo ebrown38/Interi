@@ -3,6 +3,6 @@
 # preset; CI builds it but does not run it.
 add_executable(level_editor main.cpp EditorApp.cpp EditorRenderer.cpp)
 target_link_libraries(level_editor PRIVATE
-    interi::editor_ui interi::editor interi::asset_import interi::hud interi::game interi::platform_sdl interi::render interi::rhi_vulkan
+    interi::editor_ui interi::editor interi::asset_import interi::anim interi::nav interi::hud interi::game interi::platform_sdl interi::render interi::rhi_vulkan
     interi::jobs interi::warnings)
 target_compile_definitions(level_editor PRIVATE INTERI_EDITOR_DATA_DIR="${PROJECT_SOURCE_DIR}/data")

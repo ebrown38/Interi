@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -50,8 +51,8 @@ inline std::string Base64(const std::vector<std::byte>& bytes)
 template <typename T>
 void Append(std::vector<std::byte>& out, const T& value)
 {
-    const auto* p = reinterpret_cast<const std::byte*>(&value);
-    out.insert(out.end(), p, p + sizeof(T));
+    const auto bytes = std::as_bytes(std::span(&value, 1));
+    out.insert(out.end(), bytes.begin(), bytes.end());
 }
 
 // --- Cube -------------------------------------------------------------------------------------------------------

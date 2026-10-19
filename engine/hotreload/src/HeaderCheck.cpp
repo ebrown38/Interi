@@ -3,4 +3,6 @@
 // engine's warnings and checked by clang-tidy.
 #include <interi/hotreload/FileWatcher.h>
 #include <interi/hotreload/ModuleApi.h>
+#include <interi/hotreload/ModuleDocs.h>
 #include <interi/hotreload/ModuleHost.h>
+#include <interi/hotreload/NavigationService.h>

@@ -6,6 +6,7 @@
 
 #include <interi/chain/Expression.h>
 #include <interi/hud/HudDocument.h>
+#include <interi/loc/Localization.h>
 
 #include <cstdint>
 #include <string>
@@ -74,11 +75,15 @@ struct HudFrame
 [[nodiscard]] std::string DisplayText(const values::Value& value);
 
 /// Replaces `{id}` and `{id|N}` (N decimals, numbers only) in `text` with the Value; an unknown Value gives "?".
-/// `{{` is a literal brace.
-[[nodiscard]] std::string FormatHudText(std::string_view text, const chain::IValueReader& values);
+/// `{{` is a literal brace. `{@key}` is the string table entry `key` (Localization::Translate: the key itself when
+/// there is no `localization` or no translation); the translation's own `{id}` placeholders are filled from Values,
+/// but a `{@key}` inside a translation is left as its key.
+[[nodiscard]] std::string FormatHudText(std::string_view text, const chain::IValueReader& values,
+                                        const loc::Localization* localization = nullptr);
 
 /// Lays `document` out for a screen of `width` x `height` pixels.
 [[nodiscard]] HudFrame BuildFrame(const HudDocument& document, float width, float height,
-                                  const chain::IValueReader& values, const HudHighlight& highlight = {});
+                                  const chain::IValueReader& values, const HudHighlight& highlight = {},
+                                  const loc::Localization* localization = nullptr);
 
 } // namespace interi::hud

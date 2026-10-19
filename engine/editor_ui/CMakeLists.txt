@@ -15,6 +15,7 @@ target_link_libraries(interi_editor_api INTERFACE interi::hotreload interi::rend
 interi_add_module(editor_ui
     SOURCES
         src/AssetPanels.cpp
+        src/ChainEditor.cpp
         src/DataPanels.cpp
         src/EditorExtensions.cpp
         src/EditorPanels.cpp
@@ -22,6 +23,7 @@ interi_add_module(editor_ui
         src/HudDesigner.cpp
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
+        src/ModuleManagerPanel.cpp
         src/ServicePanels.cpp
         src/ValueWidgets.cpp
         src/ViewportOverlay.cpp
@@ -29,11 +31,13 @@ interi_add_module(editor_ui
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/AssetPanelsTests.cpp
+        ${_tests}/ChainEditorTests.cpp
         ${_tests}/DataPanelsTests.cpp
         ${_tests}/EditorExtensionsTests.cpp
         ${_tests}/EditorPanelsTests.cpp
         ${_tests}/HudDesignerTests.cpp
         ${_tests}/ImGuiInputTests.cpp
+        ${_tests}/ModuleManagerPanelTests.cpp
         ${_tests}/ServicePanelsTests.cpp)
 target_compile_definitions(interi_editor_ui_tests PRIVATE
     INTERI_SDK_TEST_MODULES_DIR="${PROJECT_SOURCE_DIR}/tests/sdk/modules")

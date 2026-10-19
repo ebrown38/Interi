@@ -10,12 +10,14 @@ namespace interi::editor
 Result<std::unique_ptr<ScenePlaySession>> ScenePlaySession::Start(const EditorScene& scene,
                                                                   chain::ChainRegistry& chains,
                                                                   values::ValueRegistry* values,
-                                                                  const IFileSystem& files, JobSystem& jobs)
+                                                                  const IFileSystem& files, JobSystem& jobs, bool trace)
 {
     scene::SceneDocument document = scene.ToDocument();
     scene::CollapsePrefabs(document, PrefabLoaderFor(files), scene.Reflection()); // edits become overrides
-    INTERI_TRY_ASSIGN(
-        runtime, scene::SceneRuntime::Create(std::move(document), scene.Reflection(), chains, values, files, jobs));
+    scene::SceneRuntimeDesc desc;
+    desc.executor.trace = trace;
+    INTERI_TRY_ASSIGN(runtime, scene::SceneRuntime::Create(std::move(document), scene.Reflection(), chains, values,
+                                                           files, jobs, desc));
     return std::unique_ptr<ScenePlaySession>(new ScenePlaySession(std::move(runtime)));
 }
 
@@ -25,15 +27,25 @@ void ScenePlaySession::Advance(std::chrono::nanoseconds elapsed)
     {
         return;
     }
-    for (std::uint32_t steps = m_clock.Advance(elapsed); steps > 0; --steps)
+    for (std::uint32_t steps = m_clock.Advance(elapsed); steps > 0 && !m_paused; --steps)
     {
         m_runtime->Step();
+        AfterStep();
     }
 }
 
 void ScenePlaySession::StepOnce()
 {
     m_runtime->Step();
+    AfterStep();
+}
+
+void ScenePlaySession::AfterStep()
+{
+    if (m_observer && m_observer(*this))
+    {
+        m_paused = true;
+    }
 }
 
 std::size_t EndPlay(const ScenePlaySession& session, bool keep, values::DataRegistry* data, UndoStack& undo,

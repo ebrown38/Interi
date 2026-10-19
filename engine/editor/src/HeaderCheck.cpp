@@ -2,6 +2,8 @@
 // Compiles every public editor header in a library translation unit so header-only code is also built with the
 // engine's warnings and checked by clang-tidy.
 #include <interi/editor/AssetBrowser.h>
+#include <interi/editor/ChainDebugger.h>
+#include <interi/editor/ChainEditing.h>
 #include <interi/editor/Commands.h>
 #include <interi/editor/DataEditing.h>
 #include <interi/editor/EditorCamera.h>
@@ -16,7 +18,10 @@
 #include <interi/editor/MaterialEditing.h>
 #include <interi/editor/MaterialPreview.h>
 #include <interi/editor/Modeling.h>
+#include <interi/editor/ModuleConflicts.h>
+#include <interi/editor/ModuleManager.h>
 #include <interi/editor/Picking.h>
+#include <interi/editor/PluginAuthoring.h>
 #include <interi/editor/Prefabs.h>
 #include <interi/editor/Projects.h>
 #include <interi/editor/Reflection.h>

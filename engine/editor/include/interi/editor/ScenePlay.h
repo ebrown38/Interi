@@ -15,6 +15,7 @@
 #include <interi/values/DataRegistry.h>
 
 #include <chrono>
+#include <functional>
 #include <memory>
 
 namespace interi::editor
@@ -26,17 +27,20 @@ class ScenePlaySession
 {
 public:
     /// Copies the scene (expanded prefab instances collapsed to their current overrides, then expanded again by
-    /// the runtime) and starts it. `chains` (with at least the core library), `values` (may be nullptr), `files`
-    /// and `jobs` must outlive the session.
-    [[nodiscard]] static Result<std::unique_ptr<ScenePlaySession>> Start(const EditorScene& scene,
-                                                                         chain::ChainRegistry& chains,
-                                                                         values::ValueRegistry* values,
-                                                                         const IFileSystem& files, JobSystem& jobs);
+    /// the runtime) and starts it; `trace` records the chain executor's trace for the debugger. `chains` (with at least
+    /// the core library), `values` (may be nullptr), `files` and `jobs` must outlive the session.
+    [[nodiscard]] static Result<std::unique_ptr<ScenePlaySession>>
+    Start(const EditorScene& scene, chain::ChainRegistry& chains, values::ValueRegistry* values,
+          const IFileSystem& files, JobSystem& jobs, bool trace = false);
 
     /// Runs the fixed steps `elapsed` adds up to (none while paused).
     void Advance(std::chrono::nanoseconds elapsed);
     /// One step now (paused or not).
     void StepOnce();
+    /// Called after every step (the chain debugger reads the trace here). Returning true pauses the session: a
+    /// breakpoint was hit, and Advance runs no further steps.
+    using StepObserver = std::function<bool(const ScenePlaySession&)>;
+    void SetStepObserver(StepObserver observer) { m_observer = std::move(observer); }
     void SetPaused(bool paused) noexcept { m_paused = paused; }
     [[nodiscard]] bool Paused() const noexcept { return m_paused; }
 
@@ -50,7 +54,10 @@ private:
     {
     }
 
+    void AfterStep();
+
     std::unique_ptr<scene::SceneRuntime> m_runtime;
+    StepObserver m_observer;
     FixedStepClock m_clock;
     bool m_paused = false;
 };

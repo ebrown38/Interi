@@ -99,7 +99,8 @@ std::string DisplayText(const values::Value& value)
     return values::FormatValue(value);
 }
 
-std::string FormatHudText(std::string_view text, const chain::IValueReader& values)
+std::string FormatHudText(std::string_view text, const chain::IValueReader& values,
+                          const loc::Localization* localization)
 {
     std::string out;
     for (std::size_t i = 0; i < text.size(); ++i)
@@ -117,6 +118,13 @@ std::string FormatHudText(std::string_view text, const chain::IValueReader& valu
             continue;
         }
         std::string_view name = text.substr(i + 1, close - i - 1);
+        if (name.starts_with('@'))
+        {
+            const std::string_view key = name.substr(1);
+            out += localization != nullptr ? FormatHudText(localization->Translate(key), values) : std::string(key);
+            i = close;
+            continue;
+        }
         int decimals = -1;
         if (const std::size_t bar = name.find('|'); bar != std::string_view::npos)
         {
@@ -150,7 +158,7 @@ std::string FormatHudText(std::string_view text, const chain::IValueReader& valu
 }
 
 HudFrame BuildFrame(const HudDocument& document, float width, float height, const chain::IValueReader& values,
-                    const HudHighlight& highlight)
+                    const HudHighlight& highlight, const loc::Localization* localization)
 {
     HudFrame frame;
     const float scale = std::min(width / document.referenceSize[0], height / document.referenceSize[1]);
@@ -181,7 +189,7 @@ HudFrame BuildFrame(const HudDocument& document, float width, float height, cons
             frame.items.push_back({.kind = DrawKind::Text,
                                    .rect = rect,
                                    .color = widget.color,
-                                   .text = FormatHudText(widget.text, values),
+                                   .text = FormatHudText(widget.text, values, localization),
                                    .image = {},
                                    .widget = widget.id,
                                    .centered = false});
@@ -232,7 +240,7 @@ HudFrame BuildFrame(const HudDocument& document, float width, float height, cons
             frame.items.push_back({.kind = DrawKind::Text,
                                    .rect = rect,
                                    .color = widget.color,
-                                   .text = FormatHudText(widget.text, values),
+                                   .text = FormatHudText(widget.text, values, localization),
                                    .image = {},
                                    .widget = widget.id,
                                    .centered = true});

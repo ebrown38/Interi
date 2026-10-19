@@ -94,7 +94,8 @@ TEST(ChainAsset, LinkToMissingNode_Error)
 
 TEST(ChainAsset, UnknownKeys_Warn)
 {
-    auto asset = ParseChain(R"({"version": 1, "colour": "red", "nodes": [{"id": "a", "event": "x", "pos": [1, 2]}]})");
+    auto asset =
+        ParseChain(R"({"version": 1, "colour": "red", "nodes": [{"id": "a", "event": "x", "zorder": [1, 2]}]})");
     ASSERT_TRUE(asset.has_value());
     EXPECT_EQ(asset->warnings.size(), 2u);
 }
@@ -115,4 +116,30 @@ TEST(ChainAsset, LoadChain_ReadsFromFileSystem)
     ASSERT_TRUE(asset.has_value()) << asset.error().message;
     EXPECT_EQ(asset->nodes.size(), 3u);
     EXPECT_FALSE(LoadChain(files, "chains/missing.chain.json").has_value());
+}
+
+TEST(ChainAsset, EditorData_RoundTrips_AndStaysOutOfPlainFiles)
+{
+    auto plain = ParseChain(kSample);
+    ASSERT_TRUE(plain.has_value());
+    const std::string text = WriteChain(*plain);
+    EXPECT_EQ(text.find("editor"), std::string::npos); // nothing written when empty
+    EXPECT_EQ(text.find("pos"), std::string::npos);
+
+    ChainAsset asset = *plain;
+    asset.nodes[0].pos = {10.0f, -20.5f};
+    asset.comments.push_back({.id = "note", .text = "hello", .pos = {1.0f, 2.0f}, .size = {30.0f, 40.0f}});
+    asset.groups.push_back({.id = "g", .title = "Group", .nodes = {"fire", "shoot"}, .color = {1, 0, 0, 1}});
+    auto again = ParseChain(WriteChain(asset));
+    ASSERT_TRUE(again.has_value()) << again.error().message;
+    EXPECT_TRUE(again->warnings.empty());
+    EXPECT_EQ(*again, asset);
+    EXPECT_EQ(WriteChain(*again), WriteChain(asset));
+}
+
+TEST(ChainAsset, EditorData_Malformed_Rejected)
+{
+    EXPECT_FALSE(ParseChain(R"({"version": 1, "nodes": [{"id": "a", "event": "x", "pos": [1]}]})").has_value());
+    EXPECT_FALSE(ParseChain(R"({"version": 1, "editor": {"comments": [{"id": "a b"}]}})").has_value());
+    EXPECT_FALSE(ParseChain(R"({"version": 1, "editor": {"groups": [{"id": "g", "nodes": [1]}]}})").has_value());
 }

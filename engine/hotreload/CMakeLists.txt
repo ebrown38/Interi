@@ -12,11 +12,13 @@ interi_add_module(hotreload SHARED
     SOURCES
         src/FileWatcher.cpp
         src/HeaderCheck.cpp
+        src/ModuleDocs.cpp
         src/ModuleHost.cpp
-    DEPS interi::chain interi::runtime interi::values interi::ecs interi::platform interi::sdk
+    DEPS interi::anim interi::nav interi::chain interi::runtime interi::values interi::ecs interi::platform interi::sdk
     TEST_DEPS interi::testing
     TEST_SOURCES
         ${_tests}/FileWatcherTests.cpp
+        ${_tests}/ModuleDocsTests.cpp
         ${_module_tests})
 
 if(NOT INTERI_BUILD_SHARED)

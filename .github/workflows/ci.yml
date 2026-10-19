@@ -15,12 +15,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Every input is pinned: actions by commit SHA (tag in the comment, bumped by Dependabot), the container by digest,
+# compiler versions by tools/ci/toolchain.env. Shared setup lives in .github/actions/setup-interi.
 env:
-  VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/.vcpkg-cache,readwrite"
   # GPU tests run on Mesa's lavapipe on Linux and must not silently skip there (they skip on Windows runners,
   # which have no Vulkan driver).
   FEDORA_PACKAGES: >-
-    clang lld llvm compiler-rt clang-tools-extra cmake ninja-build git python3
+    clang lld llvm compiler-rt clang-tools-extra cmake ninja-build git python3 ccache
     zip unzip tar curl pkgconf-pkg-config perl-IPC-Cmd mesa-vulkan-drivers vulkan-tools vulkan-validation-layers
     libX11-devel libXext-devel libXrandr-devel libXcursor-devel libXi-devel libXfixes-devel libXScrnSaver-devel
     libXtst-devel wayland-devel wayland-protocols-devel libxkbcommon-devel mesa-libEGL-devel libdecor-devel
@@ -28,10 +29,14 @@ env:
 jobs:
   lint:
     runs-on: ubuntu-24.04
-    container: fedora:44
+    container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False clang-tools-extra git python3
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: clang-format version matches tools/ci/toolchain.env
+        run: python3 tools/ci/check_toolchain.py clang-format
       - name: clang-format
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -41,36 +46,44 @@ jobs:
 
   linux:
     runs-on: ubuntu-24.04
-    container: fedora:44
+    container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     strategy:
       fail-fast: false
       matrix:
         preset: [linux-clang-debug, linux-clang-release, linux-clang-asan, linux-clang-tidy, linux-clang-profile]
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
-      - id: vcpkg
-        run: |
-          git config --global --add safe.directory '*'
-          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+          persist-credentials: false
+      - id: setup
+        uses: ./.github/actions/setup-interi
         with:
-          path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
-          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
-      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          preset: ${{ matrix.preset }}
       - run: cmake --preset ${{ matrix.preset }}
+      - name: Dependency vulnerabilities (OSV, vcpkg SBOM)
+        if: matrix.preset == 'linux-clang-debug'
+        run: python3 tools/ci/osv_scan.py --installed-dir build/${{ matrix.preset }}/vcpkg_installed/x64-linux
       - run: cmake --build --preset ${{ matrix.preset }}
       - name: Unit, stress, benchmark smoke and GPU (lavapipe) tests
         if: matrix.preset != 'linux-clang-tidy'
         env:
           INTERI_REQUIRE_GPU: 1
-        run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden"
+        run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" --output-junit ctest-junit.xml
+      - name: Test summary
+        if: always() && matrix.preset != 'linux-clang-tidy'
+        run: python3 tools/ci/junit_summary.py "${{ matrix.preset }}" build/${{ matrix.preset }}/ctest-junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Test results (JUnit)
+        if: always() && matrix.preset != 'linux-clang-tidy'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ctest-junit-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/ctest-junit.xml
+          if-no-files-found: ignore
       - name: Golden image mismatches (actual + diff)
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: golden-output-${{ matrix.preset }}
           path: build/${{ matrix.preset }}/golden-output
@@ -88,6 +101,11 @@ jobs:
             echo "$extra"
             exit 1
           fi
+      - if: always()
+        uses: ./.github/actions/save-caches
+        with:
+          vcpkg-key: ${{ steps.setup.outputs.vcpkg-key }}
+          ccache-key: ${{ steps.setup.outputs.ccache-key }}
 
   windows:
     runs-on: windows-2025
@@ -96,75 +114,83 @@ jobs:
       matrix:
         preset: [windows-msvc-debug, windows-msvc-release, windows-msvc-profile]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
-      - uses: ilammy/msvc-dev-cmd@v1
-      - id: vcpkg
-        shell: bash
-        run: echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+          persist-credentials: false
+      - id: setup
+        uses: ./.github/actions/setup-interi
         with:
-          path: .vcpkg-cache
-          key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
-          restore-keys: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-
-      - run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+          preset: ${{ matrix.preset }}
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" # GPU tests skip: no Vulkan driver
+      - run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" --output-junit ctest-junit.xml # GPU tests skip: no Vulkan driver
+      - name: Test summary
+        if: always()
+        shell: bash
+        run: python tools/ci/junit_summary.py "${{ matrix.preset }}" build/${{ matrix.preset }}/ctest-junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Test results (JUnit)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ctest-junit-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/ctest-junit.xml
+          if-no-files-found: ignore
+      - if: always()
+        uses: ./.github/actions/save-caches
+        with:
+          vcpkg-key: ${{ steps.setup.outputs.vcpkg-key }}
 
   coverage:
     runs-on: ubuntu-24.04
-    container: fedora:44
+    container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
-      - id: vcpkg
-        run: |
-          git config --global --add safe.directory '*'
-          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+          persist-credentials: false
+      - id: setup
+        uses: ./.github/actions/setup-interi
         with:
-          path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
-          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
-      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          preset: linux-clang-coverage
       - run: cmake --preset linux-clang-coverage
       - run: cmake --build --preset linux-clang-coverage
-      - run: ctest --preset linux-clang-coverage
+      - run: ctest --preset linux-clang-coverage --output-junit ctest-junit.xml
         env:
           INTERI_REQUIRE_GPU: 1
+      - name: Test summary
+        if: always()
+        run: python3 tools/ci/junit_summary.py linux-clang-coverage build/linux-clang-coverage/ctest-junit.xml >> "$GITHUB_STEP_SUMMARY"
       - run: cmake --build --preset linux-clang-coverage --target coverage
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-html
           path: build/linux-clang-coverage/coverage/html
+      - if: always()
+        uses: ./.github/actions/save-caches
+        with:
+          vcpkg-key: ${{ steps.setup.outputs.vcpkg-key }}
+          ccache-key: ${{ steps.setup.outputs.ccache-key }}
 
   nightly:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    container: fedora:44
+    container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     strategy:
       fail-fast: false
       matrix:
         preset: [linux-clang-asan, linux-clang-tsan]
     steps:
       - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
-      - id: vcpkg
-        run: |
-          git config --global --add safe.directory '*'
-          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+          persist-credentials: false
+      - id: setup
+        uses: ./.github/actions/setup-interi
         with:
-          path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
-          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
-      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          preset: ${{ matrix.preset }}
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
       - name: All non-pending tests (unit, integration, stress, golden)
@@ -172,4 +198,36 @@ jobs:
           INTERI_REQUIRE_GPU: 1
           INTERI_FUZZ_ITERATIONS: 20000 # parser fuzzing (tests/fuzz)
           INTERI_SOAK_STEPS: 100000 # the starter sample played with random input
-        run: ctest --preset ${{ matrix.preset }}
+        run: ctest --preset ${{ matrix.preset }} --output-junit ctest-junit.xml
+      - name: Test summary
+        if: always()
+        run: python3 tools/ci/junit_summary.py "nightly ${{ matrix.preset }}" build/${{ matrix.preset }}/ctest-junit.xml >> "$GITHUB_STEP_SUMMARY"
+      - name: Test results (JUnit)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ctest-junit-nightly-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/ctest-junit.xml
+          if-no-files-found: ignore
+      - if: always()
+        uses: ./.github/actions/save-caches
+        with:
+          vcpkg-key: ${{ steps.setup.outputs.vcpkg-key }}
+          ccache-key: ${{ steps.setup.outputs.ccache-key }}
+
+  # The one status check branch protection needs: adding or renaming a job or matrix leg changes nothing there.
+  ci-ok:
+    if: always()
+    needs: [lint, linux, windows, coverage]
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Required jobs: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then
+              echo "::error::a required job ended with '$result'"
+              exit 1
+            fi
+          done

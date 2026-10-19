@@ -70,8 +70,15 @@ def resolve_commit(source: Source, ls_remote=None) -> str:
 
 
 def _git_ls_remote(repo: str, patterns):
-    output = subprocess.run(["git", "ls-remote", repo, *patterns], check=True, capture_output=True, text=True,
-                            timeout=120).stdout
+    for attempt in range(3):
+        try:
+            output = subprocess.run(["git", "ls-remote", repo, *patterns], check=True, capture_output=True,
+                                    text=True, timeout=120).stdout
+            break
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
     refs = {}
     for line in output.splitlines():
         sha, _, name = line.partition("\t")

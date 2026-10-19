@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: MIT
+name: Set up an Interi build
+description: >-
+  Shared setup for every build job, run after checkout: the MSVC environment at the pinned toolset, the toolchain pin
+  check (tools/ci/toolchain.env), git safe directories, restoring the vcpkg binary cache and the compiler cache, and
+  the vcpkg bootstrap. The job keeps its own container (composite actions can't declare one) and saves the caches
+  with ./.github/actions/save-caches after the build (composite actions have no post step).
+inputs:
+  preset:
+    description: The CMake preset the job builds.
+    required: true
+outputs:
+  vcpkg-key:
+    description: Key to save the vcpkg binary cache under.
+    value: ${{ steps.keys.outputs.vcpkg }}
+  ccache-key:
+    description: Key to save the compiler cache under (empty on Windows, which has no compiler cache yet).
+    value: ${{ steps.keys.outputs.ccache }}
+runs:
+  using: composite
+  steps:
+    - name: MSVC toolset pin
+      id: msvc
+      if: runner.os == 'Windows'
+      shell: bash
+      run: echo "toolset=$(python tools/ci/check_toolchain.py --get MSVC_TOOLSET)" >> "$GITHUB_OUTPUT"
+    - if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      with:
+        toolset: ${{ steps.msvc.outputs.toolset }}
+    - name: Toolchain versions match tools/ci/toolchain.env
+      id: toolchain
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = Windows ]; then python tools/ci/check_toolchain.py msvc; else python3 tools/ci/check_toolchain.py clang; fi
+    - name: Git safe directories
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # The container runs as root on a workspace the runner user owns: trust the workspace and its submodules only.
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        git config --file .gitmodules --get-regexp '\.path$' | while read -r _ path; do
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/$path"
+        done
+    - name: Cache keys and directories
+      id: keys
+      shell: bash
+      env:
+        PRESET: ${{ inputs.preset }}
+        COMPILER: ${{ steps.toolchain.outputs.clang || steps.toolchain.outputs.msvc }}
+        INPUTS_HASH: ${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/ports/**') }}
+      run: |
+        case "$PRESET" in
+          *-tsan) triplet=x64-linux-tsan ;;
+          linux-*) triplet=x64-linux ;;
+          windows-*) triplet=x64-windows-static-md ;;
+          *) echo "::error::no vcpkg triplet known for preset $PRESET"; exit 1 ;;
+        esac
+        commit=$(git rev-parse HEAD:external/vcpkg)
+        # Run-unique keys: a run always saves what it built, and GitHub's LRU eviction drops old entries. Restore
+        # prefers the same inputs, then anything built for this triplet, compiler and vcpkg commit (vcpkg's binary
+        # cache is keyed by package ABI, so extra packages are only unused).
+        prefix="vcpkg-${RUNNER_OS}-${triplet}-${COMPILER}-${commit}-"
+        unique="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        {
+          echo "vcpkg=${prefix}${INPUTS_HASH}-${unique}"
+          echo "vcpkg-same-inputs=${prefix}${INPUTS_HASH}-"
+          echo "vcpkg-any=${prefix}"
+        } >> "$GITHUB_OUTPUT"
+        # Paths from the shell's $GITHUB_WORKSPACE: inside a container, ${{ github.workspace }} is the host path.
+        echo "VCPKG_BINARY_SOURCES=clear;files,$GITHUB_WORKSPACE/.vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+        mkdir -p .vcpkg-cache
+        if [ "$RUNNER_OS" = Linux ]; then
+          {
+            echo "ccache=ccache-${PRESET}-${COMPILER}-${unique}"
+            echo "ccache-any=ccache-${PRESET}-${COMPILER}-"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo "CCACHE_MAXSIZE=1G"
+            echo "CMAKE_C_COMPILER_LAUNCHER=ccache"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache"
+          } >> "$GITHUB_ENV"
+        fi
+    - name: Restore the vcpkg binary cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .vcpkg-cache
+        key: ${{ steps.keys.outputs.vcpkg }}
+        restore-keys: |
+          ${{ steps.keys.outputs.vcpkg-same-inputs }}
+          ${{ steps.keys.outputs.vcpkg-any }}
+    - name: Restore the compiler cache
+      if: runner.os == 'Linux'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ${{ steps.keys.outputs.ccache }}
+        restore-keys: ${{ steps.keys.outputs.ccache-any }}
+    - name: Reset compiler cache statistics
+      if: runner.os == 'Linux'
+      shell: bash
+      run: ccache --zero-stats
+    - name: Bootstrap vcpkg
+      if: runner.os != 'Windows'
+      shell: bash
+      run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+    - name: Bootstrap vcpkg
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics

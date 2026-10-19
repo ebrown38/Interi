@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Bumps the SHA-pinned actions in the workflows and in the composite actions under .github/actions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

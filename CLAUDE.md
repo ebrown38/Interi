@@ -77,6 +77,12 @@ Before committing, verify the following:
 - **Coverage:** use the `linux-clang-coverage` preset. Run `ctest`, then build the `coverage` target. The report lands in `build/linux-clang-coverage/coverage/`.
 - **Benchmarks:** measure with the release preset, e.g. `build/linux-clang-release/benchmarks/core/interi_core_benchmarks`. Each benchmark executable also registers a `benchmark`-labelled `--benchmark_dry_run` smoke test.
 
+**CI** (`.github/workflows/ci.yml`): every job does its shared setup through the composite action `.github/actions/setup-interi` (MSVC environment, toolchain check, git safe directories, cache restore, vcpkg bootstrap) and saves caches with `.github/actions/save-caches` (`if: always()`).
+- Every input is pinned. Actions are pinned by commit SHA with the tag in a comment, never `@vN` (Dependabot bumps them). The Fedora container is pinned by digest. Compiler major.minor versions live in `tools/ci/toolchain.env`, and `tools/ci/check_toolchain.py` fails a job whose Clang, clang-format or `cl` differs, so an upgrade is an explicit edit there. Checkouts use `persist-credentials: false`.
+- Cache keys are run-unique (`restore` and `save` are split) and include the OS, triplet, compiler version, vcpkg commit and a hash of `vcpkg.json`, `cmake/triplets/**` and `cmake/ports/**`. The cache paths come from the shell's `$GITHUB_WORKSPACE`, because inside a container `${{ github.workspace }}` is the host path. Linux builds go through ccache. Windows has no compiler cache yet: it would need `/Z7`.
+- CTest writes `ctest-junit.xml`, and `tools/ci/junit_summary.py` turns it into the step summary. The `ci-ok` job aggregates `lint`, `linux`, `windows` and `coverage`.
+- The `linux-clang-debug` leg runs `tools/ci/osv_scan.py`. It resolves every port's upstream ref from the vcpkg SBOM to a commit and queries OSV. Each advisory needs a waiver with a reason in `tools/ci/osv_waivers.json`, or the leg fails. The offline tests are `CiTools_PythonUnitTests`.
+
 Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wdouble-promotion ...` on Clang, `/W4 /WX` on MSVC. clang-tidy (`.clang-tidy`) runs only on engine library targets, not on tests. Header-only code is linted because `engine/core/src/HeaderCheck.cpp` includes every public header and explicitly instantiates the container templates. Add new public headers there.
 
 ## Build-system conventions

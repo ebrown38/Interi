@@ -108,11 +108,12 @@ TEST(NavMesh, Read_TruncatedTile_Corrupt)
         [](auto& payload, std::size_t tile)
         {
             std::uint32_t length = 0;
-            std::memcpy(&length, payload.data() + tile - sizeof length, sizeof length);
+            const std::size_t lengthAt = tile - sizeof length; // payload is bytes: this is a byte offset
+            std::memcpy(&length, payload.data() + lengthAt, sizeof length);
             payload.erase(payload.begin() + static_cast<std::ptrdiff_t>(tile + length - 4),
                           payload.begin() + static_cast<std::ptrdiff_t>(tile + length));
             length -= 4;
-            std::memcpy(payload.data() + tile - sizeof length, &length, sizeof length);
+            std::memcpy(payload.data() + lengthAt, &length, sizeof length);
         });
     const auto mesh = NavMesh::Read(bytes);
     ASSERT_FALSE(mesh.has_value());

@@ -31,8 +31,9 @@ BudgetAction DefaultPolicy(const BudgetViolation& violation, void*) noexcept
 {
     if (GetBudgetOverruns(violation.tag) == 1)
     {
-        INTERI_LOG_WARN("memory", "Memory budget of {} exceeded: {} live + {} requested > {} bytes", ToString(violation.tag),
-                        violation.currentBytes, violation.requestedBytes, violation.budgetBytes);
+        INTERI_LOG_WARN("memory", "Memory budget of {} exceeded: {} live + {} requested > {} bytes",
+                        ToString(violation.tag), violation.currentBytes, violation.requestedBytes,
+                        violation.budgetBytes);
     }
     return BudgetAction::Allow;
 }

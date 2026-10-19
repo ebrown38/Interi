@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/Assert.h>
+#include <interi/core/Log.h>
 #include <interi/core/memory/MemoryTracking.h>
 
 #include <array>
 #include <atomic>
+#include <mutex>
 
 namespace interi
 {
@@ -16,9 +18,24 @@ struct TagCounters
     std::atomic<std::uint64_t> peakBytes{0};
     std::atomic<std::uint64_t> allocationCount{0};
     std::atomic<std::uint64_t> freeCount{0};
+    std::atomic<std::uint64_t> budgetBytes{0};
+    std::atomic<std::uint64_t> overruns{0};
 };
 
 std::array<TagCounters, static_cast<std::size_t>(MemoryTag::Count)> g_counters;
+
+std::mutex g_policyMutex;
+OutOfBudgetPolicy g_policy;
+
+BudgetAction DefaultPolicy(const BudgetViolation& violation, void*) noexcept
+{
+    if (GetBudgetOverruns(violation.tag) == 1)
+    {
+        INTERI_LOG_WARN("memory", "Memory budget of {} exceeded: {} live + {} requested > {} bytes", ToString(violation.tag),
+                        violation.currentBytes, violation.requestedBytes, violation.budgetBytes);
+    }
+    return BudgetAction::Allow;
+}
 
 TagCounters& CountersFor(MemoryTag tag) noexcept
 {
@@ -84,8 +101,53 @@ void RecordFree(MemoryTag tag, std::size_t bytes) noexcept
     counters.freeCount.fetch_add(1, std::memory_order_relaxed);
 }
 
+void SetMemoryBudget(MemoryTag tag, std::uint64_t bytes) noexcept
+{
+    CountersFor(tag).budgetBytes.store(bytes, std::memory_order_relaxed);
+}
+
+std::uint64_t GetMemoryBudget(MemoryTag tag) noexcept
+{
+    return CountersFor(tag).budgetBytes.load(std::memory_order_relaxed);
+}
+
+std::uint64_t GetBudgetOverruns(MemoryTag tag) noexcept
+{
+    return CountersFor(tag).overruns.load(std::memory_order_relaxed);
+}
+
+OutOfBudgetPolicy SetOutOfBudgetPolicy(OutOfBudgetPolicy policy) noexcept
+{
+    const std::scoped_lock lock(g_policyMutex);
+    const OutOfBudgetPolicy previous = g_policy;
+    g_policy = policy;
+    return previous;
+}
+
 void* TrackedAllocator::Allocate(std::size_t size, std::size_t alignment) noexcept
 {
+    TagCounters& counters = CountersFor(m_tag);
+    const std::uint64_t budget = counters.budgetBytes.load(std::memory_order_relaxed);
+    if (budget != 0)
+    {
+        const std::uint64_t current = counters.currentBytes.load(std::memory_order_relaxed);
+        if (current + size > budget)
+        {
+            counters.overruns.fetch_add(1, std::memory_order_relaxed);
+            OutOfBudgetPolicy policy;
+            {
+                const std::scoped_lock lock(g_policyMutex);
+                policy = g_policy;
+            }
+            const BudgetViolation violation{m_tag, budget, current, size};
+            const BudgetAction action =
+                policy.handler != nullptr ? policy.handler(violation, policy.user) : DefaultPolicy(violation, nullptr);
+            if (action == BudgetAction::Deny)
+            {
+                return nullptr;
+            }
+        }
+    }
     void* ptr = m_inner->Allocate(size, alignment);
     if (ptr != nullptr)
     {

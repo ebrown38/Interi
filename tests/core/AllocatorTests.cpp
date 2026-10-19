@@ -225,3 +225,97 @@ TEST(MemoryTag, ToString_NamesTags)
     EXPECT_EQ(interi::ToString(interi::MemoryTag::Physics), "Physics");
     EXPECT_EQ(interi::ToString(interi::MemoryTag::Destruction), "Destruction");
 }
+
+// --- Memory budgets --------------------------------------------------------------------------------------------------
+
+namespace
+{
+struct BudgetProbe
+{
+    interi::BudgetAction answer = interi::BudgetAction::Deny;
+    int calls = 0;
+    interi::BudgetViolation last;
+};
+
+interi::BudgetAction ProbeHandler(const interi::BudgetViolation& violation, void* user) noexcept
+{
+    auto* probe = static_cast<BudgetProbe*>(user);
+    ++probe->calls;
+    probe->last = violation;
+    return probe->answer;
+}
+} // namespace
+
+TEST(MemoryBudget, UnderBudget_AllocatesWithoutCallingThePolicy)
+{
+    BudgetProbe probe;
+    const interi::ScopedOutOfBudgetHandler scoped(&ProbeHandler, &probe);
+    const std::uint64_t base = interi::GetMemoryStats(interi::MemoryTag::Audio).currentBytes;
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, base + 1000);
+    interi::TrackedAllocator tracked(interi::GetDefaultAllocator(), interi::MemoryTag::Audio);
+    void* ptr = tracked.Allocate(1000, 16);
+    EXPECT_NE(ptr, nullptr);
+    EXPECT_EQ(probe.calls, 0);
+    tracked.Free(ptr, 1000);
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, 0);
+}
+
+TEST(MemoryBudget, OverBudget_DenyReturnsNullAndCountsNothing)
+{
+    BudgetProbe probe;
+    const interi::ScopedOutOfBudgetHandler scoped(&ProbeHandler, &probe);
+    const std::uint64_t base = interi::GetMemoryStats(interi::MemoryTag::Audio).currentBytes;
+    const std::uint64_t overruns = interi::GetBudgetOverruns(interi::MemoryTag::Audio);
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, base + 100);
+    interi::TrackedAllocator tracked(interi::GetDefaultAllocator(), interi::MemoryTag::Audio);
+    EXPECT_EQ(tracked.Allocate(200, 16), nullptr);
+    EXPECT_EQ(probe.calls, 1);
+    EXPECT_EQ(probe.last.tag, interi::MemoryTag::Audio);
+    EXPECT_EQ(probe.last.requestedBytes, 200u);
+    EXPECT_EQ(probe.last.budgetBytes, base + 100);
+    EXPECT_EQ(interi::GetMemoryStats(interi::MemoryTag::Audio).currentBytes, base);
+    EXPECT_EQ(interi::GetBudgetOverruns(interi::MemoryTag::Audio), overruns + 1);
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, 0);
+}
+
+TEST(MemoryBudget, OverBudget_AllowStillAllocatesAndIsCounted)
+{
+    BudgetProbe probe;
+    probe.answer = interi::BudgetAction::Allow;
+    const interi::ScopedOutOfBudgetHandler scoped(&ProbeHandler, &probe);
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, 1);
+    interi::TrackedAllocator tracked(interi::GetDefaultAllocator(), interi::MemoryTag::Audio);
+    void* ptr = tracked.Allocate(64, 16);
+    EXPECT_NE(ptr, nullptr);
+    EXPECT_EQ(probe.calls, 1);
+    tracked.Free(ptr, 64);
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, 0);
+}
+
+TEST(MemoryBudget, ScopedHandler_RestoresThePreviousPolicy)
+{
+    BudgetProbe outer;
+    const interi::ScopedOutOfBudgetHandler first(&ProbeHandler, &outer);
+    {
+        BudgetProbe inner;
+        const interi::ScopedOutOfBudgetHandler second(&ProbeHandler, &inner);
+        interi::SetMemoryBudget(interi::MemoryTag::Audio, 1);
+        interi::TrackedAllocator tracked(interi::GetDefaultAllocator(), interi::MemoryTag::Audio);
+        EXPECT_EQ(tracked.Allocate(64, 16), nullptr);
+        EXPECT_EQ(inner.calls, 1);
+        EXPECT_EQ(outer.calls, 0);
+    }
+    interi::TrackedAllocator tracked(interi::GetDefaultAllocator(), interi::MemoryTag::Audio);
+    EXPECT_EQ(tracked.Allocate(64, 16), nullptr);
+    EXPECT_EQ(outer.calls, 1) << "the outer handler is back, with its own user pointer";
+    interi::SetMemoryBudget(interi::MemoryTag::Audio, 0);
+}
+
+TEST(MemoryBudget, NoBudget_IsUnlimited)
+{
+    EXPECT_EQ(interi::GetMemoryBudget(interi::MemoryTag::Jobs), 0u);
+    interi::TrackedAllocator tracked(interi::GetDefaultAllocator(), interi::MemoryTag::Jobs);
+    void* ptr = tracked.Allocate(1 << 20, 16);
+    EXPECT_NE(ptr, nullptr);
+    tracked.Free(ptr, 1 << 20);
+}

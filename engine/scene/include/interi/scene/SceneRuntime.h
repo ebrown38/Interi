@@ -26,8 +26,10 @@
 #include <interi/values/ValueRegistry.h>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace interi::scene
@@ -83,6 +85,8 @@ public:
     [[nodiscard]] chain::ChainExecutor& Executor() noexcept { return m_executor; }
     [[nodiscard]] const chain::ChainExecutor& Executor() const noexcept { return m_executor; }
     [[nodiscard]] std::uint64_t StepIndex() const noexcept { return m_executor.StepIndex(); }
+    /// The path of the chain asset the executor's chain `chain` was loaded from (empty for an unknown id).
+    [[nodiscard]] std::string_view ChainPath(chain::ChainExecutor::ChainId chain) const noexcept;
     /// Problems so far: chains that couldn't be read or compiled, prefabs that couldn't be spawned.
     [[nodiscard]] const std::vector<std::string>& Warnings() const noexcept { return m_warnings; }
 
@@ -100,6 +104,7 @@ private:
     PrefabLibrary m_prefabs;
     OverlapTracker m_overlaps;
     std::vector<std::string> m_warnings;
+    std::map<chain::ChainExecutor::ChainId, std::string> m_chainPaths;
 };
 
 } // namespace interi::scene

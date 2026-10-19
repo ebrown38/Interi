@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include <interi/chain/CoreLibrary.h>
+#include <interi/editor/ChainDebugger.h>
 #include <interi/editor/DataEditing.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/ScenePlay.h>
@@ -53,10 +54,10 @@ protected:
         chains->chains.items.emplace_back(values::AssetRef{"chains/mover.chain.json"});
     }
 
-    std::unique_ptr<ScenePlaySession> Start()
+    std::unique_ptr<ScenePlaySession> Start(bool trace = false)
     {
-        auto session =
-            ScenePlaySession::Start(m_document.Scene(), *m_chains, &m_project->Data().Values(), m_files, m_jobs);
+        auto session = ScenePlaySession::Start(m_document.Scene(), *m_chains, &m_project->Data().Values(), m_files,
+                                               m_jobs, trace);
         EXPECT_TRUE(session.has_value()) << session.error().message;
         return session ? std::move(*session) : nullptr;
     }
@@ -136,4 +137,41 @@ TEST_F(ScenePlayTest, KeepRuntimeValues_IsUndoable)
     EXPECT_EQ(m_project->Data().Values().Get<float>(kJump), 4.0f);
     ASSERT_TRUE(m_document.Undo().Undo());
     EXPECT_EQ(m_project->Data().Values().Get<float>(kJump), 2.5f);
+}
+
+TEST_F(ScenePlayTest, Debugger_NodeBreakpoint_PausesAfterTheStep_AndStepContinues)
+{
+    auto session = Start(true);
+    ASSERT_NE(session, nullptr);
+    ChainDebugger debugger;
+    debugger.SetTarget("chains/mover.chain.json");
+    debugger.ToggleNodeBreakpoint("move");
+    session->SetStepObserver([&](const ScenePlaySession& play) { return debugger.Observe(play.Runtime()).has_value(); });
+    session->Advance(101ms); // would be six steps
+    EXPECT_TRUE(session->Paused());
+    EXPECT_EQ(session->StepIndex(), 1u); // paused after the first step, never mid-wave
+    EXPECT_NE(debugger.LastHit().find("move"), std::string::npos);
+    EXPECT_FLOAT_EQ(X(*session, m_mover), 1.0f);
+    EXPECT_GT(debugger.NodeHeat("move", session->StepIndex()), 0.9f);
+    EXPECT_EQ(debugger.NodeHeat("jump", session->StepIndex()) > 0.0f, true); // Start ran in step 0
+    session->StepOnce();
+    EXPECT_EQ(session->StepIndex(), 2u);
+    EXPECT_FALSE(debugger.Timeline().empty());
+    const auto watches = [&] { debugger.AddWatch(std::string(kJump)); debugger.AddWatch("nothing"); return debugger.ReadWatches(session->Runtime().Executor().Values()); }();
+    ASSERT_EQ(watches.size(), 2u);
+    EXPECT_TRUE(watches[0].value.has_value());
+    EXPECT_FALSE(watches[1].value.has_value());
+}
+
+TEST_F(ScenePlayTest, Debugger_OtherChainsAreIgnored_WhenTargeted)
+{
+    auto session = Start(true);
+    ASSERT_NE(session, nullptr);
+    ChainDebugger debugger;
+    debugger.SetTarget("chains/other.chain.json");
+    debugger.ToggleNodeBreakpoint("move");
+    session->SetStepObserver([&](const ScenePlaySession& play) { return debugger.Observe(play.Runtime()).has_value(); });
+    session->Advance(34ms);
+    EXPECT_FALSE(session->Paused());
+    EXPECT_TRUE(debugger.Timeline().empty());
 }

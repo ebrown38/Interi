@@ -6,6 +6,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/editor)
 interi_add_module(editor
     SOURCES
         src/AssetBrowser.cpp
+        src/ChainDebugger.cpp
         src/ChainEditing.cpp
         src/Commands.cpp
         src/DataEditing.cpp
@@ -30,6 +31,7 @@ interi_add_module(editor
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/ChainDebuggerTests.cpp
         ${_tests}/ChainEditingTests.cpp
         ${_tests}/DataEditingTests.cpp
         ${_tests}/EditorCameraTests.cpp

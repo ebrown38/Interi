@@ -83,6 +83,7 @@ Result<std::unique_ptr<SceneRuntime>> SceneRuntime::Create(SceneDocument documen
             }
             const chain::ChainExecutor::ChainId chain =
                 runtime->m_executor.AddChain(std::move(*asset), component->global ? 0 : id);
+            runtime->m_chainPaths.emplace(chain, path->path);
             if (!runtime->m_executor.IsActive(chain))
             {
                 for (const chain::Diagnostic& diagnostic : runtime->m_executor.Diagnostics(chain))
@@ -93,6 +94,12 @@ Result<std::unique_ptr<SceneRuntime>> SceneRuntime::Create(SceneDocument documen
         }
     }
     return runtime;
+}
+
+std::string_view SceneRuntime::ChainPath(chain::ChainExecutor::ChainId chain) const noexcept
+{
+    const auto found = m_chainPaths.find(chain);
+    return found == m_chainPaths.end() ? std::string_view{} : std::string_view(found->second);
 }
 
 void SceneRuntime::Step()

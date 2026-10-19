@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -118,6 +119,8 @@ struct ChainEditorResult
     bool stepRequested = false;   ///< The Step button: run one fixed step.
     bool resumeRequested = false; ///< Continue after a breakpoint.
     bool pauseRequested = false;
+    /// The palette's "Create Plugin override..." was chosen for this event id (open the Module Manager's Plugin tab).
+    std::optional<std::string> overrideEvent;
 };
 
 /// The editor window (palette, canvas, inspector, problems and debugger tabs).

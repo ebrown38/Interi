@@ -22,6 +22,7 @@ interi_add_module(editor_ui
         src/HudDesigner.cpp
         src/ImGuiInput.cpp
         src/ImGuiRenderer.cpp
+        src/ModuleManagerPanel.cpp
         src/ServicePanels.cpp
         src/ValueWidgets.cpp
         src/ViewportOverlay.cpp
@@ -34,6 +35,7 @@ interi_add_module(editor_ui
         ${_tests}/EditorPanelsTests.cpp
         ${_tests}/HudDesignerTests.cpp
         ${_tests}/ImGuiInputTests.cpp
+        ${_tests}/ModuleManagerPanelTests.cpp
         ${_tests}/ServicePanelsTests.cpp)
 target_compile_definitions(interi_editor_ui_tests PRIVATE
     INTERI_SDK_TEST_MODULES_DIR="${PROJECT_SOURCE_DIR}/tests/sdk/modules")

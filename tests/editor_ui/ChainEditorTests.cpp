@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 #include <interi/editor/ChainEditing.h>
 #include <interi/editor_ui/ChainEditor.h>
+#include <interi/jobs/JobSystem.h>
+#include <interi/platform/FileSystem.h>
+#include <interi/scene/Primitives.h>
+#include <interi/scene/SceneRuntime.h>
 
 #include "../chain/ChainTestUtil.h"
 #include "ImGuiTestContext.h"
@@ -294,4 +298,152 @@ TEST(ChainEditorUi, ClickingALink_SelectsIt_AndWheelZoomsAroundTheCursor)
     const ImVec2 after = d.Screen(100.0f, 100.0f);
     EXPECT_NEAR(after.x, cursor.x, 1.0f); // the point under the cursor stays put
     EXPECT_NEAR(after.y, cursor.y, 1.0f);
+}
+
+namespace
+{
+
+/// Vertices drawn in (nearly) the debugger's "hot" yellow or the breakpoint/error red.
+int CountColor(const ImDrawData& data, ImU32 wanted)
+{
+    const auto near = [](ImU32 a, ImU32 b, int shift)
+    { return std::abs(static_cast<int>((a >> shift) & 0xFF) - static_cast<int>((b >> shift) & 0xFF)) <= 6; };
+    int count = 0;
+    for (const ImDrawList* list : data.CmdLists)
+    {
+        for (const ImDrawVert& vertex : list->VtxBuffer)
+        {
+            count += near(vertex.col, wanted, 0) && near(vertex.col, wanted, 8) && near(vertex.col, wanted, 16);
+        }
+    }
+    return count;
+}
+
+} // namespace
+
+TEST(ChainEditorUi, RightClickOnEmptySpace_OpensTheAddMenu)
+{
+    editor::testing::ImGuiTestContext context;
+    Fixture f;
+    Driver d(context, f);
+    EXPECT_FALSE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+    const ImVec2 empty = d.Screen(100.0f, 300.0f);
+    d.MoveTo(empty);
+    ImGui::GetIO().AddMouseButtonEvent(1, true);
+    d.Frame();
+    ImGui::GetIO().AddMouseButtonEvent(1, false);
+    d.Frame();
+    d.Frame();
+    EXPECT_TRUE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+    EXPECT_TRUE(f.state.contextNode.empty());
+    EXPECT_NEAR(f.state.contextPos[0], 100.0f, 1.0f);
+}
+
+TEST(ChainEditorUi, RightClickOnANode_OpensTheNodeMenu)
+{
+    editor::testing::ImGuiTestContext context;
+    Fixture f;
+    Driver d(context, f);
+    const auto at = f.asset.nodes[1].pos;
+    d.MoveTo(d.Screen(at[0] + 60.0f, at[1] + 10.0f));
+    ImGui::GetIO().AddMouseButtonEvent(1, true);
+    d.Frame();
+    ImGui::GetIO().AddMouseButtonEvent(1, false);
+    d.Frame();
+    d.Frame();
+    EXPECT_EQ(f.state.contextNode, "Shoot1");
+    EXPECT_TRUE(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+}
+
+TEST(ChainEditorUi, Breakpoints_DrawADotOnTheNodeAndTheLink)
+{
+    editor::testing::ImGuiTestContext context;
+    Fixture f;
+    ChainEditorHost host = f.Host(true);
+    const auto frame = [&]
+    {
+        int vertices = 0;
+        int red = 0;
+        for (int i = 0; i < 3; ++i)
+        {
+            const ImDrawData& data = context.Frame([&] { (void)DrawChainEditor(f.asset, f.undo, f.state, host); });
+            vertices = data.TotalVtxCount;
+            red = CountColor(data, IM_COL32(230, 70, 60, 255));
+        }
+        return std::pair(vertices, red);
+    };
+    const int without = frame().second;
+    f.debugger.ToggleNodeBreakpoint("Shoot1");
+    const int withNode = frame().second;
+    f.debugger.ToggleLinkBreakpoint(1);
+    const int withLink = frame().second;
+    EXPECT_GT(withNode, without);
+    EXPECT_GT(withLink, withNode);
+}
+
+TEST(ChainEditorUi, LivePlay_FiringChainsLightUp_AndBreakpointsPauseAtTheStep)
+{
+    editor::testing::ImGuiTestContext context;
+    // A real scene runtime, driven the way EditorApp drives a play session.
+    sdk::ModuleSet modules;
+    for (std::string& id : chain::CoreContracts())
+    {
+        modules.DeclareContract(std::move(id));
+    }
+    chain::ChainRegistry chains(modules);
+    ASSERT_TRUE(chain::RegisterCoreLibrary(chains).has_value());
+    values::ReflectionRegistry reflection;
+    scene::RegisterSceneReflection(reflection);
+    scene::RegisterPrimitiveReflection(reflection);
+    scene::RegisterPrefabReflection(reflection);
+    scene::RegisterChainsReflection(reflection);
+    MemoryFileSystem files;
+    const std::string_view text = R"json({"version": 1, "nodes": [
+        {"id": "tick", "event": "trigger.Tick"},
+        {"id": "move", "event": "world.Move", "params": {"delta": {"const": [1.0, 0.0, 0.0]}}}],
+        "links": [{"from": "tick", "to": "move", "condition": "payload.step >= 0"}]})json";
+    ASSERT_TRUE(files.WriteFile("chains/c.chain.json", std::as_bytes(std::span(text))).has_value());
+    const std::string_view sceneText = R"json({"version": 2, "objects": [
+        {"id": 1, "components": {"interi.Chains": {"chains": ["chains/c.chain.json"]}}}]})json";
+    JobSystem jobs(JobSystemDesc{.workerCount = 2, .pinThreads = false});
+    scene::SceneRuntimeDesc desc;
+    desc.executor.trace = true;
+    auto runtime =
+        scene::SceneRuntime::Create(*scene::ParseScene(sceneText), reflection, chains, nullptr, files, jobs, desc);
+    ASSERT_TRUE(runtime.has_value()) << runtime.error().message;
+
+    auto asset = chain::LoadChain(files, "chains/c.chain.json");
+    ASSERT_TRUE(asset.has_value());
+    UndoStack undo;
+    ChainEditorState state;
+    ChainDebugger debugger;
+    debugger.SetTarget("chains/c.chain.json");
+    debugger.ToggleNodeBreakpoint("move");
+    Values values;
+    ChainEditorHost host;
+    host.context = {.registry = &chains, .values = nullptr};
+    host.debugger = &debugger;
+    host.values = &values;
+    host.playing = true;
+    const auto draw = [&]
+    {
+        host.playStep = (*runtime)->StepIndex();
+        int hot = 0;
+        for (int i = 0; i < 3; ++i)
+        {
+            hot = CountColor(context.Frame([&] { (void)DrawChainEditor(*asset, undo, state, host); }),
+                             IM_COL32(255, 235, 90, 255));
+        }
+        return hot;
+    };
+    EXPECT_EQ(draw(), 0); // nothing has run
+    (*runtime)->Step();
+    const auto hit = debugger.Observe(**runtime);
+    ASSERT_TRUE(hit.has_value()); // the breakpoint on "move" fires: the session would pause here
+    EXPECT_NE(hit->find("move"), std::string::npos);
+    host.paused = true;
+    EXPECT_GT(draw(), 0); // the link that just evaluated glows
+    EXPECT_GT(debugger.LinkHeat(0, (*runtime)->StepIndex()), 0.9f);
+    EXPECT_TRUE(debugger.LinkPassed(0));
+    EXPECT_FALSE(debugger.Timeline().empty());
 }

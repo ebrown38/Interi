@@ -170,4 +170,6 @@ jobs:
       - name: All non-pending tests (unit, integration, stress, golden)
         env:
           INTERI_REQUIRE_GPU: 1
+          INTERI_FUZZ_ITERATIONS: 20000 # parser fuzzing (tests/fuzz)
+          INTERI_SOAK_STEPS: 100000 # the starter sample played with random input
         run: ctest --preset ${{ matrix.preset }}

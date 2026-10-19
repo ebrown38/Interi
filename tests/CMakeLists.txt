@@ -27,3 +27,6 @@ add_subdirectory(samples)
 
 # --- Engine package: install, then build gameplay modules out of tree ----------------------
 add_subdirectory(package)
+
+# --- Parser fuzzing over the starter sample's documents (INTERI_FUZZ_ITERATIONS scales it for the nightly run) ----------
+add_subdirectory(fuzz)

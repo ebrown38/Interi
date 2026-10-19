@@ -6,7 +6,7 @@ if(NOT INTERI_BUILD_SHARED)
 endif()
 
 interi_add_test_executable(interi_starter_sample_tests
-    SOURCES StarterSampleTests.cpp
+    SOURCES StarterSampleTests.cpp StarterSoakTests.cpp
     DEPS interi::game interi::hud interi::runtime interi::scene interi::platform interi::testing
     LABELS integration)
 add_dependencies(interi_starter_sample_tests com_interi_starter)

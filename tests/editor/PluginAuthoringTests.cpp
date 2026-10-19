@@ -159,6 +159,9 @@ TEST(PluginStub, Write_RefusesNonEmptyFolder)
 TEST(PluginStub, GeneratorOutput_MatchesCommittedStubs)
 {
     const std::filesystem::path root = INTERI_PLUGIN_STUB_DIR;
+#if defined(_MSC_VER)
+#pragma warning(suppress : 4996) // getenv: read-only, during single-threaded test setup
+#endif
     const bool update = std::getenv("INTERI_UPDATE_GOLDEN") != nullptr; // NOLINT(concurrency-mt-unsafe)
     for (const auto& [folder, desc] : {std::pair{"hook", HookStub()}, std::pair{"event", EventStub()}})
     {

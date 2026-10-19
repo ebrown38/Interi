@@ -644,9 +644,10 @@ ModuleManagerRequests DrawModuleManagerPanel(ModuleManagerState& state, const Mo
             state.requestedTab.reset();
             ImGui::EndTabBar();
         }
-        DrawConfirmation(state, view, requests);
     }
     ImGui::End();
+    // Outside the window: it must show even when the window is docked behind another tab or collapsed.
+    DrawConfirmation(state, view, requests);
     return requests;
 }
 

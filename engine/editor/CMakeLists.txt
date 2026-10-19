@@ -82,7 +82,7 @@ if(INTERI_BUILD_SHARED)
         # Both load the starter's library; the host's shadow copies are named by library and a per-process counter, so two
         # processes at once would copy over each other's file.
         set_tests_properties(PluginStub_${_kind}_LoadsOverStarter PROPERTIES LABELS integration
-            RESOURCE_LOCK starter_shadow_copy
+            RESOURCE_LOCK module_shadow_copy
             PASS_REGULAR_EXPRESSION "${_kind} com.interi.starter:[A-Za-z]+: com.interi.test.${_kind}plugin \\(override\\) com.interi.starter")
     endforeach()
 endif()

@@ -125,5 +125,15 @@ int main(int argc, char** argv)
         }
         std::printf("\n");
     }
+    const auto& events = host.Chains().Events().Registry();
+    for (const std::string& id : events.Ids())
+    {
+        std::printf("event %s:", id.c_str());
+        for (const auto& entry : events.Provenance(id))
+        {
+            std::printf(" %s%s", entry.provider.c_str(), entry.isOverride ? " (override)" : "");
+        }
+        std::printf("\n");
+    }
     return 0;
 }

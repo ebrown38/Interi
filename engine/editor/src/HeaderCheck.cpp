@@ -17,6 +17,7 @@
 #include <interi/editor/Inspector.h>
 #include <interi/editor/ModuleConflicts.h>
 #include <interi/editor/ModuleManager.h>
+#include <interi/editor/PluginAuthoring.h>
 #include <interi/editor/Modeling.h>
 #include <interi/editor/Picking.h>
 #include <interi/editor/Prefabs.h>

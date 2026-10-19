@@ -1,0 +1,19 @@
+{
+  "author": "Interi",
+  "copyright": "Copyright (c) Interi",
+  "dependencies": [],
+  "description": "Event Plugin: overrides com.interi.starter:LevelComplete.",
+  "engine": "^0.1",
+  "id": "com.interi.test.eventplugin",
+  "kind": "Plugin",
+  "library": "com_interi_test_eventplugin",
+  "license": "MIT",
+  "name": "Event Plugin",
+  "overrides": [
+    {
+      "target": "com.interi.starter:LevelComplete",
+      "version": "^0.1"
+    }
+  ],
+  "version": "0.1.0"
+}

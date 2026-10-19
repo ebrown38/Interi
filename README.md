@@ -49,6 +49,8 @@ cmake -S modules/destruction -B /tmp/destruction-build -G Ninja -DCMAKE_PREFIX_P
 
 `tools/new_module/new_module.py` scaffolds a new one; `docs/writing-a-physics-engine.md` explains Physics Engines.
 
+Guides: `docs/module-author-guide.md`, `docs/plugin-guide.md`, `docs/chain-reaction-guide.md`, `docs/module-manager.md`, `docs/export.md` (shipping a game with `interi_export` and `interi_player`).
+
 ## Development workflow (TDD)
 
 1. **Red**: write the failing tests first. A test committed before its implementation can be

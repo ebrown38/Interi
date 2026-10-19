@@ -467,7 +467,15 @@ public:
         {
             return Fail("expected an operator or the end of the expression", Peek().span);
         }
+        if (m_program.nodes.size() > kMaxNodes)
+        {
+            return Fail("the expression is too long", {.begin = 0, .end = m_tokens.back().span.end});
+        }
         m_program.root = root->node;
+        if (TreeDepth(m_program) > kMaxExpressionDepth)
+        {
+            return Fail("the expression is nested too deeply", {.begin = 0, .end = m_tokens.back().span.end});
+        }
         std::ranges::sort(m_program.valueReads);
         const auto duplicates = std::ranges::unique(m_program.valueReads);
         m_program.valueReads.erase(duplicates.begin(), duplicates.end());
@@ -539,8 +547,90 @@ private:
         return false;
     }
 
+    /// The tree's size is bounded too, so evaluation time is.
+    static constexpr std::size_t kMaxNodes = 2048;
+
+    /// Children are added before their parents, so one pass in index order finds every node's depth.
+    static std::uint32_t TreeDepth(const ExprProgram& program)
+    {
+        std::vector<std::uint32_t> depth(program.nodes.size(), 1);
+        for (std::size_t i = 0; i < program.nodes.size(); ++i)
+        {
+            const ExprNode& node = program.nodes[i];
+            const auto child = [&](std::uint32_t c) { depth[i] = std::max(depth[i], depth[c] + 1); };
+            switch (node.op)
+            {
+            case Op::Constant:
+            case Op::Payload:
+            case Op::ValueRead:
+            case Op::Self:
+                break;
+            case Op::ToFloat:
+            case Op::ToInt:
+            case Op::Negate:
+            case Op::Not:
+            case Op::Member:
+                child(node.a);
+                break;
+            case Op::And:
+            case Op::Or:
+            case Op::Add:
+            case Op::Subtract:
+            case Op::Multiply:
+            case Op::Divide:
+            case Op::Modulo:
+            case Op::Less:
+            case Op::LessEqual:
+            case Op::Greater:
+            case Op::GreaterEqual:
+            case Op::Equal:
+            case Op::NotEqual:
+                child(node.a);
+                child(node.b);
+                break;
+            case Op::Call:
+            case Op::Min:
+            case Op::Max:
+            case Op::Abs:
+            case Op::Clamp:
+            case Op::Sqrt:
+            case Op::Floor:
+            case Op::MakeVec3:
+            case Op::Length:
+            case Op::Dot:
+                for (std::uint32_t k = 0; k < node.argCount; ++k)
+                {
+                    child(program.args[node.firstArg + k]);
+                }
+                break;
+            }
+        }
+        return depth[program.root];
+    }
+
+    /// Nesting (parentheses, call arguments, unary operators) is bounded so hostile input can't exhaust the stack.
+    static constexpr int kMaxNesting = 64;
+
+    struct NestingGuard
+    {
+        explicit NestingGuard(int& depth) noexcept
+            : m_depth(depth)
+        {
+            ++m_depth;
+        }
+        ~NestingGuard() { --m_depth; }
+        NestingGuard(const NestingGuard&) = delete;
+        NestingGuard& operator=(const NestingGuard&) = delete;
+        int& m_depth;
+    };
+
     ParseResult ParseBinary(int minPrecedence)
     {
+        const NestingGuard guard(m_nesting);
+        if (m_nesting > kMaxNesting)
+        {
+            return Fail("the expression is nested too deeply", Peek().span);
+        }
         auto left = ParseUnary();
         if (!left)
         {
@@ -667,6 +757,11 @@ private:
 
     ParseResult ParseUnary()
     {
+        const NestingGuard guard(m_nesting);
+        if (m_nesting > kMaxNesting)
+        {
+            return Fail("the expression is nested too deeply", Peek().span);
+        }
         const Token& token = Peek();
         if (token.kind == Tok::Minus || token.kind == Tok::Bang)
         {
@@ -1082,6 +1177,7 @@ private:
 
     std::vector<Token> m_tokens;
     std::size_t m_position = 0;
+    int m_nesting = 0;
     const ExprEnvironment& m_environment;
     ExprProgram m_program;
 };

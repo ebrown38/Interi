@@ -177,3 +177,23 @@
 - **Task:** Milestone 24, 24.2 / 24.1.2 wiring into `GameSession`
 - **Context:** The plan gives no project-level format for the cooked `.inav`, and no spawn-time hook that attaches the components.
 - **Assumption made:** `GameDesc::navMesh` defaults to `content/navmesh.inav`; the game (or a module) adds `NavAgentComponent` / `AnimatorComponent` itself. Scene-file reflection and editor UI for both components, and a navmesh bake step in the editor/cook, are not done in M24.
+
+## Should the exported player open a window and render, or is a headless GameSession runner enough for M25.1?
+- **Task:** Milestone 25, 25.1.1 runtime player
+- **Context:** The plan says "the runtime player is the same engine without the editor". Game rendering today lives in tools/editor (EditorRenderer); no game-side renderer/SDL loop exists. See tools/player/main.cpp, docs/export.md.
+- **Assumption made:** `interi_player` verifies the package and runs the GameSession headless (steps, scripted input, printed Values). A windowed Vulkan/SDL front end is left for later.
+
+## Should the player read the cooked `cooked.ival` instead of `project_data.json`?
+- **Task:** Milestone 25, 25.1.2 cook the project
+- **Context:** `GameSession` loads project_data.json via ProjectModules; ExportProject also writes and tests `game/cooked.ival`.
+- **Assumption made:** Both ship; the runtime keeps using the JSON, so the cooked file is validated but not yet consumed.
+
+## Follow-up to the player question: is a window with input but no scene drawing acceptable for 25.1.1?
+- **Task:** Milestone 25, 25.1.1 (stop-hook feedback asked for a real player)
+- **Context:** `interi_player --window` now opens an SDL window and runs the game in real time from input bindings, but a game-side renderer (the editor's EditorRenderer is the only one) was not extracted into the player.
+- **Assumption made:** Input-driven windowed play is the player for M25; drawing is a follow-up.
+
+## The plan's end-to-end check imports a glTF and an FBX, but M21 (importers) is not on this base
+- **Task:** Milestone 25 verification
+- **Context:** M21's importers are absent (see M24's notes), so that part cannot run.
+- **Assumption made:** The end-to-end check was covered by the starter sample: enable the module, play, export with interi_export, run the packaged game with interi_player (tests/samples/StarterExportTests.cpp). Editor level building and imports were not exercised.

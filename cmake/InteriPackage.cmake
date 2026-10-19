@@ -35,6 +35,15 @@ install(TARGETS ${_libraries} interi_build_settings interi_module_check
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+# The game export tools: interi_export cooks a project into a package; interi_player is the package's runtime (copy it
+# and the engine libraries into the package's bin/ with `interi_export --runtime`). Not part of the CMake package.
+if(TARGET interi_player)
+    if(NOT WIN32)
+        set_target_properties(interi_player interi_export PROPERTIES
+            INSTALL_RPATH "$ORIGIN:$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    endif()
+    install(TARGETS interi_player interi_export RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 # Windows profile builds load Tracy from a DLL (see cmake/triplets/x64-windows-static-md.cmake).
 if(WIN32 AND INTERI_PROFILING)
     find_package(Tracy CONFIG REQUIRED) # engine/core's import is directory-scoped

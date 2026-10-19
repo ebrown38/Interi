@@ -4,11 +4,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Interi is an MIT-licensed C++23 modular game engine: the generic core (ECS, jobs, rendering, audio, scenes, chains, the module host and SDK, the editor) plus gameplay engines that live in **modules**. Physics and structural destruction (Red Faction: Guerrilla style) are no longer in the engine: the Jolt Physics Engine and the Destruction Module are gitignored projects in `modules/` (`modules/physics`, `modules/destruction`), each with its own nested git history, README.md and CLAUDE.md. PC targets are Linux (Clang) and Windows (MSVC). PS5/Xbox backends live in separate private repos. Development follows a milestone plan, one milestone per branch (`milestone-N`). `main` is protected and changes reach it through PRs that must pass CI.
+Interi is an MIT-licensed C++23 **modular game engine**. The engine is generic; a game is a *project* (`project.json`)
+that lists **modules**, and modules carry the gameplay. Gameplay is data first (module.json Values, tables and
+characters; Chain Reaction graphs) and native code second (a shared library built against the engine). Physics and
+structural destruction (Red Faction: Guerrilla style) are not in the engine: the Jolt Physics Engine and the Destruction
+Module are gitignored projects in `modules/` (`modules/physics`, `modules/destruction`), each with its own nested git
+history, README.md and CLAUDE.md. PC targets are Linux (Clang) and Windows (MSVC); PS5/Xbox backends live in separate
+private repos and plug in through `INTERI_EXTERNAL_PLATFORM_DIR`. `main` is protected and changes reach it through PRs
+that must pass CI. The milestone plan (M13–M25) is complete; new work follows the same per-phase, test-first rules.
+
+## Architecture at a glance
+
+Bottom to top (each layer depends only on the ones above it in this list):
+
+1. **Foundation**: `core` (memory, containers, math, logging, archive, budgets), `jobs`, `platform` (files, input,
+   windows as interfaces; no SDL), `ecs`.
+2. **Contracts**: `sdk` (manifests, module graph, identity rule, hooks, projects), `values` (typed Values, characters,
+   tables, project data), `loc`.
+3. **Gameplay runtime**: `chain` (Chain Reaction), `scene` (objects, prefabs, triggers, `SceneRuntime`), `hud`, `anim`,
+   `nav`, `runtime` (fixed step, cameras, saves), `audio`.
+4. **Hosting**: `hotreload` (`ModuleHost`, the module ABI), `game` (`GameSession`: a project running), `exporter`
+   (packages).
+5. **Backends and tools**: `rhi` (neutral) with `rhi_vulkan`, `platform_sdl`, `render`, `modeling`, `editor`,
+   `editor_ui`, and the executables in `tools/` (`level_editor`, `interi_module_check`, `interi_export`,
+   `interi_player`, `new_module`, `license_check`, `platform_audit`).
+
+The shared engine libraries (`INTERI_BUILD_SHARED`) are what the host and every gameplay module link, so there is one
+copy of each global. Vulkan, SDL, POSIX and Win32 stay inside their modules (the platform audit enforces it).
+
+## Documentation map
+
+- Users: `README.md`; `docs/module-author-guide.md` (Modules, Extensions, data sections, Register, budgets),
+  `docs/plugin-guide.md`, `docs/chain-reaction-guide.md`, `docs/module-manager.md`, `docs/export.md`,
+  `docs/animation-navigation-localization.md`, `docs/writing-a-physics-engine.md`, `docs/d3d12-mapping.md`.
+- Contributors: this file, one section per engine area below. Keep it in step with the code in the same change.
 
 ## Starting a milestone
 
-The milestone plan is `~/.claude/plans/create-a-plan-for-starry-dove.md` (modular engine and Chain Reaction, M13–M25). It supersedes the old plan `~/.claude/plans/cheeky-kindling-moth.md`, which still governs M12 (the editor); the old M13/M14 move to the Destruction Module's backlog. When asked to start a milestone:
+The milestone plan is `~/.claude/plans/create-a-plan-for-starry-dove.md` (modular engine and Chain Reaction, M13–M25; M25 is the last). It supersedes the old plan `~/.claude/plans/cheeky-kindling-moth.md`, which still governs M12 (the editor); the old M13/M14 move to the Destruction Module's backlog. When asked to start a milestone:
 
 1. **Plan first, with the `planning-with-files` skill.** Invoke it before writing any code, and give it that milestone's section of the plan as input. It produces a Manus-style plan in the repo root:
    - `task_plan.md`: phases (the milestone's sub-areas) with explicit verification steps.
@@ -440,6 +473,36 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`ModuleHost`** declares the anim, nav and AI contract ids and registers the anim and nav events itself (as the engine). So does the editor's own registry.
 - **AI** (`sdk/Ai.h`): module.json `behaviours` and `computerPlayers` -> `AiCatalog` (full ids, validated). The engine spawns nothing: a game module provides the hook `ai.SpawnComputerPlayer` and `SpawnComputerPlayers` calls it with slots.
 - **`engine/loc`** (`interi::loc`, shared): `.strings.json` per language, `Localization` (fallback language, later table wins per key, `RemoveProvider`, `MissingKeys`, `language.set:<code>` via `ApplyLanguageAction`), module.json `localization` (`LoadModuleStrings`). The HUD binds `{@key}` (translation, whose `{valueId}` placeholders are filled from Values; keys inside translations are not expanded again); `BuildFrame` / `HudController::SetLocalization` take the `Localization`, and `BoundValues` skips keys (`LocalizationKeys` lists them).
+
+## Export, the player and hardening (M25; `docs/export.md`)
+
+- **`engine/exporter`** (`interi::exporter`, static): `ExportProject` cooks a project into a package folder (`package.json`
+  with every file's size and XXH3 hash and the toolchain fingerprint, `game/` with the project, content, module folders
+  and libraries and `cooked.ival`, `bin/` with `ExportDesc::runtimeFiles`, `<game>.sh` / `.bat` launchers). All or nothing:
+  it stages in `<out>.partial` and renames, resolves the module graph, fits the project data, parses the startup scene and
+  finds every library (module folder, then `librarySearchPaths`). `VerifyPackage` re-checks hashes, rejects paths that
+  leave the package (`Corrupt`) and another toolchain or newer format (`VersionMismatch`).
+- **`tools/export`** (`interi_export`) and **`tools/player`** (`interi_player`, the engine without the editor: verifies the
+  package, opens `game/` as a `GameSession`, `--steps`, `--press action@step`, `--print id`, `--realtime`). The player is
+  headless by default; `--window` opens an SDL window (`--video-driver dummy` in tests), feeds `content/input.json` bindings into the chains and runs in real time. It does not draw the scene: a renderer plugs into that loop.
+  `cmake --install` installs both. `GameSession` still reads `project_data.json`; `cooked.ival` is written, and the player checks at startup that it equals what the
+  modules and project data resolve to (`CookData`); the runtime still builds its registry from the JSON.
+- **Platform audit** (`tools/platform_audit/platform_audit.py`, ctest `PlatformAudit_*`): Vulkan, SDL, POSIX and Win32
+  headers and names stay in `rhi_vulkan`, `platform_sdl` and the platform layers (allowlists in the script); public
+  headers never include OS headers; `d3d12`/`dxgi`/console SDK headers are never allowed here; CMake may link the backends
+  only from the listed CMakeLists. A new legitimate use means editing the allowlist in the same change.
+  `-DINTERI_EXTERNAL_PLATFORM_DIR=<dir>` (`cmake/InteriExternalPlatform.cmake`) adds a platform project from outside the
+  repo (the private console repos); `docs/d3d12-mapping.md` maps the RHI to D3D12.
+- **Budgets** (`core/memory/MemoryTracking.h`): `SetMemoryBudget(tag, bytes)` (0 = unlimited) is enforced by
+  `TrackedAllocator` only. An allocation that would pass it calls the out-of-budget policy (`SetOutOfBudgetPolicy`,
+  `ScopedOutOfBudgetHandler`; default allows and only counts (`GetBudgetOverruns`)); `Deny` makes `Allocate` return nullptr. The check is
+  a soft limit (relaxed loads): concurrent allocations may overshoot slightly. A module that installs a handler restores
+  the previous one before it unloads.
+- **Fuzzing and soak** (`tests/fuzz`, `tests/samples/StarterSoakTests.cpp`): seeded mutation of the starter sample's
+  module.json, project.json, chains, scenes, HUD documents and expressions; every mutant parses or errors, and what parses
+  survives write-parse-write. `INTERI_FUZZ_ITERATIONS` / `INTERI_SOAK_STEPS` scale them (the nightly job raises both), and
+  `INTERI_TEST_SEED` reseeds. The expression parser bounds nesting (64) and program size (2048 nodes) because the
+  evaluator recurses; a parser added later needs a depth limit too (the deep-nesting test shows how).
 
 ## Dependencies and licensing
 

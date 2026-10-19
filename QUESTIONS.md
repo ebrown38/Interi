@@ -51,7 +51,7 @@
 ## Do the Jolt module's layers become generic now (19.4)?
 - **Task:** Milestone 19, 19.4 Manifest contributions (Layers data table)
 - **Context:** `PhysicsLayers.h` hard-codes Static, Structure, Debris, DebrisSmall, Character, Vehicle and Projectile, and the copied layer, world, sync, character and determinism tests (and the golden hash) depend on them. Making layers table-driven changes the golden hash inputs and must move together with Destruction's own rows (M20.3).
-- **Assumption made:** M19 copies the layer enum faithfully so the golden hash is unchanged. The module.json `Layers` and `PhysicsMaterials` tables are declared (schemas) but the engine does not read them yet; table-driven layers land with M20.3.
+- **Assumption made:** M19 copies the layer enum faithfully so the golden hash is unchanged. The module reads the `Layers` and `PhysicsMaterials` tables (see the 19.4 entry below); a fully table-driven layer set lands with M20.3.
 
 ## Which engine file does the TSan suppression mechanism change (19.2.5)?
 - **Task:** Milestone 19, 19.2.5 sanitizer suppressions
@@ -71,4 +71,4 @@
 ## How does the Jolt module contribute "rigid body and character controller components" (19.4)?
 - **Task:** Milestone 19, 19.4 Manifest contributions (Physics rules)
 - **Context:** `ModuleRegistrar` has no reflection registration, so a module cannot register reflection itself.
-- **Assumption made:** the physics components now have `kComponentName`s (`com.interi.physics.RigidBody`, `.Collider`, `.Body`) and the module's library offers `RegisterPhysicsReflection(ReflectionRegistry&)` (rigid body numeric fields; motion type and layer are layer-table enums and are not reflected) for a host such as the editor to call; the character controller is a library class, not a component. Body budget: the `bodyBudget` Value plus `hook.physics.BodyBudget` feed `MakeWorldDesc` (`maxBodies`), and `PhysicsSync` creates no body past it. `PhysicsMaterials` rows apply through `ApplyPhysicsMaterial`; `Layers` rows are read (`ReadLayerRows`) but the collision matrix stays the built-in table until M20.3.
+- **Assumption made:** the physics components now have `kComponentName`s (`com.interi.physics.RigidBody`, `.Collider`, `.Body`) and the module's library offers `RegisterPhysicsReflection(ReflectionRegistry&)` (rigid body numeric fields; motion type and layer are layer-table enums and are not reflected) for a host such as the editor to call; the character controller is a library class, not a component. Body budget: the `bodyBudget` Value plus `hook.physics.BodyBudget` feed `MakeWorldDesc` (`maxBodies`), and `PhysicsSync` creates no body past it. `PhysicsMaterials` rows apply through `ApplyPhysicsMaterial`; `Layers` rows override the built-in collision matrix for rows named like a built-in layer (`PhysicsWorldDesc::layerRules`); new layer names (and Destruction's rows) need a table-driven layer enum, which M20.3 does.

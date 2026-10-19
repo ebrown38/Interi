@@ -8,6 +8,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/platform_sdl)
 interi_add_module(platform_sdl
     SOURCES
         src/SdlPlatform.cpp
+    COMPONENT Vulkan
     DEPS interi::platform
     PRIVATE_DEPS SDL3::SDL3
     TEST_DEPS SDL3::SDL3

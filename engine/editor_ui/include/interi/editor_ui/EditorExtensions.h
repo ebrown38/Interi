@@ -10,6 +10,7 @@
 #include <interi/editor_ui/EditorExtensionsApi.h>
 #include <interi/editor_ui/EditorPanels.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -94,6 +95,12 @@ public:
     bool RunActiveTool(IViewportCanvas& canvas, const ToolInput& input, IEditorDocument& document);
     /// What the render features contribute now.
     void CollectRenderFeatures(DebugDraw& draw, IEditorDocument& document) const;
+    /// Runs the features' `render` into `output` (which keeps its contents). When one returns OutOfMemory (the mesh
+    /// pool is full), calls `resetPool` (the caller waits for the GPU and clears the pool), raises
+    /// `context.generation`, drops what the features added in this call and runs them all again, once. Any other
+    /// error is logged and that feature skipped.
+    Result<void> GatherRenderObjects(RenderFeatureContext& context, RenderFeatureOutput& output,
+                                     IEditorDocument& document, const std::function<Result<void>()>& resetPool) const;
     /// Draws collected debug geometry over the viewport.
     static void DrawDebug(const DebugDraw& draw, IViewportCanvas& canvas);
 

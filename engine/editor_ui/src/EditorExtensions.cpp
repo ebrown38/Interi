@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include <interi/core/Log.h>
 #include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/ViewportOverlay.h>
 
@@ -162,7 +163,7 @@ Result<void> EditorExtensions::AddTool(std::string_view provider, ToolDef def)
 
 Result<void> EditorExtensions::AddRenderFeature(std::string_view provider, RenderFeatureDef def)
 {
-    INTERI_TRY(Check(provider, def.id, static_cast<bool>(def.contribute)));
+    INTERI_TRY(Check(provider, def.id, static_cast<bool>(def.contribute) || static_cast<bool>(def.render)));
     if (IdTaken(def.id))
     {
         return MakeError(ErrorCode::InvalidArgument, std::format("editor extension '{}' already exists", def.id));
@@ -343,8 +344,56 @@ void EditorExtensions::CollectRenderFeatures(DebugDraw& draw, IEditorDocument& d
 {
     for (const auto& feature : m_features)
     {
-        feature.def.contribute(draw, document);
+        if (feature.def.contribute)
+        {
+            feature.def.contribute(draw, document);
+        }
     }
+}
+
+Result<void> EditorExtensions::GatherRenderObjects(RenderFeatureContext& context, RenderFeatureOutput& output,
+                                                   IEditorDocument& document,
+                                                   const std::function<Result<void>()>& resetPool) const
+{
+    const std::size_t objectsBefore = output.objects != nullptr ? output.objects->size() : 0;
+    const std::size_t decalsBefore = output.decals != nullptr ? output.decals->size() : 0;
+    for (int attempt = 0; attempt < 2; ++attempt)
+    {
+        bool full = false;
+        for (const auto& feature : m_features)
+        {
+            if (!feature.def.render)
+            {
+                continue;
+            }
+            const Result<void> done = feature.def.render(context, output, document);
+            if (done)
+            {
+                continue;
+            }
+            if (done.error().code == ErrorCode::OutOfMemory && attempt == 0)
+            {
+                full = true;
+                break;
+            }
+            INTERI_LOG_ERROR("Editor", "render feature '{}': {}", feature.def.id, done.error().message);
+        }
+        if (!full)
+        {
+            return {};
+        }
+        if (output.objects != nullptr)
+        {
+            output.objects->resize(objectsBefore);
+        }
+        if (output.decals != nullptr)
+        {
+            output.decals->resize(decalsBefore);
+        }
+        INTERI_TRY(resetPool());
+        ++context.generation;
+    }
+    return {};
 }
 
 void EditorExtensions::DrawDebug(const DebugDraw& draw, IViewportCanvas& canvas)

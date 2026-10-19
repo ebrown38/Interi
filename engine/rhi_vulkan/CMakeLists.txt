@@ -26,6 +26,7 @@ interi_add_module(rhi_vulkan
         src/VmaImplementation.cpp
         src/VulkanDevice.cpp
         src/VulkanSwapchain.cpp
+    COMPONENT Vulkan
     DEPS interi::rhi
     PRIVATE_DEPS volk::volk GPUOpen::VulkanMemoryAllocator unofficial::spirv-reflect
     TEST_DEPS interi::testing interi::vulkan_testing

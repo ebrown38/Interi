@@ -17,7 +17,12 @@
 //     `ImGui::SetAllocatorFunctions` with the pair in `PanelContext::allocAlloc/allocFree/allocUser`).
 //   - Overlays and tools draw through the viewport's `IViewportCanvas` (world points projected by the editor, lines
 //     and text), needing no ImGui. A tool owns the viewport's mouse while it is the active one.
-//   - A render feature contributes world-space debug geometry (`DebugDraw` lines and boxes) drawn each frame.
+//   - A render feature contributes world-space debug geometry (`DebugDraw` lines and boxes) drawn each frame, and/or
+//     scene geometry: `render` adds `RenderObject`s and `Decal`s to the viewport's forward pass (a module draws its
+//     own meshes, e.g. fractured chunks). It uploads through the context (the editor's MeshPool). The pool only
+//     appends, so when it is full a feature returns `ErrorCode::OutOfMemory`: the editor waits for the GPU, clears the
+//     pool, raises `RenderFeatureContext::generation` and runs every feature again, so a feature drops the
+//     `MeshRange`s it cached whenever the generation differs from the one it uploaded under.
 //   - The document is seen through `IEditorDocument`: its World (shared engine types), selection and names.
 
 #include <interi/core/Result.h>
@@ -26,6 +31,12 @@
 #include <interi/core/math/Vec.h>
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleService.h>
+#include <interi/render/Decals.h>
+#include <interi/render/ForwardRenderer.h>
+#include <interi/render/MeshPool.h>
+#include <interi/rhi/Device.h>
+#include <interi/rhi/ResourceManager.h>
+#include <interi/rhi/UploadQueue.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -169,10 +180,37 @@ struct ToolDef
     std::function<void(IViewportCanvas& canvas, const ToolInput& input, IEditorDocument& document)> frame;
 };
 
+/// What a render feature may use while it adds scene geometry (valid for one call).
+struct RenderFeatureContext
+{
+    /// Records mesh and texture uploads into a one-off command list, submits it and waits (see UploadQueue).
+    using UploadFunction = std::function<Result<void>(rhi::UploadQueue&, rhi::ICommandList&)>;
+
+    rhi::IDevice* device = nullptr;
+    rhi::ResourceManager* resources = nullptr;
+    render::MeshPool* meshes = nullptr;
+    std::function<Result<void>(const UploadFunction&)> upload;
+    /// Changes whenever the mesh pool was cleared: ranges from an older generation are invalid.
+    std::uint32_t generation = 0;
+    /// Objects the forward pass draws at most; later ones are dropped.
+    std::size_t maxObjects = 0;
+};
+
+struct RenderFeatureOutput
+{
+    std::vector<render::RenderObject>* objects = nullptr;
+    std::vector<render::Decal>* decals = nullptr;
+};
+
 struct RenderFeatureDef
 {
     std::string id;
-    std::function<void(DebugDraw& draw, IEditorDocument& document)> contribute;
+    /// World-space debug geometry. Optional when `render` is set.
+    std::function<void(DebugDraw& draw, IEditorDocument& document)>
+        contribute{}; // NOLINT(readability-redundant-member-init)
+    /// Scene geometry for the forward pass. Optional when `contribute` is set.
+    std::function<Result<void>(RenderFeatureContext& context, RenderFeatureOutput& output, IEditorDocument& document)>
+        render{}; // NOLINT(readability-redundant-member-init)
 };
 
 /// The `editor.extensions` host service.

@@ -53,10 +53,11 @@ constexpr MetadataField kQuietFields[] = {
 
 // The data sections ("values" to "dataTables") are parsed by interi::values (ParseModuleContent).
 constexpr std::string_view kKnownKeys[] = {
-    "id",          "name",      "version",        "kind",    "author",     "license",       "copyright",
-    "description", "icon",      "homepage",       "engine",  "library",    "toolchain",     "dependencies",
-    "conflicts",   "contracts", "overrides",      "values",  "attributes", "attributeSets", "archetypes",
-    "dataTables",  "templates", "physicsEngines", "extends",
+    "id",           "name",      "version",        "kind",    "author",     "license",         "copyright",
+    "description",  "icon",      "homepage",       "engine",  "library",    "toolchain",       "dependencies",
+    "conflicts",    "contracts", "overrides",      "values",  "attributes", "attributeSets",   "archetypes",
+    "dataTables",   "templates", "physicsEngines", "extends", "behaviours", "computerPlayers", "animationSets",
+    "localization",
 };
 
 Result<std::string> GetString(const nlohmann::json& object, std::string_view key, std::string_view where)
@@ -113,6 +114,151 @@ Result<std::pair<std::string, VersionRange>> ParseIdAndRange(const nlohmann::jso
         range = std::move(*parsed);
     }
     return std::pair{std::move(id), std::move(range)};
+}
+
+bool IsModuleRelativePath(const std::string& path)
+{
+    return !path.empty() && path.front() != '/' && path.find("..") == std::string::npos &&
+           path.find(':') == std::string::npos && path.find('\\') == std::string::npos;
+}
+
+Result<std::string> OptionalPath(const nlohmann::json& entry, std::string_view key, const std::string& where)
+{
+    if (!entry.contains(key))
+    {
+        return std::string();
+    }
+    INTERI_TRY_ASSIGN(path, GetString(entry, key, where));
+    if (!IsModuleRelativePath(path))
+    {
+        return Invalid(std::format("{}: \"{}\" must be a file inside the module", where, key));
+    }
+    return path;
+}
+
+Result<void> ParseGameplaySections(const nlohmann::json& root, ModuleManifest& manifest)
+{
+    INTERI_TRY_ASSIGN(behaviours, GetArray(root, "behaviours"));
+    if (behaviours != nullptr)
+    {
+        for (std::size_t i = 0; i < behaviours->size(); ++i)
+        {
+            const nlohmann::json& entry = (*behaviours)[i];
+            const std::string where = std::format("behaviours[{}]", i);
+            if (!entry.is_object() || !entry.contains("name"))
+            {
+                return Invalid(std::format(R"({} needs a "name")", where));
+            }
+            AiBehaviourDecl parsed;
+            INTERI_TRY_ASSIGN(name, GetString(entry, "name", where));
+            if (!IsValidItemName(name))
+            {
+                return Invalid(std::format("{}: invalid name '{}'", where, name));
+            }
+            parsed.name = std::move(name);
+            if (entry.contains("description"))
+            {
+                INTERI_TRY_ASSIGN(description, GetString(entry, "description", where));
+                parsed.description = std::move(description);
+            }
+            INTERI_TRY_ASSIGN(chain, OptionalPath(entry, "chain", where));
+            parsed.chain = std::move(chain);
+            manifest.behaviours.push_back(std::move(parsed));
+        }
+    }
+    INTERI_TRY_ASSIGN(players, GetArray(root, "computerPlayers"));
+    if (players != nullptr)
+    {
+        for (std::size_t i = 0; i < players->size(); ++i)
+        {
+            const nlohmann::json& entry = (*players)[i];
+            const std::string where = std::format("computerPlayers[{}]", i);
+            if (!entry.is_object() || !entry.contains("name") || !entry.contains("behaviour"))
+            {
+                return Invalid(std::format(R"({} needs a "name" and a "behaviour")", where));
+            }
+            ComputerPlayerDecl parsed;
+            INTERI_TRY_ASSIGN(name, GetString(entry, "name", where));
+            INTERI_TRY_ASSIGN(behaviour, GetString(entry, "behaviour", where));
+            if (!IsValidItemName(name) || !(IsValidItemName(behaviour) || IsLocalId(behaviour)))
+            {
+                return Invalid(std::format("{}: invalid name or behaviour", where));
+            }
+            parsed.name = std::move(name);
+            parsed.behaviour = std::move(behaviour);
+            if (entry.contains("description"))
+            {
+                INTERI_TRY_ASSIGN(description, GetString(entry, "description", where));
+                parsed.description = std::move(description);
+            }
+            manifest.computerPlayers.push_back(std::move(parsed));
+        }
+    }
+    INTERI_TRY_ASSIGN(tables, GetArray(root, "localization"));
+    if (tables != nullptr)
+    {
+        for (std::size_t i = 0; i < tables->size(); ++i)
+        {
+            const nlohmann::json& entry = (*tables)[i];
+            if (!entry.is_string() || !IsModuleRelativePath(entry.get<std::string>()))
+            {
+                return Invalid(std::format("localization[{}] must be a string table file inside the module", i));
+            }
+            manifest.localization.push_back(entry.get<std::string>());
+        }
+    }
+    INTERI_TRY_ASSIGN(sets, GetArray(root, "animationSets"));
+    if (sets != nullptr)
+    {
+        for (std::size_t i = 0; i < sets->size(); ++i)
+        {
+            const nlohmann::json& entry = (*sets)[i];
+            const std::string where = std::format("animationSets[{}]", i);
+            if (!entry.is_object() || !entry.contains("name") || !entry.contains("skeleton") ||
+                !entry.contains("graph"))
+            {
+                return Invalid(std::format(R"({} needs a "name", a "skeleton" and a "graph")", where));
+            }
+            AnimationSetDecl parsed;
+            INTERI_TRY_ASSIGN(name, GetString(entry, "name", where));
+            if (!IsValidItemName(name))
+            {
+                return Invalid(std::format("{}: invalid name '{}'", where, name));
+            }
+            parsed.name = std::move(name);
+            INTERI_TRY_ASSIGN(skeleton, OptionalPath(entry, "skeleton", where));
+            INTERI_TRY_ASSIGN(graph, OptionalPath(entry, "graph", where));
+            parsed.skeleton = std::move(skeleton);
+            parsed.graph = std::move(graph);
+            for (const char* key : {"clips", "archetypes"})
+            {
+                if (!entry.contains(key))
+                {
+                    continue;
+                }
+                if (!entry[key].is_array())
+                {
+                    return Invalid(std::format("{}: \"{}\" must be an array of strings", where, key));
+                }
+                for (const nlohmann::json& item : entry[key])
+                {
+                    if (!item.is_string())
+                    {
+                        return Invalid(std::format("{}: \"{}\" must be an array of strings", where, key));
+                    }
+                    const std::string text = item.get<std::string>();
+                    const bool isClips = std::string_view(key) == "clips";
+                    if (isClips ? !IsModuleRelativePath(text) : !IsLocalId(text))
+                    {
+                        return Invalid(std::format("{}: bad entry '{}' in \"{}\"", where, text, key));
+                    }
+                    (isClips ? parsed.clips : parsed.archetypes).push_back(text);
+                }
+            }
+            manifest.animationSets.push_back(std::move(parsed));
+        }
+    }
+    return {};
 }
 
 Result<void> ParsePhysicsSections(const nlohmann::json& root, ModuleManifest& manifest)
@@ -328,6 +474,7 @@ Result<void> ParseSections(const nlohmann::json& root, ModuleManifest& manifest)
         }
     }
     INTERI_TRY(ParsePhysicsSections(root, manifest));
+    INTERI_TRY(ParseGameplaySections(root, manifest));
     return {};
 }
 

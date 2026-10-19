@@ -26,6 +26,8 @@ public:
     /// Lays the document out for the screen and the current Values. Call once per frame, before the input calls
     /// that should see the new layout.
     void Update(float width, float height, const chain::IValueReader& values);
+    /// `{@key}` text is looked up here (nullptr: shows the keys). Must outlive the controller's Updates.
+    void SetLocalization(const loc::Localization* localization) noexcept { m_localization = localization; }
     [[nodiscard]] const HudFrame& Frame() const noexcept { return m_frame; }
 
     /// Pointer in screen pixels. Moving over a button hovers and focuses it. A button activates when the pointer
@@ -53,6 +55,7 @@ private:
 
     HudDocument m_document;
     HudFrame m_frame;
+    const loc::Localization* m_localization = nullptr;
     HudHighlight m_highlight;
     std::vector<std::string> m_actions;
     float m_width = 1280.0f;

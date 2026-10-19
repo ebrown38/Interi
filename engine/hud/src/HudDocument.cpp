@@ -175,7 +175,7 @@ Json ColorJson(const values::Color& color)
     return Json::array({color.r, color.g, color.b, color.a});
 }
 
-/// Calls `visit(id)` for each `{id}` / `{id|N}` in `text`.
+/// Calls `visit(name)` for each `{id}` / `{id|N}` / `{@key}` in `text` (a key arrives with its '@').
 template <typename F>
 void ForEachPlaceholder(std::string_view text, F&& visit)
 {
@@ -187,7 +187,10 @@ void ForEachPlaceholder(std::string_view text, F&& visit)
             return;
         }
         std::string_view name = text.substr(at + 1, close - at - 1);
-        name = name.substr(0, name.find('|'));
+        if (!name.starts_with('@'))
+        {
+            name = name.substr(0, name.find('|'));
+        }
         if (!name.empty())
         {
             visit(name);
@@ -351,9 +354,33 @@ std::vector<std::string> BoundValues(const HudDocument& document)
         {
             ids.insert(widget.visibleIf);
         }
-        ForEachPlaceholder(widget.text, [&](std::string_view id) { ids.emplace(id); });
+        ForEachPlaceholder(widget.text,
+                           [&](std::string_view id)
+                           {
+                               if (!id.starts_with('@'))
+                               {
+                                   ids.emplace(id);
+                               }
+                           });
     }
     return {ids.begin(), ids.end()};
+}
+
+std::vector<std::string> LocalizationKeys(const HudDocument& document)
+{
+    std::set<std::string> keys;
+    for (const HudWidget& widget : document.widgets)
+    {
+        ForEachPlaceholder(widget.text,
+                           [&](std::string_view name)
+                           {
+                               if (name.starts_with('@') && name.size() > 1)
+                               {
+                                   keys.emplace(name.substr(1));
+                               }
+                           });
+    }
+    return {keys.begin(), keys.end()};
 }
 
 } // namespace interi::hud

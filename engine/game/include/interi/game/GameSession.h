@@ -15,6 +15,7 @@
 #include <interi/ecs/World.h>
 #include <interi/game/ProjectModules.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/nav/NavMesh.h>
 #include <interi/platform/FileSystem.h>
 #include <interi/runtime/SaveGame.h>
 #include <interi/scene/SceneRuntime.h>
@@ -39,6 +40,9 @@ struct GameDesc
     std::uint32_t workerCount = JobSystemDesc::kAutoWorkerCount;
     /// A scene to run instead of the project's startup scene (project-relative).
     std::string scene;
+    /// A cooked navigation mesh (`.inav`, project-relative) loaded into ModuleHost::Navigation(). A missing file is
+    /// fine (no navigation); one that doesn't read is a warning. Empty: none.
+    std::string navMesh = "content/navmesh.inav";
 };
 
 class GameSession
@@ -83,6 +87,8 @@ public:
 private:
     GameSession() = default;
     Result<void> StartScene();
+    /// Walks the navigation agents (nav::StepNavAgents) and raises their nav.Arrived / nav.Failed triggers.
+    void StepNavigation();
 
     sdk::Project m_project;
     std::string m_scenePath;
@@ -94,6 +100,7 @@ private:
     values::ReflectionRegistry m_reflection;
     std::unique_ptr<scene::SceneRuntime> m_scene;
     std::unique_ptr<NativeFileSystem> m_saveFiles;
+    std::vector<std::string> m_warnings;
     std::unique_ptr<SaveSlots> m_slots;
 };
 

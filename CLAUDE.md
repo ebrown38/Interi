@@ -418,6 +418,15 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   `--module-libs <dir>` adds library search paths for the project's modules. The dock layout is saved in the temp directory
   (`interi_editor_layout_v9.ini`; bump the version when windows are added).
 
+## Animation, navigation, localization and AI (M24; `docs/animation-navigation-localization.md`)
+
+- **`engine/anim`** (`interi::anim`, shared): `.skeleton.json` / `.clip.json` assets (M21's importers are not on this base; anim defines the formats), `SampleClip` / `BlendPoses` / `ComputeSkinMatrices` (nlerp, no trig: bit-identical), `.animstates.json` graphs in `AnimationSet`s bound to character archetype ids (`AnimationLibrary`), `AnimatorComponent` stepped by `StepAnimator`. `anim.Play` / `anim.Trigger` chain events only record a request on the component. Sets come from module.json `animationSets` (`LoadModuleAnimations`).
+- **`engine/nav`** (`interi::nav`, shared): Recast bake and Detour queries behind `NavMesh` (vcpkg `recastnavigation`, zlib, private; one `dtNavMeshQuery` per call so queries are thread-safe; `.inav` cook). Recast float math is reproducible per toolchain, not across platforms: ship the cooked mesh. `NavAgentComponent` + `StepNavAgents` (stable-id order, re-plans each step) and `RaiseNavTriggers` (`nav.Arrived` / `nav.Failed`); events `nav.FindPath`, `nav.MoveTo`, `nav.Stop` read the mesh from `ModuleHost::Navigation()` (`NavSource`, swap it between steps only).
+- **Navigation in a game**: `GameSession` loads `content/navmesh.inav` into `ModuleHost::Navigation()` and steps the agents after the scene step (moves also written to `LocalTransformComponent`; triggers raised for the next step). Modules reach the mesh as the host service `engine.navigation` (`hotreload::NavigationService`). Animation and localization are not stepped/owned by `GameSession`: a game drives them.
+- **`ModuleHost`** declares the anim, nav and AI contract ids and registers the anim and nav events itself (as the engine). So does the editor's own registry.
+- **AI** (`sdk/Ai.h`): module.json `behaviours` and `computerPlayers` -> `AiCatalog` (full ids, validated). The engine spawns nothing: a game module provides the hook `ai.SpawnComputerPlayer` and `SpawnComputerPlayers` calls it with slots.
+- **`engine/loc`** (`interi::loc`, shared): `.strings.json` per language, `Localization` (fallback language, later table wins per key, `RemoveProvider`, `MissingKeys`, `language.set:<code>` via `ApplyLanguageAction`), module.json `localization` (`LoadModuleStrings`). The HUD binds `{@key}` (translation, whose `{valueId}` placeholders are filled from Values; keys inside translations are not expanded again); `BuildFrame` / `HudController::SetLocalization` take the `Localization`, and `BoundValues` skips keys (`LocalizationKeys` lists them).
+
 ## Dependencies and licensing
 
 Interi is MIT open source. Every dependency must be permissive (allowlist in `tools/license_check/license_policy.json`; no GPL/LGPL/AGPL). Add dependencies to `vcpkg.json` in the milestone that first uses them. After changing dependencies:

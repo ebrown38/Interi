@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include <interi/core/Log.h>
 #include <interi/game/GameSession.h>
+#include <interi/nav/NavAgents.h>
 #include <interi/scene/Hierarchy.h>
 #include <interi/scene/SceneSave.h>
 
@@ -45,6 +46,22 @@ Result<std::unique_ptr<GameSession>> GameSession::Open(const GameDesc& desc)
         session->m_saveFiles = std::make_unique<NativeFileSystem>(desc.saveDirectory);
         session->m_slots = std::make_unique<SaveSlots>(*session->m_saveFiles, "saves", desc.saveSlots);
     }
+    if (!desc.navMesh.empty() && session->m_files.Exists(desc.navMesh))
+    {
+        auto loaded = [&]() -> Result<nav::NavMesh>
+        {
+            INTERI_TRY_ASSIGN(bytes, session->m_files.ReadFile(desc.navMesh));
+            return nav::NavMesh::Read(bytes);
+        }();
+        if (loaded)
+        {
+            session->m_modules->Host().Navigation().Set(std::make_shared<const nav::NavMesh>(std::move(*loaded)));
+        }
+        else
+        {
+            session->m_warnings.push_back(std::format("{}: {}", desc.navMesh, loaded.error().message));
+        }
+    }
     INTERI_TRY(session->StartScene());
     return session;
 }
@@ -74,6 +91,39 @@ void GameSession::Step()
 {
     m_modules->Host().RunSystems(*m_jobs, m_scene->Commands());
     m_scene->Step();
+    StepNavigation();
+}
+
+void GameSession::StepNavigation()
+{
+    const std::shared_ptr<const nav::NavMesh> mesh = m_modules->Host().Navigation().Get();
+    const float kStepSeconds = static_cast<float>(chain::ExecutorDesc{}.stepNanoseconds) * 1e-9f;
+    const nav::NavStepResult result = nav::StepNavAgents(m_world, mesh.get(), kStepSeconds);
+    if (!result.moves.empty())
+    {
+        // Scene objects take their world transform from the local one: write the move there too (relative to the
+        // parent for a child), or the next propagation would put the agent back.
+        const scene::HierarchyIndex hierarchy = scene::BuildHierarchy(m_world);
+        for (const nav::AgentMove& move : result.moves)
+        {
+            const auto node = hierarchy.nodes.find(move.entity);
+            if (node == hierarchy.nodes.end())
+            {
+                continue;
+            }
+            auto* local = m_world.GetMut<scene::LocalTransformComponent>(node->second.entity);
+            if (local == nullptr)
+            {
+                continue;
+            }
+            const auto parent = hierarchy.nodes.find(node->second.parent);
+            const auto* parentTransform =
+                parent != hierarchy.nodes.end() ? m_world.Get<Transform>(parent->second.entity) : nullptr;
+            local->position =
+                parentTransform != nullptr ? parentTransform->Inverse().TransformPoint(move.position) : move.position;
+        }
+    }
+    nav::RaiseNavTriggers(m_scene->Executor(), result);
 }
 
 void GameSession::RaiseInputAction(std::string_view action)
@@ -115,6 +165,7 @@ std::vector<SaveSlots::Info> GameSession::Slots() const
 std::vector<std::string> GameSession::Warnings() const
 {
     std::vector<std::string> warnings = m_modules->Warnings();
+    warnings.insert(warnings.end(), m_warnings.begin(), m_warnings.end());
     if (m_scene != nullptr)
     {
         warnings.insert(warnings.end(), m_scene->Warnings().begin(), m_scene->Warnings().end());

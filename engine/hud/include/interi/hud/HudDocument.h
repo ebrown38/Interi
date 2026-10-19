@@ -99,5 +99,7 @@ struct ParsedHud
 
 /// Every Value a document reads (`bind`, `visibleIf`, `{id}` in text), sorted and unique.
 [[nodiscard]] std::vector<std::string> BoundValues(const HudDocument& document);
+/// The string table keys (`{@key}`) the document's text reads, sorted and unique.
+[[nodiscard]] std::vector<std::string> LocalizationKeys(const HudDocument& document);
 
 } // namespace interi::hud

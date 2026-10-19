@@ -5,6 +5,7 @@ set(_tests ${PROJECT_SOURCE_DIR}/tests/sdk)
 
 interi_add_module(sdk SHARED
     SOURCES
+        src/Ai.cpp
         src/ContributionRegistry.cpp
         src/HeaderCheck.cpp
         src/HookSignature.cpp
@@ -17,6 +18,7 @@ interi_add_module(sdk SHARED
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES
+        ${_tests}/AiTests.cpp
         ${_tests}/ContributionRegistryTests.cpp
         ${_tests}/HookSignatureTests.cpp
         ${_tests}/HooksTests.cpp

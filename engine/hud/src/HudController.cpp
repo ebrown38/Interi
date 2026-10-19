@@ -19,7 +19,7 @@ void HudController::Update(float width, float height, const chain::IValueReader&
 {
     m_width = width;
     m_height = height;
-    m_frame = BuildFrame(m_document, width, height, values, m_highlight);
+    m_frame = BuildFrame(m_document, width, height, values, m_highlight, m_localization);
     // A button that disappeared (visibleIf) can't be focused, hovered or pressed any more.
     for (std::string* id : {&m_highlight.focused, &m_highlight.hovered, &m_highlight.pressed})
     {

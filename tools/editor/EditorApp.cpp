@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "EditorApp.h"
 
+#include <interi/anim/AnimEvents.h>
 #include <interi/chain/CoreLibrary.h>
 #include <interi/core/Hash.h>
 #include <interi/core/Log.h>
@@ -14,6 +15,7 @@
 #include <interi/editor_ui/ViewportOverlay.h>
 #include <interi/hotreload/ModuleDocs.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/nav/NavEvents.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/scene/Mesh.h>
 #include <interi/scene/Primitives.h>
@@ -92,6 +94,14 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     {
         m_chainModules.DeclareContract(std::move(id));
     }
+    for (std::string& id : anim::AnimationContracts())
+    {
+        m_chainModules.DeclareContract(std::move(id));
+    }
+    for (std::string& id : nav::NavigationContracts())
+    {
+        m_chainModules.DeclareContract(std::move(id));
+    }
     m_chains = std::make_unique<chain::ChainRegistry>(m_chainModules);
     m_moduleLibraries = desc.moduleLibraries;
     if (Logger* logger = GetGlobalLogger())
@@ -125,6 +135,14 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     if (auto registered = chain::RegisterCoreLibrary(*m_chains); !registered)
     {
         INTERI_LOG_ERROR("Editor", "chain library: {}", registered.error().message);
+    }
+    if (auto registered = anim::RegisterAnimationLibrary(*m_chains); !registered)
+    {
+        INTERI_LOG_ERROR("Editor", "animation library: {}", registered.error().message);
+    }
+    if (auto registered = nav::RegisterNavigationLibrary(*m_chains, std::make_shared<nav::NavSource>()); !registered)
+    {
+        INTERI_LOG_ERROR("Editor", "navigation library: {}", registered.error().message);
     }
 
     m_context = ImGui::CreateContext();

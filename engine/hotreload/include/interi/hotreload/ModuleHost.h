@@ -7,7 +7,9 @@
 #include <interi/ecs/Scheduler.h>
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleApi.h>
+#include <interi/hotreload/NavigationService.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/nav/NavEvents.h>
 #include <interi/platform/DynamicLibrary.h>
 #include <interi/runtime/SaveGame.h>
 #include <interi/sdk/ContributionRegistry.h>
@@ -127,6 +129,9 @@ public:
     /// provide (removed before a module unloads; executors on it recompile). Valid while the host lives.
     [[nodiscard]] chain::ChainRegistry& Chains() noexcept { return *m_chains; }
     [[nodiscard]] const chain::ChainRegistry& Chains() const noexcept { return *m_chains; }
+    /// The navigation mesh nav.FindPath reads (modules reach it as the service "engine.navigation"). Set it between
+    /// steps (nullptr: no mesh, every query is NotFound).
+    [[nodiscard]] nav::NavSource& Navigation() noexcept { return *m_navigation; }
     /// The save sections the loaded modules registered (and the game's own): Capture/Apply them for save slots.
     /// A module's sections leave before its library unloads; a failed reload restores them.
     [[nodiscard]] SaveRegistry& Saves() noexcept { return m_saves; }
@@ -159,6 +164,8 @@ private:
     std::unique_ptr<sdk::HookRegistry> m_hooks;
     std::unique_ptr<values::DataRegistry> m_data;
     std::unique_ptr<chain::ChainRegistry> m_chains;
+    std::shared_ptr<nav::NavSource> m_navigation;
+    std::unique_ptr<NavigationService> m_navigationService;
     SaveRegistry m_saves;
     sdk::ModuleGraph m_graph;
     std::vector<std::unique_ptr<Loaded>> m_modules; ///< In load order.

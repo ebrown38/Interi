@@ -54,8 +54,8 @@ Nothing here has been applied. These are instructions, not changes.
 - **Depends on:** None
 - **Steps:**
   1. In `Read_FlippedByte_IsCorrupt_AtEveryPosition`, assert `!read.has_value()` for every position and that `read.error().code` is one of `{Corrupt, VersionMismatch}`.
-  2. Add `ReadSave_UnsortedOrDuplicateSections_Corrupt`: build a `SaveGame` whose `sections` vector is set directly as `{"b:x","a:x"}`, then `{"a:x","a:x"}`, then `{""}`. Call `WriteSave` and expect `ErrorCode::Corrupt`.
-  3. Add `ReadSave_TooManySections_Corrupt` with 4097 sections.
+  2. Add `ReadSave_UnsortedOrDuplicateSections_Corrupt`: build a `SaveGame` whose `sections` vector is set directly (bypassing `Set`) as `{"b:x","a:x"}`, then `{"a:x","a:x"}`, then `{""}`. `WriteSave` serializes the sections as given and does not validate, so the bytes it returns are a well-hashed but invalid save; pass them to `ReadSave` and assert it fails with `ErrorCode::Corrupt`.
+  3. Add `ReadSave_TooManySections_Corrupt`: serialize a `SaveGame` with 4097 sorted, unique sections through `WriteSave`, then assert `ReadSave` of those bytes fails with `ErrorCode::Corrupt`.
   4. In `Read_TruncatedOrEmpty_Fails`, assert the error code.
 - **Illustrative change (not applied):**
   ```cpp

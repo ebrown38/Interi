@@ -88,7 +88,7 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
     {
         return corrupt("tile position");
     }
-    if (h.maxLinkCount < 1 || h.polyCount < 1 || h.vertCount < 1 || h.detailMeshCount != h.polyCount ||
+    if (h.maxLinkCount < 1 || h.polyCount < 1 || h.vertCount < 1 || h.detailMeshCount != h.offMeshBase ||
         h.offMeshBase < 0 || h.offMeshBase > h.polyCount || h.offMeshConCount > h.polyCount - h.offMeshBase)
     {
         return corrupt("counts");
@@ -155,6 +155,10 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
             {
                 return corrupt("polygon neighbour");
             }
+        }
+        if (offMesh)
+        {
+            continue; // Detour gives only ground polygons (the first offMeshBase) a detail mesh
         }
         const auto detail = ReadAt<dtPolyDetail>(base, detailMeshesAt, i);
         if (std::uint64_t{detail.vertBase} + detail.vertCount > static_cast<unsigned>(h.detailVertCount) ||

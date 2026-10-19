@@ -66,9 +66,45 @@ void SetInt(std::vector<std::byte>& payload, std::size_t tileStart, std::size_t 
 constexpr std::size_t kPolyCount = 6 * 4;
 constexpr std::size_t kVertCount = 7 * 4;
 constexpr std::size_t kMaxLinkCount = 8 * 4;
+constexpr std::size_t kDetailMeshCount = 9 * 4;
 constexpr std::size_t kDetailVertCount = 10 * 4;
 constexpr std::size_t kBvNodeCount = 12 * 4;
 constexpr std::size_t kOffMeshBase = 14 * 4;
+
+std::int32_t GetInt(const std::vector<std::byte>& payload, std::size_t tileStart, std::size_t fieldOffset)
+{
+    std::int32_t value = 0;
+    std::memcpy(&value, payload.data() + tileStart + fieldOffset, sizeof value);
+    return value;
+}
+
+// Moves the tile's last polygon past offMeshBase the way Detour lays out off-mesh connections: offMeshBase and
+// detailMeshCount count ground polygons only, so the polygon loses its detail mesh (12 bytes). With `offMeshType` it
+// also becomes a two-vertex off-mesh polygon; without, it stays a ground polygon in the off-mesh range.
+void MoveLastPolygonPastOffMeshBase(std::vector<std::byte>& payload, std::size_t tile, bool offMeshType)
+{
+    // Sections after the 100-byte header: vertices (12 bytes each), dtPoly (32), dtLink (12), dtPolyDetail (12).
+    const auto polyCount = static_cast<std::size_t>(GetInt(payload, tile, kPolyCount));
+    const auto vertCount = static_cast<std::size_t>(GetInt(payload, tile, kVertCount));
+    const auto maxLinkCount = static_cast<std::size_t>(GetInt(payload, tile, kMaxLinkCount));
+    const std::size_t polys = tile + 100 + vertCount * 12;
+    if (offMeshType)
+    {
+        const std::size_t last = polys + (polyCount - 1) * 32;
+        payload[last + 30] = std::byte{2};                                             // vertCount
+        payload[last + 31] = (payload[last + 31] & std::byte{0x3f}) | std::byte{0x40}; // type: off-mesh connection
+    }
+    const std::size_t lastDetail = polys + polyCount * 32 + maxLinkCount * 12 + (polyCount - 1) * 12;
+    payload.erase(payload.begin() + static_cast<std::ptrdiff_t>(lastDetail),
+                  payload.begin() + static_cast<std::ptrdiff_t>(lastDetail + 12));
+    SetInt(payload, tile, kDetailMeshCount, static_cast<std::int32_t>(polyCount - 1));
+    SetInt(payload, tile, kOffMeshBase, static_cast<std::int32_t>(polyCount - 1));
+    std::uint32_t length = 0;
+    const std::size_t lengthAt = tile - sizeof length; // payload is bytes: this is a byte offset
+    std::memcpy(&length, payload.data() + lengthAt, sizeof length);
+    length -= 12;
+    std::memcpy(payload.data() + lengthAt, &length, sizeof length);
+}
 
 } // namespace
 
@@ -138,16 +174,21 @@ TEST(NavMesh, Read_FlatTileBounds_Corrupt)
 TEST(NavMesh, Read_OffMeshRangeWithGroundPolygons_Corrupt)
 {
     // The last polygon is claimed to be an off-mesh connection but is a ground polygon.
-    const auto bytes = WithEditedTile(
-        [](auto& payload, std::size_t tile)
-        {
-            std::int32_t polyCount = 0;
-            std::memcpy(&polyCount, payload.data() + tile + kPolyCount, sizeof polyCount);
-            SetInt(payload, tile, kOffMeshBase, polyCount - 1);
-        });
+    const auto bytes =
+        WithEditedTile([](auto& payload, std::size_t tile) { MoveLastPolygonPastOffMeshBase(payload, tile, false); });
     const auto mesh = NavMesh::Read(bytes);
     ASSERT_FALSE(mesh.has_value());
     EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(mesh.error().message.find("polygon type"), std::string::npos) << mesh.error().message;
+}
+
+TEST(NavMesh, Read_OffMeshPolygonWithoutDetailMesh_Loads)
+{
+    // Detour gives off-mesh polygons no detail mesh (detailMeshCount == offMeshBase < polyCount); that is valid.
+    const auto bytes =
+        WithEditedTile([](auto& payload, std::size_t tile) { MoveLastPolygonPastOffMeshBase(payload, tile, true); });
+    const auto mesh = NavMesh::Read(bytes);
+    EXPECT_TRUE(mesh.has_value()) << mesh.error().message;
 }
 
 TEST(NavMesh, Read_PolygonWithoutVertices_Corrupt)

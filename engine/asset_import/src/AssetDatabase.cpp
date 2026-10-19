@@ -8,6 +8,7 @@
 #include <interi/core/Log.h>
 #include <interi/hotreload/FileWatcher.h>
 #include <interi/platform/FileSystem.h>
+#include <interi/platform/PrivateFiles.h>
 #include <interi/scene/Mesh.h>
 
 #include "ImportUtil.h"
@@ -187,28 +188,23 @@ bool IsContainedProduct(std::string_view path, std::string_view importedFolder)
            path.starts_with(importedFolder) && path[importedFolder.size()] == '/';
 }
 
-// Deletes a product only when it is a regular file (not a symlink) that really lies inside `<root>/<imported>`.
-bool RemoveProduct(const fs::path& root, std::string_view importedFolder, std::string_view product,
-                   std::error_code& error)
+// Deletes a product only when it is a regular file inside `<root>/<imported>` reached without following a link: the
+// imported folder, every directory below it and the file itself are opened as themselves (RemoveFileBeneath), so
+// neither a symlinked `imported` nor a directory swapped for a link mid-delete can redirect it outside the root.
+bool RemoveProduct(const fs::path& root, std::string_view importedFolder, std::string_view product)
 {
     if (!IsContainedProduct(product, importedFolder))
     {
         INTERI_LOG_WARN("assets", "refusing to delete '{}', it is outside '{}'", product, importedFolder);
         return false;
     }
-    const fs::path file = root / std::string(product);
-    if (fs::is_symlink(fs::symlink_status(file, error)))
+    const auto removed = RemoveFileBeneath(root, product);
+    if (!removed)
     {
+        INTERI_LOG_WARN("assets", "refusing to delete '{}': {}", product, removed.error().message);
         return false;
     }
-    const fs::path canonicalImported = fs::weakly_canonical(root / std::string(importedFolder), error);
-    const fs::path canonicalFile = fs::weakly_canonical(file, error);
-    const auto relative = canonicalFile.lexically_relative(canonicalImported);
-    if (error || relative.empty() || *relative.begin() == "..")
-    {
-        return false;
-    }
-    return fs::remove(file, error);
+    return *removed;
 }
 
 /// Fills `record` (whose path and kind are known) from a .meta; false if the text is unusable. Products outside the
@@ -739,8 +735,7 @@ struct AssetDatabase::Impl
         {
             if (!kept.contains(old.path))
             {
-                std::error_code ignored;
-                RemoveProduct(options.root, options.importedFolder, old.path, ignored);
+                RemoveProduct(options.root, options.importedFolder, old.path);
             }
         }
         record.products.clear();
@@ -1010,7 +1005,7 @@ std::vector<std::string> AssetDatabase::Prune()
         }
         for (const CookedProduct& product : record.products)
         {
-            if (RemoveProduct(impl.options.root, impl.options.importedFolder, product.path, error))
+            if (RemoveProduct(impl.options.root, impl.options.importedFolder, product.path))
             {
                 removed.push_back(product.path);
             }

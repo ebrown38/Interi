@@ -644,6 +644,31 @@ TEST_F(AssetDatabaseTest, Prune_MetaProductsOutsideImported_NothingDeleted)
     }
 }
 
+TEST_F(AssetDatabaseTest, Prune_ImportedFolderSymlinkedOutside_TargetSurvives)
+{
+    // The imported folder itself is a link out of the root, and a stale .meta names a product "inside" it.
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "a.png.itex", "keep");
+    WriteFile(Root(), "a.png", SolidPng(10));
+    {
+        AssetDatabase db = Make();
+        ASSERT_TRUE(db.Scan().has_value());
+        ASSERT_TRUE(db.CookAll().failed.empty());
+    }
+    std::filesystem::remove_all(Root() / "imported");
+    std::error_code error;
+    std::filesystem::create_directory_symlink(outside.Path(), Root() / "imported", error);
+    if (error)
+    {
+        GTEST_SKIP() << "symlinks are not available: " << error.message();
+    }
+    std::filesystem::remove(Root() / "a.png");
+    AssetDatabase db = Make();
+    (void)db.Prune();
+    EXPECT_TRUE(std::filesystem::exists(outside.Path() / "a.png.itex"));
+    EXPECT_FALSE(std::filesystem::exists(Root() / "a.png.meta"));
+}
+
 TEST_F(AssetDatabaseTest, Prune_ProductSymlinkedOutside_TargetSurvives)
 {
     interi::testing::ScopedTempDir outside;

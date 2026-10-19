@@ -228,7 +228,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - `Reload(id)` reopens the module and every loaded module that depends on it (`loadAfter`; reloading an engine reloads the modules built against it).
   - `Load(path)` is a single manifest-less module (`local.module`), for quick experiments and tests.
   - Each transaction:
-    1. Copies every library to a unique shadow file and opens it.
+    1. Copies every library to a unique shadow file and opens it. The shadow directory (default `PerUserDataDirectory()/modules`, never the shared temp directory) must be a real directory owned by the current user that others cannot write to (`EnsurePrivateDirectory`); copies are created with `CopyFileExclusive` (`O_EXCL|O_NOFOLLOW`) under random names.
     2. Extracts the outgoing modules' hook entries and data.
     3. Registers the new instances next to the old ones: each module's module.json data (re-read on reload) first, then its code.
     4. Migrates components with `ComponentMigrator`s.

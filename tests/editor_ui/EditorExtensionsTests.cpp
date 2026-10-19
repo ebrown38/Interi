@@ -2,6 +2,8 @@
 #include <interi/ecs/World.h>
 #include <interi/editor_ui/EditorExtensions.h>
 #include <interi/hotreload/ModuleHost.h>
+#include <interi/jobs/JobSystem.h>
+#include <interi/platform/FileSystem.h>
 
 #include "ImGuiTestContext.h"
 #include <gtest/gtest.h>
@@ -46,10 +48,29 @@ public:
     {
         return {.position = Vec3(1.0f, 2.0f, 3.0f), .rotation = {}, .scale = Vec3(1.0f)};
     }
+    [[nodiscard]] std::filesystem::path DataDirectory() const override { return "data"; }
+    [[nodiscard]] const interi::IFileSystem& Files() const override { return m_files; }
+    [[nodiscard]] interi::JobSystem& Jobs() override { return m_jobs; }
+    [[nodiscard]] std::string ScenePath() const override { return "levels/test.scene.json"; }
+    void FocusCamera(const Vec3& target, float distance) override
+    {
+        focusTarget = target;
+        focusDistance = distance;
+    }
+    std::uint64_t AddMeshObject(std::string name, const Transform&, std::string meshAsset) override
+    {
+        added.push_back(name + "=" + meshAsset);
+        return 7;
+    }
     mutable std::vector<std::uint64_t> names;
+    Vec3 focusTarget;
+    float focusDistance = 0.0f;
+    std::vector<std::string> added;
 
 private:
     World m_world;
+    interi::MemoryFileSystem m_files;
+    interi::JobSystem m_jobs{interi::JobSystemDesc{.workerCount = 0}};
 };
 
 class FakeCanvas final : public IViewportCanvas
@@ -145,6 +166,163 @@ TEST(EditorExtensions, Tools_ActivateDeactivateAndGoWithTheirModule)
 
     EXPECT_TRUE(extensions.ActivateTool({}));
     EXPECT_EQ(deactivated, 2);
+}
+
+TEST(EditorExtensions, RenderFeatures_AddSceneObjectsAndDecals)
+{
+    EditorExtensions extensions;
+    ASSERT_TRUE(extensions
+                    .AddRenderFeature("com.a", {.id = "com.a:Mesh",
+                                                .render = [](RenderFeatureContext& context, RenderFeatureOutput& output,
+                                                             IEditorDocument&) -> Result<void>
+                                                {
+                                                    output.objects->push_back({.transform = Mat4::Identity()});
+                                                    output.decals->push_back({.seed = context.generation});
+                                                    return {};
+                                                }})
+                    .has_value());
+    EXPECT_EQ(extensions.RenderFeatureCount(), 1u);
+    FakeDocument document;
+    std::vector<render::RenderObject> objects(2);
+    std::vector<render::Decal> decals;
+    RenderFeatureContext context;
+    RenderFeatureOutput output{.objects = &objects, .decals = &decals};
+    int resets = 0;
+    const auto reset = [&resets]() -> Result<void>
+    {
+        ++resets;
+        return {};
+    };
+    ASSERT_TRUE(extensions.GatherRenderObjects(context, output, document, reset).has_value());
+    EXPECT_EQ(objects.size(), 3u) << "the output keeps its contents";
+    EXPECT_EQ(decals.size(), 1u);
+    EXPECT_EQ(resets, 0);
+}
+
+TEST(EditorExtensions, RenderFeatures_PoolFull_ClearsRaisesGenerationAndRunsAgain)
+{
+    EditorExtensions extensions;
+    std::vector<std::uint32_t> generations;
+    // The first feature fills the pool on generation 0 only; the second just adds an object each run.
+    ASSERT_TRUE(extensions
+                    .AddRenderFeature(
+                        "com.a", {.id = "com.a:Full",
+                                  .render = [&generations](RenderFeatureContext& context, RenderFeatureOutput& output,
+                                                           IEditorDocument&) -> Result<void>
+                                  {
+                                      generations.push_back(context.generation);
+                                      output.objects->push_back({});
+                                      if (context.generation == 0)
+                                      {
+                                          return MakeError(ErrorCode::OutOfMemory, "pool full");
+                                      }
+                                      return {};
+                                  }})
+                    .has_value());
+    ASSERT_TRUE(extensions
+                    .AddRenderFeature("com.b", {.id = "com.b:One",
+                                                .render = [](RenderFeatureContext&, RenderFeatureOutput& output,
+                                                             IEditorDocument&) -> Result<void>
+                                                {
+                                                    output.objects->push_back({});
+                                                    return {};
+                                                }})
+                    .has_value());
+    FakeDocument document;
+    std::vector<render::RenderObject> objects;
+    std::vector<render::Decal> decals;
+    RenderFeatureContext context;
+    RenderFeatureOutput output{.objects = &objects, .decals = &decals};
+    int resets = 0;
+    ASSERT_TRUE(extensions
+                    .GatherRenderObjects(context, output, document,
+                                         [&resets]() -> Result<void>
+                                         {
+                                             ++resets;
+                                             return {};
+                                         })
+                    .has_value());
+    EXPECT_EQ(resets, 1);
+    EXPECT_EQ(context.generation, 1u);
+    EXPECT_EQ(generations, (std::vector<std::uint32_t>{0, 1}));
+    EXPECT_EQ(objects.size(), 2u) << "what the failed pass added is dropped";
+}
+
+TEST(EditorExtensions, RenderFeatures_OtherErrorSkipsThatFeature)
+{
+    EditorExtensions extensions;
+    ASSERT_TRUE(extensions
+                    .AddRenderFeature("com.a", {.id = "com.a:Bad",
+                                                .render = [](RenderFeatureContext&, RenderFeatureOutput&,
+                                                             IEditorDocument&) -> Result<void>
+                                                { return MakeError(ErrorCode::InvalidArgument, "nope"); }})
+                    .has_value());
+    ASSERT_TRUE(extensions
+                    .AddRenderFeature("com.b", {.id = "com.b:Good",
+                                                .render = [](RenderFeatureContext&, RenderFeatureOutput& output,
+                                                             IEditorDocument&) -> Result<void>
+                                                {
+                                                    output.objects->push_back({});
+                                                    return {};
+                                                }})
+                    .has_value());
+    FakeDocument document;
+    std::vector<render::RenderObject> objects;
+    RenderFeatureContext context;
+    RenderFeatureOutput output{.objects = &objects, .decals = nullptr};
+    ASSERT_TRUE(extensions.GatherRenderObjects(context, output, document, [] { return Result<void>{}; }).has_value());
+    EXPECT_EQ(objects.size(), 1u);
+}
+
+TEST(EditorExtensions, Updates_RunEveryFrameWithTheDuration)
+{
+    EditorExtensions extensions;
+    float total = 0.0f;
+    ASSERT_TRUE(extensions
+                    .AddUpdate("com.a", {.id = "com.a:Tick",
+                                         .update = [&total](float seconds, IEditorDocument&) { total += seconds; }})
+                    .has_value());
+    EXPECT_FALSE(extensions.AddUpdate("com.a", {.id = "com.a:Tick", .update = [](float, IEditorDocument&) {}}));
+    EXPECT_EQ(extensions.UpdateCount(), 1u);
+    FakeDocument document;
+    extensions.RunUpdates(0.25f, document);
+    extensions.RunUpdates(0.5f, document);
+    EXPECT_FLOAT_EQ(total, 0.75f);
+    const auto token = extensions.Extract("com.a");
+    EXPECT_EQ(extensions.UpdateCount(), 0u);
+    extensions.Restore(token);
+    EXPECT_EQ(extensions.UpdateCount(), 1u);
+}
+
+TEST(EditorExtensions, RenderFeatures_CanAskForTheSceneToBeReplaced)
+{
+    EditorExtensions extensions;
+    bool preview = false;
+    ASSERT_TRUE(extensions
+                    .AddRenderFeature("com.a", {.id = "com.a:Preview",
+                                                .replacesScene = [&preview](IEditorDocument&) { return preview; }})
+                    .has_value());
+    FakeDocument document;
+    EXPECT_FALSE(extensions.ScenePreviewActive(document));
+    preview = true;
+    EXPECT_TRUE(extensions.ScenePreviewActive(document));
+}
+
+TEST(EditorExtensions, Tools_CanBeActivatedThroughTheApi)
+{
+    EditorExtensions extensions;
+    IEditorExtensions& api = extensions;
+    ASSERT_TRUE(api.AddTool("com.a", {.id = "com.a:Paint",
+                                      .name = "Paint",
+                                      .activated = {},
+                                      .deactivated = {},
+                                      .frame = [](IViewportCanvas&, const ToolInput&, IEditorDocument&) {}})
+                    .has_value());
+    EXPECT_TRUE(api.ActivateTool("com.a:Paint"));
+    EXPECT_EQ(extensions.ActiveTool(), "com.a:Paint");
+    EXPECT_FALSE(api.ActivateTool("com.a:Missing"));
+    EXPECT_TRUE(api.ActivateTool(""));
+    EXPECT_TRUE(extensions.ActiveTool().empty());
 }
 
 TEST(EditorExtensions, RenderFeatures_ContributeDebugGeometry)

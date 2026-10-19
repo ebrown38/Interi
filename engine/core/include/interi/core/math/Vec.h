@@ -8,7 +8,7 @@
 #include <numbers>
 
 /// Engine math conventions (pinned by tests in tests/core/MathTests.cpp):
-///   - Right-handed coordinates, +Y up (same as glTF and Jolt). Cross(X, Y) == Z.
+///   - Right-handed coordinates, +Y up (same as glTF). Cross(X, Y) == Z.
 ///   - Column vectors: a point is transformed as p' = M * p, so A * B applies B first.
 ///   - Mat4 is stored column-major; the translation is column 3.
 ///   - Quaternions are (x, y, z, w) with w the scalar part; positive angles rotate counter-clockwise when looking

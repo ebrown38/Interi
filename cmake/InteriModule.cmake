@@ -8,7 +8,9 @@ include(GenerateExportHeader)
 #     PRIVATE_DEPS <targets...>      # private link dependencies
 #     TEST_DEPS    <targets...>      # extra link dependencies for the test executable
 #     TEST_LABELS  <labels...>       # CTest labels for the tests (default: unit)
-#     SHARED)                        # build as a shared library when INTERI_BUILD_SHARED is ON
+#     SHARED                         # build as a shared library when INTERI_BUILD_SHARED is ON
+#     COMPONENT    <name>)           # a static library installed with the package's optional component <name>
+#                                    # (find_package(Interi COMPONENTS <name>)); see InteriPackage.cmake
 #
 # Creates library `interi_<name>` (alias `interi::<name>`) with include root `<module dir>/include`,
 # and test executable `interi_<name>_tests` registered with CTest. Every module must ship tests:
@@ -19,7 +21,7 @@ include(GenerateExportHeader)
 # behind functions). `<interi/<name>/Export.h>` defines INTERI_<NAME>_API for the rare symbol that needs it.
 
 function(interi_add_module name)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "SHARED" "" "SOURCES;TEST_SOURCES;DEPS;PRIVATE_DEPS;TEST_DEPS;TEST_LABELS")
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "SHARED" "COMPONENT" "SOURCES;TEST_SOURCES;DEPS;PRIVATE_DEPS;TEST_DEPS;TEST_LABELS")
 
     if(NOT ARG_TEST_SOURCES)
         message(FATAL_ERROR "interi_add_module(${name}): TEST_SOURCES is required; every module must have unit tests")
@@ -46,7 +48,16 @@ function(interi_add_module name)
         endif()
         target_include_directories(${target} PUBLIC
             "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>" "$<BUILD_INTERFACE:${_export_dir}>")
-        target_link_libraries(${target} PUBLIC ${ARG_DEPS} PRIVATE ${ARG_PRIVATE_DEPS} interi::warnings)
+        if(ARG_COMPONENT)
+            # Exported static library: its private link dependencies become find_dependency calls in the package
+            # config, but the warning flags are for this build only.
+            target_link_libraries(${target} PUBLIC ${ARG_DEPS} interi::build_settings
+                                  PRIVATE ${ARG_PRIVATE_DEPS} "$<BUILD_INTERFACE:interi::warnings>")
+            set_target_properties(${target} PROPERTIES EXPORT_NAME ${name})
+            set_property(GLOBAL APPEND PROPERTY INTERI_COMPONENT_${ARG_COMPONENT} ${target})
+        else()
+            target_link_libraries(${target} PUBLIC ${ARG_DEPS} PRIVATE ${ARG_PRIVATE_DEPS} interi::warnings)
+        endif()
         if(ARG_SHARED AND INTERI_BUILD_SHARED)
             # Installed as interi::<name> (InteriPackage.cmake); consumers get the engine's ABI flags.
             target_link_libraries(${target} PUBLIC interi::build_settings)

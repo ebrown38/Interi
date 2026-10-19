@@ -7,21 +7,12 @@
 #include <interi/core/Profiling.h>
 #include <interi/core/math/Mat4.h>
 #include <interi/core/math/Quat.h>
-#include <interi/destruction/BondGraph.h>
-#include <interi/destruction/ChunkHierarchy.h>
-#include <interi/destruction/DestructibleAsset.h>
-#include <interi/destruction/FractureMesh.h>
-#include <interi/destruction_cook/Cooker.h>
 #include <interi/editor/Inspector.h>
-#include <interi/editor/LevelBridge.h>
 #include <interi/editor/Modeling.h>
 #include <interi/editor/Prefabs.h>
-#include <interi/editor/Replay.h>
-#include <interi/editor/StructureDebug.h>
 #include <interi/editor_ui/EditorPanels.h>
 #include <interi/editor_ui/ViewportOverlay.h>
 #include <interi/jobs/JobSystem.h>
-#include <interi/physics/Queries.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/scene/Mesh.h>
 #include <interi/scene/Primitives.h>
@@ -61,30 +52,6 @@ namespace
 namespace
 {
 
-/// The sandbox's generated wall (game/sandbox BuildWall): a 4 x 3 x 0.3 m concrete wall on y = 0, fractured into 4
-/// regions of up to 10 chunks, so the sandbox level shows as it plays.
-Result<std::vector<std::byte>> BuildSandboxWall(JobSystem& jobs)
-{
-    using namespace interi::destruction;
-    HierarchySettings hierarchy;
-    for (const auto& [count, seed] : {std::pair{4u, 11u}, std::pair{10u, 12u}})
-    {
-        SeedSettings level;
-        level.count = count;
-        level.randomSeed = seed;
-        hierarchy.levels.push_back(level);
-    }
-    const ChunkHierarchy chunks =
-        BuildHierarchy(MakeBoxMesh({-2.0f, 0.0f, -0.15f}, {2.0f, 3.0f, 0.15f}), hierarchy, jobs);
-    std::vector<DestructionMaterial> materials(1);
-    materials[0].name = "concrete";
-    BondSettings bonds;
-    bonds.groundHeight = 0.0f;
-    BondGraph graph = BuildBondGraph(chunks.chunks, materials, bonds);
-    INTERI_TRY_ASSIGN(asset, AssembleAsset(chunks.chunks, std::move(graph), materials, {}, jobs));
-    return WriteDestructibleAsset(asset, 1);
-}
-
 /// Acknowledges ImGui's texture requests when nothing draws (no Vulkan).
 void AcknowledgeTextures()
 {
@@ -118,7 +85,6 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     , m_previous(std::chrono::steady_clock::now())
 {
     (void)m_files.Mount("", m_dataFiles);
-    (void)m_files.Mount("generated", m_generatedFiles);
     for (std::string& id : chain::CoreContracts())
     {
         m_chainModules.DeclareContract(std::move(id));
@@ -148,10 +114,6 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     {
         INTERI_LOG_ERROR("Editor", "chain library: {}", registered.error().message);
     }
-    if (auto wall = BuildSandboxWall(jobs))
-    {
-        (void)m_generatedFiles.WriteFile("wall.idest", *wall);
-    }
 
     m_context = ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -171,7 +133,6 @@ EditorApp::EditorApp(SdlPlatform& platform, IWindow& window, JobSystem& jobs, co
     }
     m_platform.SetTextInput(window, true);
     m_assetList = ListAssets(m_dataDir);
-    m_structure.replayPath = (std::filesystem::temp_directory_path() / "interi_editor_session.irpl").string();
     OpenProject(desc);
 }
 
@@ -305,29 +266,6 @@ Result<void> EditorApp::OpenLevel(std::string_view path)
     return {};
 }
 
-std::shared_ptr<const destruction::DestructibleAsset> EditorApp::Asset(const std::string& path)
-{
-    if (const auto found = m_assets.find(path); found != m_assets.end())
-    {
-        return found->second;
-    }
-    if (m_missingAssets.contains(path))
-    {
-        return nullptr;
-    }
-    auto bytes = m_files.ReadFile(path);
-    auto asset = bytes ? destruction::ReadDestructibleAsset(*bytes) : std::unexpected(bytes.error());
-    if (!asset)
-    {
-        INTERI_LOG_WARN("Editor", "asset {}: {} (drawn as a placeholder)", path, asset.error().message);
-        m_missingAssets.insert(path);
-        return nullptr;
-    }
-    auto shared = std::make_shared<const destruction::DestructibleAsset>(std::move(*asset));
-    m_assets.emplace(path, shared);
-    return shared;
-}
-
 AssetBoundsFn EditorApp::Bounds()
 {
     return [this](std::string_view path) -> std::optional<AABB>
@@ -351,12 +289,7 @@ AssetBoundsFn EditorApp::Bounds()
             const scene::MeshBounds bounds = scene::BoundsOf(*found->second);
             return AABB{.min = bounds.min, .max = bounds.max};
         }
-        const auto asset = Asset(std::string(path));
-        if (asset == nullptr)
-        {
-            return std::nullopt;
-        }
-        return ChunkBounds(*asset, 0);
+        return std::nullopt; // modules draw (and bound) their own asset kinds
     };
 }
 
@@ -398,418 +331,6 @@ void EditorApp::DropAsset(const std::string& path, const Ray& ray)
             });
         return;
     }
-    std::string asset = path;
-    if (!path.ends_with(".idest"))
-    {
-        auto cooked = CookSource(path); // a glTF: place its cooked destructible
-        if (!cooked)
-        {
-            INTERI_LOG_ERROR("Editor", "{}: {}", path, cooked.error().message);
-            return;
-        }
-        asset = std::move(*cooked);
-    }
-    Transform transform;
-    transform.position = Snap(PlacementPoint(ray), m_tools.snap ? m_tools.moveSnap : 0.0f);
-    (void)m_document.Add([&](EditorScene& scene) { return CreateDestructible(scene, transform, asset); });
-}
-
-Result<std::string> EditorApp::CookSource(const std::string& path)
-{
-    destruction::CookRequest request;
-    request.input = m_dataDir / path;
-    INTERI_TRY_ASSIGN(report, destruction::Cook(request, m_jobs));
-    const std::string asset = std::filesystem::relative(report.output, m_dataDir).generic_string();
-    if (!report.skipped)
-    {
-        INTERI_LOG_INFO("Editor", "cooked {}: {} chunks, {} bonds", asset, report.chunkCount, report.bondCount);
-        m_assets.erase(asset);
-        m_missingAssets.erase(asset);
-        m_assetList = ListAssets(m_dataDir);
-    }
-    return asset;
-}
-
-bool EditorApp::PreviewActive() const
-{
-    return m_play == nullptr && m_fracture.showPreview && !m_fracture.active.empty();
-}
-
-void EditorApp::StartPlay()
-{
-    auto session = PlaySession::Start(ExportLevel(m_document.Scene()), m_files, m_jobs);
-    if (!session)
-    {
-        INTERI_LOG_ERROR("Editor", "play: {}", session.error().message);
-        return;
-    }
-    m_play = std::move(*session);
-    m_watching.reset();
-    m_playTime = 0.0f;
-}
-
-void EditorApp::StepPlay(float seconds)
-{
-    if (m_play == nullptr)
-    {
-        return;
-    }
-    const auto step = [&]
-    {
-        if (m_watching)
-        {
-            if (m_play->StepIndex() >= m_watching->steps)
-            {
-                return false; // the replay is over: stay on its last state
-            }
-            while (m_nextReplayEvent < m_watching->events.size() &&
-                   m_watching->events[m_nextReplayEvent].step == m_play->StepIndex())
-            {
-                m_play->Detonate(m_watching->events[m_nextReplayEvent++].damage);
-            }
-        }
-        m_play->Step();
-        if (m_watching && m_play->StepIndex() == m_watching->steps)
-        {
-            m_replayMessage = m_play->StateHash() == m_watching->finalHash
-                                  ? "replay finished: the state hash matches the recording"
-                                  : "replay finished: the state hash DIFFERS from the recording";
-        }
-        return true;
-    };
-    m_playTime = std::min(m_playTime + seconds, 4.0f * PlaySession::kStep);
-    while (m_playTime >= PlaySession::kStep)
-    {
-        m_playTime -= PlaySession::kStep;
-        if (!step())
-        {
-            break;
-        }
-    }
-}
-
-PlayStatus EditorApp::Status() const
-{
-    PlayStatus status;
-    status.message = m_replayMessage;
-    if (m_play == nullptr)
-    {
-        return status;
-    }
-    status.playing = true;
-    status.watching = m_watching.has_value();
-    status.step = m_play->StepIndex();
-    status.replaySteps = m_watching ? m_watching->steps : 0;
-    destruction::DestructionWorld& destruction = m_play->Destruction();
-    for (const destruction::DestructibleId id : destruction.Instances())
-    {
-        status.pieces += destruction.PieceCount(id);
-        for (std::uint32_t bond = 0; bond < destruction.Asset(id).bonds.size(); ++bond)
-        {
-            status.intactBonds += destruction.IsBondBroken(id, bond) ? 0 : 1;
-        }
-    }
-    return status;
-}
-
-void EditorApp::HandleStructureRequests(const StructureRequests& requests)
-{
-    if (requests.play)
-    {
-        StartPlay();
-    }
-    if (requests.stop)
-    {
-        m_play.reset();
-        m_watching.reset();
-    }
-    if (requests.step && m_play != nullptr)
-    {
-        m_playTime = PlaySession::kStep;
-        const bool paused = m_structure.paused;
-        m_structure.paused = false;
-        StepPlay(0.0f);
-        m_structure.paused = paused;
-    }
-    if (requests.saveReplay && m_play != nullptr)
-    {
-        const std::vector<std::byte> bytes = WriteReplay(m_play->Recording(m_document.Path()));
-        std::ofstream file(m_structure.replayPath, std::ios::binary | std::ios::trunc);
-        file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        m_replayMessage = file ? std::format("saved {} steps, {} explosions to {}", m_play->StepIndex(),
-                                             m_play->Recording({}).events.size(), m_structure.replayPath)
-                               : std::format("cannot write {}", m_structure.replayPath);
-    }
-    if (requests.verifyReplay || requests.watchReplay)
-    {
-        std::ifstream file(m_structure.replayPath, std::ios::binary);
-        const std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        auto replay = ReadReplay(std::as_bytes(std::span(bytes)));
-        if (!replay)
-        {
-            m_replayMessage = std::format("{}: {}", m_structure.replayPath, replay.error().message);
-            return;
-        }
-        if (requests.verifyReplay)
-        {
-            const auto hash = RunReplay(*replay, m_files, m_jobs);
-            m_replayMessage = !hash ? std::format("replay failed: {}", hash.error().message)
-                              : *hash == replay->finalHash
-                                  ? std::format("verified: {} steps reproduce hash {:016x}", replay->steps, *hash)
-                                  : std::format("MISMATCH: {:016x}, recorded {:016x}", *hash, replay->finalHash);
-            return;
-        }
-        auto level = gameplay::ParseLevel(replay->levelJson);
-        auto session = level ? PlaySession::Start(*level, m_files, m_jobs) : std::unexpected(level.error());
-        if (!session)
-        {
-            m_replayMessage = std::format("replay failed: {}", session.error().message);
-            return;
-        }
-        m_play = std::move(*session);
-        m_watching = std::move(*replay);
-        m_nextReplayEvent = 0;
-        m_playTime = 0.0f;
-        m_replayMessage.clear();
-    }
-}
-
-void EditorApp::DemoStep(std::uint64_t frame, std::uint64_t frames)
-{
-    if (frame == 2)
-    {
-        m_camera.target = {0.0f, 1.5f, 0.0f};
-        m_camera.distance = 16.0f;
-        StartPlay();
-    }
-    if (frame == 10 && m_play != nullptr)
-    {
-        destruction::RadialDamage damage;
-        damage.center = {0.0f, 1.2f, 0.2f};
-        damage.energy = m_structure.energy;
-        damage.innerRadius = m_structure.innerRadius;
-        damage.radius = m_structure.radius;
-        m_play->Detonate(damage);
-    }
-    if (frames > 12 && frame == frames - 3)
-    {
-        HandleStructureRequests({.saveReplay = true});
-    }
-    if (frames > 12 && frame == frames - 2)
-    {
-        HandleStructureRequests({.verifyReplay = true});
-    }
-}
-
-void EditorApp::DrawStructureOverlay(const ScreenRect& viewport)
-{
-    if (m_play == nullptr)
-    {
-        return;
-    }
-    ImDrawList& list = *ImGui::GetWindowDrawList();
-    list.PushClipRect(ImVec2(viewport.x, viewport.y), ImVec2(viewport.x + viewport.width, viewport.y + viewport.height),
-                      true);
-    const World& world = m_play->GetWorld();
-    const destruction::DestructionWorld& destruction = m_play->Destruction();
-    for (const destruction::DestructibleId id : destruction.Instances())
-    {
-        if (m_structure.stressOverlay)
-        {
-            for (const BondLine& line : StressOverlayLines(world, destruction, id))
-            {
-                const Vec3 color = StressOverlayColor(line.utilization);
-                DrawWorldLine(list, m_camera, viewport, line.from, line.to,
-                              ImGui::ColorConvertFloat4ToU32(ImVec4(color.x, color.y, color.z, 1.0f)), 2.5f);
-            }
-        }
-        if (m_structure.anchors)
-        {
-            for (const Vec3& anchor : AnchorPoints(world, destruction, id))
-            {
-                if (const auto at = m_camera.Project(anchor, viewport.width, viewport.height))
-                {
-                    const ImVec2 centre(viewport.x + at->x, viewport.y + at->y);
-                    list.AddTriangleFilled(ImVec2(centre.x, centre.y - 6.0f), ImVec2(centre.x - 6.0f, centre.y + 5.0f),
-                                           ImVec2(centre.x + 6.0f, centre.y + 5.0f), IM_COL32(60, 160, 255, 255));
-                }
-            }
-        }
-    }
-    list.PopClipRect();
-}
-
-void EditorApp::OpenSource(const std::string& path)
-{
-    if (auto opened = m_preview.Open(path, m_dataDir / path, m_dataDir / "destruction" / "materials.json"); !opened)
-    {
-        INTERI_LOG_ERROR("Editor", "{}: {}", path, opened.error().message);
-        return;
-    }
-    m_fracture.active = path;
-    m_fracture.object.clear();
-    m_fracture.showPreview = true;
-    (void)m_preview.Update(m_jobs);
-    if (const FracturePreview::Entry* entry = m_preview.Find(path); entry != nullptr && entry->asset != nullptr)
-    {
-        const AABB bounds = ChunkBounds(*entry->asset, 0);
-        m_camera.target = (bounds.min + bounds.max) * 0.5f;
-        m_camera.distance = std::max(Length(bounds.max - bounds.min) * 1.2f, 2.0f);
-    }
-}
-
-void EditorApp::SaveAndCook()
-{
-    auto report = m_preview.SaveAndCook(m_fracture.active, m_jobs);
-    if (!report)
-    {
-        INTERI_LOG_ERROR("Editor", "cook {}: {}", m_fracture.active, report.error().message);
-        return;
-    }
-    const std::string asset = std::filesystem::relative(report->output, m_dataDir).generic_string();
-    INTERI_LOG_INFO("Editor", "saved {} and cooked {} ({} chunks{})", SidecarPath(m_fracture.active).generic_string(),
-                    asset, report->chunkCount, report->skipped ? ", already up to date" : "");
-    m_assets.erase(asset); // levels using it pick up the new cook
-    m_missingAssets.erase(asset);
-    m_assetList = ListAssets(m_dataDir);
-}
-
-void EditorApp::PaintStroke(const Ray& ray)
-{
-    FracturePreview::Entry* entry = m_preview.Find(m_fracture.active);
-    if (entry == nullptr)
-    {
-        return;
-    }
-    std::optional<float> distance;
-    for (const destruction::SourceObject& object : entry->scene.objects)
-    {
-        if (!m_fracture.object.empty() && object.name != m_fracture.object)
-        {
-            continue;
-        }
-        if (const auto hit = RayMesh(ray, object.mesh); hit && (!distance || *hit < *distance))
-        {
-            distance = hit;
-        }
-    }
-    if (!distance)
-    {
-        return;
-    }
-    const Vec3 point = ray.origin + ray.direction * *distance;
-    if (m_lastStroke && Length(point - *m_lastStroke) < m_fracture.brushRadius * 0.5f)
-    {
-        return; // spread strokes along the drag
-    }
-    m_lastStroke = point;
-    destruction::ObjectCookSettings settings = EditedSettings(*entry, m_fracture.object);
-    if (settings.levels.empty())
-    {
-        settings.levels.emplace_back();
-    }
-    destruction::SeedSettings& level = settings.levels[std::min<std::size_t>(
-        static_cast<std::size_t>(m_fracture.levelEdited), settings.levels.size() - 1)];
-    level.pattern = destruction::SeedPattern::Painted; // keeps the level's count as the uniform base
-    level.strokes.push_back({.centre = point, .radius = m_fracture.brushRadius, .density = m_fracture.brushDensity});
-    StoreSettings(*entry, m_fracture.object, settings);
-}
-
-void EditorApp::BuildPreviewScene()
-{
-    const FracturePreview::Entry* entry = m_preview.Find(m_fracture.active);
-    if (entry == nullptr || entry->asset == nullptr)
-    {
-        return;
-    }
-    const destruction::DestructibleAsset& asset = *entry->asset;
-    if (m_renderer != nullptr)
-    {
-        (void)m_renderer->AddAsset(entry->asset);
-    }
-    const auto level = static_cast<std::uint32_t>(std::max(m_fracture.levelShown, 0));
-    const Vec3 centre = asset.chunks.empty() ? Vec3() : asset.chunks[0].centroid;
-    for (std::uint32_t c = 0; c < asset.chunks.size(); ++c)
-    {
-        const destruction::AssetChunk& chunk = asset.chunks[c];
-        if (chunk.level != level && !(chunk.childCount == 0 && chunk.level < level))
-        {
-            continue;
-        }
-        // A colour per chunk (cell preview); anchors darker.
-        const std::uint64_t hash = HashCombine(0x5EEDull, c);
-        Vec3 color(0.35f + 0.6f * static_cast<float>(hash & 0xFF) / 255.0f,
-                   0.35f + 0.6f * static_cast<float>((hash >> 8) & 0xFF) / 255.0f,
-                   0.35f + 0.6f * static_cast<float>((hash >> 16) & 0xFF) / 255.0f);
-        if (std::ranges::find(asset.anchors, c) != asset.anchors.end())
-        {
-            color = color * 0.35f;
-        }
-        const Vec3 offset = (chunk.centroid - centre) * m_fracture.explode;
-        m_chunks.push_back({.asset = &asset, .chunk = c, .transform = Mat4::Translation(offset), .color = color});
-    }
-}
-
-void EditorApp::DrawPreviewOverlay(const ScreenRect& viewport)
-{
-    const FracturePreview::Entry* entry = m_preview.Find(m_fracture.active);
-    if (entry == nullptr)
-    {
-        return;
-    }
-    ImDrawList& list = *ImGui::GetWindowDrawList();
-    list.PushClipRect(ImVec2(viewport.x, viewport.y), ImVec2(viewport.x + viewport.width, viewport.y + viewport.height),
-                      true);
-    const destruction::ObjectCookSettings settings = EditedSettings(*entry, m_fracture.object);
-    const auto circle = [&](const Vec3& centre, float radius, ImU32 color)
-    {
-        constexpr int kSegments = 32;
-        for (const auto& [u, v] : {std::pair{Vec3(1, 0, 0), Vec3(0, 1, 0)}, std::pair{Vec3(0, 1, 0), Vec3(0, 0, 1)},
-                                   std::pair{Vec3(1, 0, 0), Vec3(0, 0, 1)}})
-        {
-            for (int i = 0; i < kSegments; ++i)
-            {
-                const float a0 = 6.2831853f * static_cast<float>(i) / kSegments;
-                const float a1 = 6.2831853f * static_cast<float>(i + 1) / kSegments;
-                DrawWorldLine(list, m_camera, viewport, centre + (u * std::cos(a0) + v * std::sin(a0)) * radius,
-                              centre + (u * std::cos(a1) + v * std::sin(a1)) * radius, color, 1.5f);
-            }
-        }
-    };
-    for (const destruction::MaterialVolumeSettings& volume : settings.materialVolumes)
-    {
-        const ImU32 color = IM_COL32(80, 200, 255, 255);
-        if (volume.volume.shape == destruction::MaterialVolume::Shape::Sphere)
-        {
-            circle(volume.volume.centre, volume.volume.radius, color);
-            continue;
-        }
-        const Vec3 c = volume.volume.centre;
-        const Vec3 h = volume.volume.halfExtents;
-        for (int edge = 0; edge < 12; ++edge)
-        {
-            // The 12 edges of the box: 4 along each axis.
-            const int axis = edge / 4;
-            const float s0 = (edge & 1) != 0 ? 1.0f : -1.0f;
-            const float s1 = (edge & 2) != 0 ? 1.0f : -1.0f;
-            Vec3 from = c;
-            Vec3 to = c;
-            const Vec3 along = axis == 0 ? Vec3(h.x, 0, 0) : (axis == 1 ? Vec3(0, h.y, 0) : Vec3(0, 0, h.z));
-            const Vec3 side0 = axis == 0 ? Vec3(0, h.y * s0, 0) : Vec3(h.x * s0, 0, 0);
-            const Vec3 side1 = axis == 2 ? Vec3(0, h.y * s1, 0) : Vec3(0, 0, h.z * s1);
-            from = from - along + side0 + side1;
-            to = to + along + side0 + side1;
-            DrawWorldLine(list, m_camera, viewport, from, to, color, 1.5f);
-        }
-    }
-    for (const destruction::SeedSettings& level : settings.levels)
-    {
-        for (const destruction::SeedStroke& stroke : level.strokes)
-        {
-            circle(stroke.centre, stroke.radius, IM_COL32(255, 160, 40, 200));
-        }
-    }
-    list.PopClipRect();
 }
 
 void EditorApp::HandleViewportInput(const ScreenRect& viewport)
@@ -854,41 +375,16 @@ void EditorApp::HandleViewportInput(const ScreenRect& viewport)
         }
     }
 
-    if (m_play != nullptr)
-    {
-        // Play: the left mouse sets off an explosion where it points (when enabled); the level is not editable.
-        if (m_structure.detonate && hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-        {
-            if (const auto hit = physics::Raycast(m_play->Physics(), ray.origin, ray.direction * 500.0f))
-            {
-                destruction::RadialDamage damage;
-                damage.center = hit->point;
-                damage.energy = m_structure.energy;
-                damage.innerRadius = m_structure.innerRadius;
-                damage.radius = std::max(m_structure.radius, m_structure.innerRadius);
-                m_play->Detonate(damage);
-            }
-        }
-        return;
-    }
-    if (PreviewActive())
-    {
-        // Fracture preview: the left mouse paints seed density (when enabled); level entities are not editable.
-        if (m_fracture.paint && ImGui::IsMouseDown(ImGuiMouseButton_Left) && (hovered || m_painting))
-        {
-            m_painting = true;
-            PaintStroke(ray);
-        }
-        else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-        {
-            m_painting = false;
-            m_lastStroke.reset();
-        }
-        return;
-    }
     if (m_scenePlay != nullptr)
     {
         return; // the viewport shows the running scene: the camera moves, nothing is edited
+    }
+    {
+        DocumentFacade document(m_document, FacadeHost());
+        if (m_extensions.ScenePreviewActive(document))
+        {
+            return; // a module's preview replaces the scene: nothing in it can be picked
+        }
     }
     const EditorEntityId selection = m_document.Selection();
     const auto entity = m_document.Scene().Find(selection);
@@ -1298,6 +794,10 @@ std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(const World& wo
     }
     else if (const auto* asset = world.Get<scene::MeshComponent>(entity))
     {
+        if (!asset->asset.path.ends_with(".imesh"))
+        {
+            return nullptr; // another kind of asset: the module that owns it draws the object
+        }
         key = "mesh:" + asset->asset.path;
         if (const auto found = m_meshCache.find(key); found != m_meshCache.end())
         {
@@ -1327,17 +827,8 @@ std::shared_ptr<const scene::TriangleMesh> EditorApp::ObjectMesh(const World& wo
 void EditorApp::BuildScene()
 {
     m_boxes.clear();
-    m_chunks.clear();
     m_meshes.clear();
     m_meshColors.clear();
-    if (PreviewActive())
-    {
-        BuildPreviewScene();
-        m_boxes.push_back({.transform = Mat4::FromTRS({0.0f, -0.05f, 0.0f}, Quat(), {60.0f, 0.1f, 60.0f}),
-                           .color = {0.3f, 0.32f, 0.3f},
-                           .occluder = true});
-        return;
-    }
     // The edited scene, or the running one while playing.
     World& world = m_scenePlay != nullptr ? m_scenePlay->Runtime().GetWorld() : m_document.Scene().GetWorld();
     const scene::HierarchyIndex objects = scene::BuildHierarchy(world);
@@ -1352,11 +843,6 @@ void EditorApp::BuildScene()
         }
         const Transform transform = *worldTransform;
         const bool selected = m_scenePlay == nullptr && m_document.IsSelected(id);
-        const bool isDestructible = world.Has<DestructiblePlacementComponent>(entity);
-        if (m_play != nullptr && (isDestructible || world.Has<SpawnPointComponent>(entity)))
-        {
-            continue; // playing: the simulation draws the destructibles; spawn points are not played
-        }
         if (const auto mesh = ObjectMesh(world, entity))
         {
             if (m_renderer != nullptr)
@@ -1382,35 +868,12 @@ void EditorApp::BuildScene()
                                 .color = selected ? std::optional(kSelectedColor) : std::nullopt,
                                 .occluder = true});
         }
-        else if (const auto* placement = world.Get<DestructiblePlacementComponent>(entity))
-        {
-            const auto asset = Asset(placement->asset);
-            if (asset == nullptr)
-            {
-                m_boxes.push_back({.transform = Mat4::FromTRS(transform.position + Vec3(0.0f, 0.5f, 0.0f),
-                                                              transform.rotation, Vec3(1.0f)),
-                                   .color = {0.9f, 0.1f, 0.8f}});
-                continue;
-            }
-            if (m_renderer != nullptr)
-            {
-                if (auto added = m_renderer->AddAsset(asset); !added)
-                {
-                    INTERI_LOG_WARN("Editor", "asset {}: {}", placement->asset, added.error().message);
-                }
-            }
-            m_chunks.push_back({.asset = asset.get(),
-                                .chunk = 0,
-                                .transform = Mat4::FromTRS(transform.position, transform.rotation, Vec3(1.0f)),
-                                .color = selected ? std::optional(kSelectedColor) : std::nullopt});
-        }
-        else if (world.Has<SpawnPointComponent>(entity))
-        {
-            m_boxes.push_back({.transform = Mat4::FromTRS(transform.position + Vec3(0.0f, 0.9f, 0.0f),
-                                                          transform.rotation, {0.6f, 1.8f, 0.3f}),
-                               .color = selected ? kSelectedColor : Vec3(0.2f, 0.45f, 0.9f)});
-        }
     }
+}
+
+DocumentHost EditorApp::FacadeHost()
+{
+    return {.dataDirectory = m_dataDir, .files = &m_files, .jobs = &m_jobs, .camera = &m_camera};
 }
 
 void EditorApp::DrawViewport()
@@ -1462,27 +925,23 @@ void EditorApp::DrawViewport()
                                   .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                                   .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left)};
             ViewportCanvas canvas(*ImGui::GetWindowDrawList(), m_camera, viewport);
-            DocumentFacade document(m_document);
+            DocumentFacade document(m_document, FacadeHost());
             if (!m_extensions.RunActiveTool(canvas, input, document))
             {
                 HandleViewportInput(viewport);
             }
         }
-        if (PreviewActive())
-        {
-            DrawPreviewOverlay(viewport);
-        }
-        DrawStructureOverlay(viewport);
         {
             ViewportCanvas canvas(*ImGui::GetWindowDrawList(), m_camera, viewport);
-            DocumentFacade document(m_document);
+            DocumentFacade document(m_document, FacadeHost());
             m_extensions.DrawOverlays(canvas, document);
             DebugDraw debug;
             m_extensions.CollectRenderFeatures(debug, document);
             EditorExtensions::DrawDebug(debug, canvas);
         }
+        DocumentFacade selectionDocument(m_document, FacadeHost());
         const EditorEntityId selection =
-            (PreviewActive() || m_play != nullptr || m_scenePlay != nullptr) ? 0 : m_document.Selection();
+            (m_scenePlay != nullptr || m_extensions.ScenePreviewActive(selectionDocument)) ? 0 : m_document.Selection();
         if (const auto box = selection == 0 ? std::nullopt : PickBoxOf(m_document.Scene(), selection, Bounds()))
         {
             const Vec3 origin = m_document.Scene().WorldTransform(selection).position;
@@ -1602,8 +1061,6 @@ FrameResult EditorApp::Frame()
     DrawInspector(m_document);
     const ToolRequests tools = DrawToolsPanel(m_tools, m_document);
     const AssetRequests assets = DrawAssetsPanel(m_assetList);
-    const FractureRequests fracture = DrawFracturePanel(m_fracture, m_preview, m_assetList);
-    const StructureRequests structure = DrawStructurePanel(m_structure, Status());
     if (values::DataRegistry* data = ActiveData())
     {
         DrawValuesPanel(*data, m_document.Undo(), m_dataPanels);
@@ -1617,7 +1074,7 @@ FrameResult EditorApp::Frame()
         ImGui::EndMainMenuBar();
     }
     {
-        DocumentFacade document(m_document);
+        DocumentFacade document(m_document, FacadeHost());
         m_extensions.DrawPanels(document);
     }
     DrawHud();
@@ -1639,46 +1096,22 @@ FrameResult EditorApp::Frame()
     DrawViewport();
     HandleProjectRequests(projectRequests);
     HandleProjectSettings(settings);
-    const bool editing = ImGui::IsAnyItemActive();
     ImGui::Render();
 
-    HandleStructureRequests(structure);
     HandlePlay(m_playRequests, io.DeltaTime);
     UpdateServices(io.DeltaTime);
-    if (m_play != nullptr && !m_structure.paused)
     {
-        StepPlay(io.DeltaTime);
+        DocumentFacade facade(m_document, FacadeHost());
+        m_extensions.RunUpdates(io.DeltaTime, facade);
     }
-    if (fracture.open)
-    {
-        OpenSource(*fracture.open);
-    }
-    if (fracture.saveAndCook)
-    {
-        SaveAndCook();
-    }
-    // Recook once a widget or brush stroke is released, not on every step of a drag.
-    if (!editing && !m_painting)
-    {
-        (void)m_preview.Update(m_jobs);
-    }
-
-    if (tools.addPrimitive || tools.addSpawnPoint)
+    if (tools.addPrimitive)
     {
         Transform transform;
         transform.position = Snap(m_camera.target, m_tools.snap ? m_tools.moveSnap : 0.0f);
-        if (tools.addPrimitive)
-        {
-            scene::PrimitiveParams params;
-            params.shape = *tools.addPrimitive;
-            params.height = params.shape == scene::PrimitiveShape::Capsule ? 2.0f : 1.0f;
-            (void)m_document.Add([&](EditorScene& scene) { return scene.CreatePrimitive(params, transform); });
-        }
-        else
-        {
-            transform.position.y = 0.0f;
-            (void)m_document.Add([&](EditorScene& scene) { return CreateSpawnPoint(scene, transform, "spawn"); });
-        }
+        scene::PrimitiveParams params;
+        params.shape = *tools.addPrimitive;
+        params.height = params.shape == scene::PrimitiveShape::Capsule ? 2.0f : 1.0f;
+        (void)m_document.Add([&](EditorScene& scene) { return scene.CreatePrimitive(params, transform); });
     }
     HandleModeling(tools, requests.group);
     if (const EditorEntityId focused = m_document.Selection();
@@ -1701,17 +1134,6 @@ FrameResult EditorApp::Frame()
     if (requests.newLevel)
     {
         m_document.New();
-    }
-    if (requests.exportLevel)
-    {
-        if (auto exported = m_document.ExportLevel(m_files); !exported)
-        {
-            INTERI_LOG_ERROR("Editor", "export: {}", exported.error().message);
-        }
-        else
-        {
-            INTERI_LOG_INFO("Editor", "exported {}", m_document.ExportPath());
-        }
     }
     if (requests.save)
     {
@@ -1741,19 +1163,13 @@ FrameResult EditorApp::Frame()
     view.nearPlane = m_camera.nearPlane;
     view.sun = {.direction = {-0.5f, -1.0f, -0.3f}, .color = {1.0f, 0.95f, 0.85f}, .intensity = 3.0f};
     view.ambient = {0.12f, 0.12f, 0.13f};
-    if (m_play != nullptr)
-    {
-        for (const auto& asset : m_play->Level().assets)
-        {
-            (void)m_renderer->AddAsset(asset);
-        }
-    }
+    DocumentFacade facade(m_document, FacadeHost());
     result.presented = m_renderer->Render({.boxes = m_boxes,
-                                           .chunks = m_chunks,
                                            .meshes = m_meshes,
-                                           .world = m_play != nullptr ? &m_play->GetWorld() : nullptr,
-                                           .destruction = m_play != nullptr ? &m_play->Destruction() : nullptr,
                                            .view = view,
+                                           .extensions = &m_extensions,
+                                           .document = &facade,
+                                           .replaceScene = m_extensions.ScenePreviewActive(facade),
                                            .ui = ImGui::GetDrawData()});
     return result;
 }

@@ -40,7 +40,7 @@ extern "C" const char* __lsan_default_suppressions() // NOLINT(bugprone-reserved
 /// synchronisation and reports races and lock-order inversions that are not there. Reports are suppressed only
 /// when a frame of the report is in one of those libraries; interceptors stay active so lock tracking is
 /// consistent. A process has only one list, so an executable that also needs another library's suppression defines
-/// INTERI_EXTRA_TSAN_SUPPRESSIONS (a string literal, one suppression without the newline; e.g. the Jolt physics test
+/// INTERI_EXTRA_TSAN_SUPPRESSIONS (a string literal, one suppression without the newline; e.g. a physics engine test
 /// helper's) and gets it here.
 #ifdef INTERI_EXTRA_TSAN_SUPPRESSIONS
 #define INTERI_EXTRA_TSAN_LINE INTERI_EXTRA_TSAN_SUPPRESSIONS "\n"

@@ -3,10 +3,7 @@
 
 #include <interi/core/Log.h>
 #include <interi/core/math/Mat4.h>
-#include <interi/destruction_render/ChunkGatherer.h>
-#include <interi/destruction_render/ChunkMeshCache.h>
-#include <interi/destruction_render/CrackDecals.h>
-#include <interi/destruction_render/InteriorMaterials.h>
+#include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/ImGuiRenderer.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/render/Camera.h>
@@ -69,11 +66,9 @@ struct EditorRenderer::State
     std::unique_ptr<ForwardRenderer> renderer;
     std::unique_ptr<DecalRenderer> decalRenderer;
     std::unique_ptr<ImGuiRenderer> ui;
-    std::unique_ptr<destruction::ChunkMeshCache> chunkMeshes;
-    destruction::InteriorMaterials interior;
-    destruction::ChunkMaterials chunkMaterials;
-    destruction::ChunkGatherer gatherer;
     std::vector<Decal> decals;
+    std::uint32_t poolGeneration = 0; ///< Raised whenever the mesh pool is cleared (see RenderFeatureContext).
+    std::shared_ptr<void> alive = std::make_shared<int>(0); ///< RenderFeatureContext::renderer.
     std::unique_ptr<rhi::ISwapchain> swapchain;
     std::unique_ptr<FrameGraph> graph;
     MeshRange cube;
@@ -105,7 +100,6 @@ EditorRenderer::~EditorRenderer()
         {
             m_state->resources->DestroyTexture(m_state->viewport);
         }
-        destruction::DestroyInteriorMaterials(*m_state->resources, m_state->interior);
     }
 }
 
@@ -140,7 +134,6 @@ Result<std::unique_ptr<EditorRenderer>> EditorRenderer::Create(SdlPlatform& plat
     INTERI_TRY_ASSIGN(ui, ImGuiRenderer::Create(gpu, *state->resources, format,
                                                 ImGuiRenderer::Settings{.framesInFlight = kFramesInFlight}));
     state->ui = std::move(ui);
-    state->chunkMeshes = std::make_unique<destruction::ChunkMeshCache>(*state->meshes);
     state->graph = std::make_unique<FrameGraph>(gpu, *state->resources);
 
     State& uploaded = *state;
@@ -148,44 +141,18 @@ Result<std::unique_ptr<EditorRenderer>> EditorRenderer::Create(SdlPlatform& plat
     {
         INTERI_TRY_ASSIGN(cube, uploaded.meshes->Add(uploads, commands, MakeCube(0.5f)));
         uploaded.cube = cube;
-        INTERI_TRY_ASSIGN(interior, destruction::CreateInteriorMaterials(*uploaded.device, uploads, commands));
-        uploaded.interior = std::move(interior);
         return {};
     };
     INTERI_TRY(UploadNow(gpu, upload));
-    state->chunkMaterials.surface = {Material{.baseColor = {0.72f, 0.71f, 0.68f}, .roughness = 0.85f}};
-    state->chunkMaterials.interior = state->interior.materials;
-    state->chunkMaterials.fallback = state->chunkMaterials.surface[0];
     return std::unique_ptr<EditorRenderer>(new EditorRenderer(std::move(state)));
-}
-
-Result<void> EditorRenderer::AddAsset(const std::shared_ptr<const destruction::DestructibleAsset>& asset)
-{
-    State& state = *m_state;
-    if (state.chunkMeshes->Find(asset.get()) != nullptr)
-    {
-        return {};
-    }
-    const auto add = [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands)
-    { return state.chunkMeshes->Add(uploads, commands, asset); };
-    Result<void> added = UploadNow(*state.device, add);
-    if (!added && added.error().code == ErrorCode::OutOfMemory)
-    {
-        // The pool only appends and fracture previews recook often: start it over. Assets still drawn are added
-        // again by the next frames' AddAsset calls.
-        INTERI_LOG_INFO("Editor", "mesh pool full: clearing it ({} assets cached)", state.chunkMeshes->AssetCount());
-        INTERI_TRY(ResetMeshPool());
-        added = UploadNow(*state.device, add);
-    }
-    return added;
 }
 
 Result<void> EditorRenderer::ResetMeshPool()
 {
     State& state = *m_state;
     state.device->WaitForValue(state.device->LastSubmittedValue());
-    state.chunkMeshes->Clear();
     state.sceneMeshes.clear();
+    ++state.poolGeneration;
     state.meshes->Clear();
     return UploadNow(*state.device,
                      [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
@@ -309,14 +276,39 @@ bool EditorRenderer::Render(const EditorFrame& frame)
     if (state.viewport.IsValid())
     {
         state.objects.clear();
-        for (const EditorBox& box : frame.boxes)
+        state.decals.clear();
+        // Features first: a full mesh pool is cleared while they gather, which invalidates every range handed out so
+        // far, so the editor's own objects take their ranges afterwards.
+        if (frame.extensions != nullptr && frame.document != nullptr)
+        {
+            RenderFeatureContext context;
+            context.device = state.device.get();
+            context.resources = state.resources.get();
+            context.meshes = state.meshes.get();
+            context.generation = state.poolGeneration;
+            context.renderer = state.alive;
+            context.maxObjects = state.renderer->MaxObjects();
+            context.upload = [&state](const RenderFeatureContext::UploadFunction& record)
+            { return UploadNow(*state.device, record); };
+            RenderFeatureOutput output{.objects = &state.objects, .decals = &state.decals};
+            const auto gathered = frame.extensions->GatherRenderObjects(context, output, *frame.document,
+                                                                        [this]() { return ResetMeshPool(); });
+            state.poolGeneration = context.generation;
+            if (!gathered)
+            {
+                INTERI_LOG_ERROR("Editor", "render features: {}", gathered.error().message);
+            }
+        }
+        const auto boxes = frame.replaceScene ? std::span<const EditorBox>{} : frame.boxes;
+        const auto meshes = frame.replaceScene ? std::span<const EditorMesh>{} : frame.meshes;
+        for (const EditorBox& box : boxes)
         {
             state.objects.push_back({.mesh = state.cube,
                                      .transform = box.transform,
                                      .material = {.baseColor = box.color, .roughness = 0.8f},
                                      .occluder = box.occluder});
         }
-        for (const EditorMesh& mesh : frame.meshes)
+        for (const EditorMesh& mesh : meshes)
         {
             const auto found = state.sceneMeshes.find(mesh.mesh);
             if (found == state.sceneMeshes.end())
@@ -338,31 +330,6 @@ bool EditorRenderer::Render(const EditorFrame& frame)
                                          .material = {.baseColor = color, .roughness = 0.75f},
                                          .occluder = mesh.occluder});
             }
-        }
-        for (const EditorChunk& chunk : frame.chunks)
-        {
-            const destruction::AssetMeshes* meshes =
-                chunk.asset == nullptr ? nullptr : state.chunkMeshes->Find(chunk.asset);
-            if (meshes == nullptr)
-            {
-                continue;
-            }
-            for (const destruction::ChunkSubmesh& submesh : meshes->Submeshes(chunk.chunk))
-            {
-                Material material = state.chunkMaterials.Get(submesh);
-                if (chunk.color)
-                {
-                    material = {.baseColor = *chunk.color, .roughness = 0.7f};
-                }
-                state.objects.push_back({.mesh = submesh.mesh, .transform = chunk.transform, .material = material});
-            }
-        }
-        state.decals.clear();
-        if (frame.world != nullptr && frame.destruction != nullptr)
-        {
-            (void)state.gatherer.Gather(*frame.world, *frame.destruction, *state.chunkMeshes, state.chunkMaterials,
-                                        state.objects, state.renderer->MaxObjects());
-            destruction::GatherCrackDecals(*frame.world, *frame.destruction, state.decals);
         }
         if (state.objects.size() > state.renderer->MaxObjects())
         {

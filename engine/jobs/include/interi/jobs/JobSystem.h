@@ -25,7 +25,7 @@ namespace interi
 /// Scheduling class of a job. Queued jobs of a higher priority always start before queued jobs of a lower one.
 enum class JobPriority : std::uint8_t
 {
-    High,   ///< Physics/destruction critical path.
+    High,   ///< Simulation critical path.
     Normal, ///< Default.
     Low     ///< Background work (IO, cooking). Never picked up by a thread that is helping inside WaitFor.
 };

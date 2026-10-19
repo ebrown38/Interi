@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Interi is an MIT-licensed C++23 game engine built only for large-scale, multithreaded structural destruction (Red Faction: Guerrilla style). PC targets are Linux (Clang) and Windows (MSVC). PS5/Xbox backends live in separate private repos. Development follows a milestone plan, one milestone per branch (`milestone-N`). `main` is protected and changes reach it through PRs that must pass CI.
+Interi is an MIT-licensed C++23 modular game engine: the generic core (ECS, jobs, rendering, audio, scenes, chains, the module host and SDK, the editor) plus gameplay engines that live in **modules**. Physics and structural destruction (Red Faction: Guerrilla style) are no longer in the engine: the Jolt Physics Engine and the Destruction Module are gitignored projects in `modules/` (`modules/physics`, `modules/destruction`), each with its own nested git history, README.md and CLAUDE.md. PC targets are Linux (Clang) and Windows (MSVC). PS5/Xbox backends live in separate private repos. Development follows a milestone plan, one milestone per branch (`milestone-N`). `main` is protected and changes reach it through PRs that must pass CI.
 
 ## Starting a milestone
 
@@ -48,7 +48,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Build-system conventions
 
-- **Module projects** (`/modules/<name>/`, gitignored, each with its own nested git history): the root CMake adds every folder that has a `CMakeLists.txt` (`-DINTERI_MODULE_DIRS=` skips them all; the engine builds and passes without them, which is what CI sees). `modules/physics` is the Jolt Physics Engine (M19); its README.md and CLAUDE.md describe it, and it builds standalone through `find_package(Interi)` too.
+- **Module projects** (`/modules/<name>/`, gitignored, each with its own nested git history): the root CMake adds every folder that has a `CMakeLists.txt` (`-DINTERI_MODULE_DIRS=` skips them all; the engine builds and passes without them, which is what CI sees). `modules/physics` is the Jolt Physics Engine and `modules/destruction` the Destruction Module (which declares Jolt as its Physics Engine); their README.md and CLAUDE.md describe them. The engine's vcpkg manifest has no Jolt, so in the engine tree they are skipped unless Jolt is installed; the supported path is the standalone build against an installed engine (`cmake --install`, then `find_package(Interi COMPONENTS Vulkan)` in the module; see their CLAUDE.md files). Verify a change to the engine's module API by building both modules standalone against it.
 
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
 - **Shared engine** (`INTERI_BUILD_SHARED`, default ON in every preset): modules declared with `interi_add_module(name SHARED ...)` build as shared libraries. These are core, jobs, ecs, platform, rhi, render, audio, runtime, sdk, values, chain, scene and hotreload: everything the host and a gameplay module both link. The rest stay static.
@@ -57,7 +57,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - MSVC C4251/C4275 don't arise, because there is no class-level `dllexport`. STL members in exported classes are fine because the toolchain fingerprint guarantees one compiler and standard library.
   - On Windows, executables and DLLs go to `build/<preset>/bin`.
 - **Packaging:** `cmake --install` installs the shared libraries, headers, `interi_module_check` and the `Interi` CMake package (`cmake/InteriPackage.cmake`).
-  - `find_package(Interi)` provides `interi::<module>` targets, `interi_add_gameplay_module` and `interi_add_module_load_test` (`cmake/InteriGameplayModule.cmake`).
+  - `find_package(Interi)` provides `interi::<module>` targets, `interi::editor_api` (the header-only editor extension API) and `interi_add_gameplay_module` / `interi_add_module_load_test` (`cmake/InteriGameplayModule.cmake`). `find_package(Interi COMPONENTS Vulkan)` adds the static `interi::rhi_vulkan` and `interi::platform_sdl` (their volk, VMA, SPIRV-Reflect and SDL3 dependencies are found by the config) and `interi::vulkan_testing` (the `VulkanTest` fixture, the golden-image helpers and the sanitizer suppressions; `cmake/InteriVulkanTesting.cmake`) for modules that draw, open windows or run GPU tests. `interi_add_module(... COMPONENT Vulkan)` marks such a static library; `tests/package/vulkan_consumer` builds against it.
   - `interi::build_settings` carries the ABI-relevant global flags (CPU baseline, `-ffp-contract=off`, `INTERI_SIMD_*`, sanitizers) to installed consumers only.
   - `tools/new_module/new_module.py` scaffolds a Module, Extension or Plugin. `samples/modules/starter` is one.
   - The `integration` tests `Package_*` install the engine and build the starter plus a scaffold of each kind out of tree.
@@ -98,7 +98,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Serialization.** Each type gets a single `template <class Archive> void Serialize(Archive&, T&)`, found by ADL, that serves both reading and writing. Fields added in later versions are guarded with `archive.Version() >= N`. The format is little-endian and bit-exact.
 - **Profiling.** `INTERI_ZONE*` macros map to Tracy only with `INTERI_PROFILING=ON` (`*-profile` presets), in on-demand mode. Otherwise they compile to nothing.
 
-## Job system (`engine/jobs`, `engine/jobs_jolt`)
+## Job system (`engine/jobs`)
 
 - **`JobSystem`** is a plain class; tests create many instances with different worker counts. Workers default to hardware threads − 1. Each worker, plus the thread that constructed the system, owns a Chase-Lev `WorkStealingDeque` per `JobPriority` (High/Normal/Low). Other threads submit through MPMC injection queues. Threads register by a unique system id, not by pointer. Thread state is reached through an accessor stored in the object by its constructor (`m_threadState`), so a hot-reloaded module's copy of this code sees the host's workers. `Logger` stamps records the same way.
 - **Jobs.** `Submit(fn, &counter, priority)` stores up to 48 bytes of captures inline in a pooled 64-byte `Job`. Jobs must not throw. When the pool is exhausted, `Submit` runs the job inline.
@@ -107,8 +107,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **Shutdown.** The destructor drains every queued job.
 - **`TaskGraph`.** Build it once and `Run()` it repeatedly. When asserts are enabled, `Run()` asserts on a cycle and runs nothing.
 - **Parallel algorithms.** `ParallelFor`/`ParallelForChunks`/`ParallelReduce`/`ParallelPrefixSum`/`ParallelRadixSort` cut ranges into chunks from range and grain alone, and combine chunk results in order, so results (floats included) are bit-identical at any thread count. Keep it that way.
-- **`interi::JoltJobSystem`** (`jobs_jolt`) implements `JPH::JobSystemWithBarrier` on the engine workers. Only code that needs Jolt links this module. Inside the class, write `interi::JobSystem`, because plain `JobSystem` names Jolt's base class.
-- **TSan.** The `linux-clang-tsan` preset uses the overlay triplet `cmake/triplets/x64-linux-tsan.cmake`, which builds every vcpkg dependency with Clang and `-fsanitize=thread`. Without it, uninstrumented Jolt synchronization produces false race reports.
+- **TSan.** The `linux-clang-tsan` preset uses the overlay triplet `cmake/triplets/x64-linux-tsan.cmake`, which builds every vcpkg dependency with Clang and `-fsanitize=thread`. A library with synchronization of its own (the physics engine module's) needs the same triplet, or its uninstrumented primitives produce false race reports; the module carries a copy.
 
 ## Platform (`engine/platform`, `engine/platform_sdl`)
 
@@ -143,18 +142,13 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - With asserts on, `ChunkView`/`SystemContext` assert on undeclared accesses.
   - Iterate with `ParallelForEachChunk` (`ParallelForChunks` underneath) rather than submitting many small jobs.
 
-## Runtime (`engine/runtime`, `game/sandbox`)
+## Runtime (`engine/runtime`)
 
 - **`FixedStepClock`** takes the elapsed time from the caller and never reads a clock. It uses integer nanoseconds, clamps substeps after a hitch (dropping whole steps but keeping the fraction), and exposes `Alpha()` for `Interpolate(previous, current, alpha)`.
 - **`FramePipeline<Snapshot>`** double-buffers: render prep of frame N runs as a job while frame N+1 simulates on the calling thread. Neither side writes what the other reads. The TSan stress test lives in `interi_runtime_stress_tests`.
 - **`FollowCamera`** is the orbit and aim math (yaw 0 looks along -Z). **`CameraRig.h`**: camera rigs as data (`{"rigs": [{"name", "kind": orbit|firstPerson|fixed|topDown, ...}]}`, `ParseCameraRigs`; unknown fields warn, anything malformed is an error), `EvaluateRig` for one pose and `CameraController` to switch between them (blends over a fixed time from the caller's dt, `TakeEvents()` reports `CameraSwitchEvent`s).
 - **`TriggerVolumes.h`**: physics-free boxes (axis-aligned) and spheres against actors (points with a radius, layer masks). `OverlapTracker::Update` returns only the changes, by (volume id, actor id) with ends before begins and independent of input order, so simple games need no Physics Engine. It is O(volumes x actors).
-- **Save games** (`SaveGame.h`): an `ISAV` container (payload hash + versioned archive) of sections sorted by id (`<module id>:<name>`, or the engine's without a colon), each with the version its owner wrote. `SaveRegistry` holds the owners' capture/restore functions (`Add(provider, def)`, `RemoveProvider`, `ExtractProvider`/`Restore`); `Capture(label, previous)` keeps sections nothing registered (a module that is not enabled) when given the previous save; `Validate`/`Apply` refuse the whole save when a section is newer than its owner knows, otherwise restore in id order and report failures per section. `SaveSlots` are numbered files on an `IFileSystem` (`List()` flags corrupt files). `DestructionState` still has its own IDSS format; it becomes a Destruction save section in M20.3.
-- **`interi_sandbox`** (`game/sandbox`) is the playable demo: a third-person character with the sledgehammer, remote charges and rockets, and a truck (E enters and exits it, or brings a new one after a wreck) in `data/levels/sandbox.json` (ground, pillars, three pre-fractured walls generated at startup and served from a `MemoryFileSystem` mounted at `generated/`, and `player`/`vehicle` spawn points). Sounds are synthesized at startup; `--audio-driver default|null|none` (default falls back to null).
-  - Bindings are in `data/gameplay/input.json`: F5 saves the destruction state, F9 reloads the level and restores it, F6 reloads the module.
-  - Debris expiry lives in the hot-reloadable `game/sandbox_module` (`interi_sandbox_module`). Components shared with the module are in `SandboxComponents.h`.
-  - `--hot-reload 1` rebuilds the module (`cmake --build` on the build dir) when its sources change. The module library is always watched.
-  - Smoke run: `--video-driver offscreen --audio-driver null --frames N --auto-spawn 1 --validation 1` (auto-spawn fires rockets and charges at the walls and drives the truck into the middle one). `--video-driver dummy` has no Vulkan, so it runs without drawing. CI builds it but doesn't run it.
+- **Save games** (`SaveGame.h`): an `ISAV` container (payload hash + versioned archive) of sections sorted by id (`<module id>:<name>`, or the engine's without a colon), each with the version its owner wrote. `SaveRegistry` holds the owners' capture/restore functions (`Add(provider, def)`, `RemoveProvider`, `ExtractProvider`/`Restore`); `Capture(label, previous)` keeps sections nothing registered (a module that is not enabled) when given the previous save; `Validate`/`Apply` refuse the whole save when a section is newer than its owner knows, otherwise restore in id order and report failures per section. `SaveSlots` are numbered files on an `IFileSystem` (`List()` flags corrupt files). The Destruction Module registers its IDSS state as the section `com.interi.destruction:state`.
 
 ## Module SDK (`engine/sdk`, namespace `interi::sdk`)
 
@@ -191,7 +185,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
     - Module components are trivially copyable and have a `kComponentName`; `DeclareComponent<T>` checks both. Nothing else enforces it (there is no registry "module mode" any more).
     - Never leave the host anything from module code that outlives the module. Systems, hooks and the state saver are destroyed before the library closes.
     - Dependents reach an Extension through hooks and registry items resolved at run time, not by linking its library: a shadow-copied DLL can't satisfy a link-time import.
-    - Modules never call Jolt.
+    - Physics only through `service.Physics*` (the typed `sdk::IPhysicsQueries` contract) or the selected Physics Engine's own API: the engine has no physics code, and a module never links Jolt on its own.
   - `ModuleContext::physicsEngine` and `registrar.PhysicsEngine()` give the selected engine's id and version (empty id: none).
   - `registrar.Saves()` is the host's `SaveRegistry` (register `<module id>:<name>` sections; see Save games). `registrar.Service(name)` / `ServiceAs<T>` reach host services (`ModuleHostDesc::services`, `IModuleService`): the editor offers `editor.extensions`. The host takes a module's service entries (`Extract`) and save sections back before its library unloads, and restores them if a reload fails.
   - `registrar.Scope()` registers hooks. `registrar.Chains()` is the host's `chain::ChainRegistry` (provide events and functions as `Scope().Provider()`). `registrar.Data()` is the host's `values::DataRegistry` (module data is declared in module.json, not code; a system may keep the reference). `DeclareState(registrar, g_state, {values::Field(...)})` carries a module global's reflected fields across a reload by name (a field whose type changed keeps its new initial value); `SetStateSaver`/`SavedState` carry raw bytes.
@@ -199,7 +193,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - `LoadProject(order, manifests)` resolves the graph, finds each `library` in the manifest's folder and then `librarySearchPaths`, and registers in load order.
   - `LoadProject(order, manifests, pin)` loads the selected Physics Engine and its bases first (they are modules in the graph). A declaring module's adapter `library` (the `physicsEngines` entry the engine chain satisfies, the most specific engine first) loads after its main library, into the same scope, scheduler and registrar, and unloads before it; reloads reopen both.
   - `Reload(id)` reopens the module and every loaded module that depends on it (`loadAfter`; reloading an engine reloads the modules built against it).
-  - `Load(path)` is a single manifest-less module (`local.module`), which the sandbox uses.
+  - `Load(path)` is a single manifest-less module (`local.module`), for quick experiments and tests.
   - Each transaction:
     1. Copies every library to a unique shadow file and opens it.
     2. Extracts the outgoing modules' hook entries and data.
@@ -269,35 +263,6 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 - **`GameSession`** opens a project folder (`project.json`): modules and data, the startup scene in a `SceneRuntime` on the modules' World, project files mounted at the root (paths are project-relative, `content/chains/x.chain.json`). `Step()` runs the modules' systems then the scene; `RaiseInputAction` feeds `trigger.InputAction`. `Restart()` loads the scene again (the running one stays if the new one doesn't parse). `SaveToSlot`/`LoadFromSlot` use `ModuleHost::Saves()` (the engine's `scene.state` plus the modules' sections); loading checks versions first, restarts the scene, then applies, so a bad slot changes nothing. Tests compare results at 0/1/4/16 workers.
 - **Starter sample** (`samples/modules/starter`, committed): "Coin Run", a top-down collect-the-coins game. The module declares Values (`coins`, `total`, `score`, `won`), a `CoinKinds` data table, a chain function (`CoinValue`, reads the table), a native action (`LevelComplete`, counts levels in module state that survives reloads) and a save section. `templates/coins` is the project (scene with trigger-volume coins, chains, HUD and menus, input and camera rigs, table rows). It builds in tree (root CMake) and out of tree (`Package_Starter_BuildsOutOfTree`); `interi_starter_sample_tests` (label `integration`, run by CI) plays it headless: collects every coin, wins, saves and loads, lays out the HUD and menus, rebinds a key, switches cameras.
 
-## Gameplay (`engine/gameplay`, namespace `interi::gameplay`)
-
-- **`CharacterController`** wraps `JPH::CharacterVirtual`, a capsule whose position is its feet. It walks, jumps, steps up to `stepHeight`, sticks to the floor, and pushes dynamic bodies with at most `maxStrength` N.
-  - Update after `PhysicsSync::Step` (sync point).
-  - DebrisSmall doesn't collide with characters.
-  - `FollowCamera` is the orbit and aim math: yaw 0 looks along -Z.
-- **Weapons**: `WeaponDef` JSON (`data/gameplay/weapons.json`), parsed like the destruction materials.
-  - `WeaponSystem` is a sync point between `PhysicsSync::Step` and `DestructionWorld::Update`:
-    - `Swing`: a sphere cast, an impulse at the contact point, melee damage.
-    - `PlaceCharge`: sticks to a destructible's chunk and follows it through splits (`DestructionWorld::ChunkPose`), or to an entity's Transform. `DetonateCharges` sets them off.
-    - `FireRocket`: a per-step segment cast; it blasts on a hit or at its range.
-  - Blasts queue explosion damage and push dynamic bodies, in body-ID order.
-- **Vehicles** (`Vehicle.h`, `VehicleDef.h`, `data/gameplay/vehicles.json`): a Jolt `VehicleConstraint` with a `WheeledVehicleController` and a cylinder-cast tester, four wheels at the chassis box's bottom corners.
-  - Vehicle space is Jolt's: +Z forward, +X left. The body is created by the `Vehicle` (not PhysicsSync); its user data is an entity with `VehicleComponent` + Transform (no RigidBodyComponent, or PhysicsSync would add a second body).
-  - Like the character: `SetInput` between steps, `Update` after `PhysicsSync::Step`. Teardown is step listener, constraint, body.
-  - The torque curve falls to zero at max RPM (a rev limiter; Jolt clamps RPM only after the solve) and the chassis has no linear damping, so top speed is max RPM through gear and differential. Tests pin it analytically.
-  - Ramming uses the ordinary contact damage path: damage is linear in the impulse above `impactThreshold`, and the impulse is about mass x approach speed.
-  - Hard contacts and blasts (`ApplyRadialDamage`) cost health. At zero it turns into wreck debris: the chassis plus four `ColliderComponent::Cylinder` wheels as Debris entities with `WreckComponent`, moving with the vehicle's point velocities and optionally adopted by the DebrisSystem.
-- **Levels** (`Level.h`): JSON static boxes, destructibles and spawn points.
-  - `SpawnLevel` reads every asset first (an error creates nothing), then creates everything in file order. Pass an `AssetCache` to reuse assets across reloads.
-  - Input binding moved to `interi::platform` (`InputConfig.h`) and `FollowCamera` to `interi::runtime` in M18; what is left in `engine/gameplay` is physics or destruction code.
-- **Saves** (`DestructionState.h`) record per instance:
-  - bond health;
-  - chunks released to the DebrisSystem;
-  - falling pieces' poses and velocities, keyed by smallest chunk.
-  - The format is IDSS: payload hash, then a versioned Archive.
-  - Restore into a freshly loaded level: `DestructionWorld::RestoreDamage` only adds damage, and pieces are rebuilt without break events.
-  - Not saved: DebrisSystem entities (debris, rubble) and the stress warm start, so a load continues equivalently, not bit-identically.
-
 ## Audio (`engine/audio`, namespace `interi::audio`)
 
 - **miniaudio** (header-only, Unlicense OR MIT-0) only drives the device and decodes WAV/FLAC/MP3 (`DecodeClip`, `LoadClip`). Its implementation is `src/MiniaudioImplementation.cpp`, and every audio TU includes it through the private `src/Miniaudio.h` (one set of `MA_NO_*` defines). No public header includes it.
@@ -311,15 +276,6 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - Voices are ranked by priority x audible gain. Inaudible plays are culled.
   - Tests use `Offline` (`Render` mixes on the caller). The TSan test `AudioEngineStress` (`interi_audio_stress_tests`, label `stress`) runs on the null device. Never open a real device in tests: CI has no sound card.
 - **Designated initializers:** clang's `-Wmissing-designated-field-initializers` and tidy's `readability-redundant-member-init` conflict over class-type members without initializers. Engine code fills every field; tests assign fields instead.
-
-## Destruction audio (`engine/destruction_audio`, namespace `interi::destruction`)
-
-- **`DestructionAudioConfig`** (`data/audio/destruction_audio.json`) holds impact banks by material pair (`*` wildcard; exact beats one wildcard beats none; ties go to file order) plus creak, rumble and explosion cues. Clip names resolve through a game-provided `ClipLibrary`. Volumes rise with log impulse and log mass.
-- **Material identity** is a `StringId`: a destructible chunk's or debris/rubble source's DestructionMaterial name, else an `AudioMaterialComponent` (vehicles, ground), else none (matches only `*`).
-- **`ImpactBatcher`** gives one voice per (bank, region cell) per step at the impulse-weighted centroid. Cells are centred on multiples of the size, so a floor at y = 0 sits mid-cell. Results are independent of insertion order.
-- **`StressAudio`** computes bond utilization (`BondUtilization` in `StressSolver.h`: load over the health-scaled limit, as DestructionWorld checks), scanned round-robin within a bond budget, and only for converged solves. A region creaks once per crossing, then re-arms after relaxing below `rearmThreshold` and a cooldown.
-- **`CollapseAudio`** sums the mass of newly created unanchored pieces per region. A new instance's initial pieces don't count.
-- **`DestructionAudio::Update`** runs after `DestructionWorld::Update`. `PlayExplosion` is for blasts (the sandbox feeds `WeaponSystem::Blasts()`).
 
 ## RHI (`engine/rhi`, `engine/rhi_vulkan`, namespace `interi::rhi`)
 
@@ -385,138 +341,21 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   - Mismatches write the actual and diff images to `build/<preset>/golden-output`, which CI uploads on failure.
   - Commit goldens only after CI's lavapipe agrees.
 
-## Physics (`engine/physics`, namespace `interi::physics`)
-
-- **Jolt build.** Jolt comes from the overlay port `cmake/ports/joltphysics`, a copy of vcpkg's port with `CROSS_PLATFORM_DETERMINISTIC=ON` (`-ffp-contract=off`, `/fp:precise`, no `JPH_USE_FMADD`). Simulations are bit-identical on Linux and Windows. `JoltDeterminism.Pile_MatchesCrossPlatformGoldenHash` pins this, and a Jolt version bump changes that constant. Re-sync the overlay when the vcpkg baseline moves.
-- **`JoltRuntime`** does Jolt's process-wide setup (default allocator, Factory, types; traces go to the log, Jolt asserts to the Interi handler). Create exactly one for the process lifetime: in `main`, or a gtest Environment (`tests/physics/PhysicsTestEnvironment.cpp`). It is not ref-counted. Jolt keeps its own allocator, because its free hooks don't pass a size.
-- **`JoltMath.h`** converts math types by plain copy. Both libraries use column vectors, translation in column 3 and (x,y,z,w) quaternions. Jolt is single precision, so `RVec3` is `Vec3`.
-- **Layers** (`PhysicsLayers.h`): Static, Structure, Debris, DebrisSmall, Character, Vehicle, Projectile, all from one `ShouldCollide` table.
-  - DebrisSmall collides with neither itself, characters nor projectiles.
-  - Broadphase trees: Static+Structure, Debris+DebrisSmall, and Moving.
-  - Jolt's three table filters are built from that one table, so they can't disagree.
-- **`PhysicsWorld`** owns the `JPH::PhysicsSystem` and steps it through `JoltJobSystem`. It requires a live `JoltRuntime`.
-  - `Contacts()` returns the last step's new contacts, merged from per-thread buffers and fully sorted, so they are identical at any thread count.
-  - `ContactEvent::impulse` is an estimate (effective mass × approach speed × (1+e)), because Jolt's callbacks run before the solver. `PhysicsWorldDesc::minContactImpulse` filters out weak contacts.
-- **ECS sync.** `RigidBodyComponent` + `ColliderComponent` + `interi::Transform` give an entity a body, and `PhysicsSync` maintains it.
-  - Every `PhysicsSync` call is a sync point, not a Scheduler system. Bodies are created and removed serially in query order, which keeps body IDs deterministic.
-  - Only `PullTransforms` is parallel, over chunks. It writes only chunks that contain an active body, or a body that fell asleep in the last step (`PhysicsBodyComponent::wasActive`).
-  - Kinematic bodies get `MoveKinematic` every step.
-  - A body's user data is its entity (`PhysicsWorld::EntityOf`, `EntityFromBodyUserData`).
-- **Queries** (`Queries.h`): `Raycast`, `SphereCast` and `OverlapSphere`, filtered by a `LayerMask`. They lock bodies, so they may run on any thread, but not during `Step`.
-- **Determinism tests** hash `PhysicsSystem::SaveState` (`tests/physics/PhysicsTestUtil.h`) and compare it across 1/8/32 threads (stress label).
-
-## Destruction (`engine/destruction`, `engine/destruction_cook`, `tools/fracture_cooker`, namespace `interi::destruction`)
-
-- **Module split.**
-  - `interi::destruction` is runtime-safe and depends only on core, jobs and nlohmann-json (private). It holds materials, mesh cutting, Voronoi, the hierarchy, bonds, hulls and the `.idest` format. M7 builds Jolt shapes from `AssetChunk::hulls`, and M13 reuses the cutter.
-  - `interi::destruction_cook` is offline only. It holds glTF import (cgltf, implemented in `CgltfImplementation.cpp`), the sidecar config, meshoptimizer and the incremental `Cook`.
-  - `fracture_cooker` is a thin CLI over `Cook`.
-- **Materials** (`DestructionMaterial`): strengths are in Pa, so a bond's limits are area times the weaker material's strengths, in N.
-  - `ParseMaterials` reads `{"materials": [...]}`. A missing field takes its default and adds a warning, and invalid values are errors.
-  - The presets are in `data/destruction/materials.json`.
-- **`FractureMesh`** has welded positions and per-corner normals and UVs. Each triangle carries a destruction `material`, a render `surfaceMaterial` and an `interior` flag (set on cut faces).
-  - `CutMesh` keeps the part behind a plane. Each crossing edge gets exactly one new vertex, keyed by its (min, max) indices and interpolated low to high in double, so results are watertight by construction. Never weld cut output with a tolerance.
-  - Caps are ear clipped with hole bridging. On-plane faces are kept if they face along the normal.
-- **Voronoi.**
-  - `GenerateSeeds` uses only integer randomness (`core/Random.h`): no `<random>` distributions and no `sin`/`log`.
-  - `VoronoiFracture` computes one cell per job: the source is cut by the bisectors that clip the seed's convex region. Cells are merged in seed order, so output is identical at any thread count.
-  - Disconnected cells split into pieces.
-  - A cell below `minPieceVolume` drops its seed and its neighbours are recomputed, so the volume is absorbed exactly. Small fragments of larger cells are discarded and counted in `discardedVolume`.
-- **Hierarchy.** Chunks are breadth-first: chunk 0 is the whole object and children are contiguous. Each chunk's seeds use `HashCombine(level seed, chunk index)`.
-- **Bonds.**
-  - Bonds connect leaf chunks only, across objects. `FindContacts` hashes triangles into a grid whose cells are about the mean triangle size, then measures the exact 2D overlap of opposite-facing coplanar triangles.
-  - Anchors are leaves that touch the `groundHeight` plane or an anchor mesh (config `"anchor": true` objects).
-- **Hulls.** `BuildCollisionHulls` cuts concave pieces through the centroid until each hull is within `maxConcavity` of its piece's volume.
-- **`.idest`.**
-  - Layout: magic `IDST`, then version, cook key, the XXH3 of the payload, and the payload, which is its own archive `IDSP`.
-  - A flipped byte reads as `Corrupt`.
-  - Bump `kDestructibleVersion` when the format changes, and `kCookerVersion` when cooking output changes for the same inputs.
-- **Cooking.**
-  - `Cook` reads `<input stem>.fracture.json` next to the glTF. Its format is documented in `CookConfig.h`, and `data/destruction/samples/building.*` is an example.
-  - Settings are applied in order: defaults, then the entry for the object's glTF material, then the node entry.
-  - The cook key hashes the glTF and its buffers, the config, the materials and both versions. A cook is skipped when the existing output is a valid asset (payload hash checked) with the same key.
-  - `FractureCooker_SampleBuilding_Cooks` (label `integration`) cooks the sample.
-
-## Runtime destruction (`engine/destruction` runtime parts, `engine/destruction_runtime`)
-
-- **Pure algorithms** live in `interi::destruction` (no Jolt, no ECS); `interi::destruction_runtime` puts them on
-  Jolt bodies and ECS entities.
-- **`StressSolver`** is a beam lattice: one 6-DOF node per chunk, one elastic beam per bond (axial EA/L, shear GA/L,
-  bending EI/L, torsion GJ/L through the face centroid; one Young's modulus, only ratios matter). K u = f (gravity +
-  external forces) is solved with 6x6 block-Jacobi PCG in double, matrix-free, warm-started, only over nodes connected
-  to an anchor (K is singular otherwise).
-  - Sign convention: `BondForces::axial` > 0 is tension (B pulled away from A along the A->B normal).
-  - `ToBondLoad` adds 6M/sqrt(A) of bending to both tension and compression. Overloads are checked against the
-    limits scaled by health fraction, and only once a solve has converged.
-  - Grains are fixed and reductions ordered, so results are bit-identical at any worker count. Keep it that way.
-  - Warm start saves little on local changes (restarted CG); its value is zero-cost steady state and continuing a
-    budgeted solve. `SolveWithBudget` spends bond-iterations in importance order.
-- **Damage is energy (J).** Bond health = weaker material's fractureEnergy x area. `RadialDamage` falls off
-  inverse-square outside `innerRadius`; contact impulses above `impactThreshold` become impact damage.
-- **`LabelComponents`** is a lock-free union-find that links the larger root under the smaller, so labels (component
-  minimum) are scheduling-independent.
-- **`DestructionWorld`**: call `Update` after `PhysicsSync::Step`. Chunks connected to an anchor form one static
-  compound piece; each other component is a dynamic piece (entity with Transform, RigidBodyComponent,
-  ColliderComponent, DestructibleComponent). Every hull shape's Jolt user data is its chunk (`ChunkAt`).
-  - Pieces are recreated (destroy + create) when their chunk set changes, in island order (smallest chunk), so body
-    creation stays deterministic. New pieces inherit the parent's point velocity and angular velocity, plus
-    `separationSpeed`; explosions and melee push pieces within their radius. `LastStats().injectedEnergy` counts the
-    kinetic energy added.
-  - Contacts between pieces of one instance are ignored for `spawnGraceSteps` (faces that just broke apart touch).
-  - `maxBreakRounds` limits how far a cascade goes per frame; `stressWorkBudget` (bond-iterations) caps solve time.
-- **Tests**: `tests/destruction_runtime/RuntimeTestUtil.h` builds grid assets of unit cubes; scenario tests
-  (`interi_destruction_runtime_scenario_tests`, label `integration`) and a collapse golden hash
-  (`CollapseDeterminism.MatchesCrossPlatformGoldenHash`, stress) pin behaviour. Any change to destruction output or a
-  Jolt bump changes the golden hash.
-- **Baselines**: `benchmarks/baselines/` (see its README); the nightly CI `benchmarks` job compares report-only via
-  `tools/bench_compare/compare_benchmarks.py`.
-
-## Debris (`destruction/Debris*.h`, `destruction_runtime/DebrisSystem.h`)
-
-- **Pure parts** (`interi::destruction`):
-  - `DebrisPool` holds fixed-capacity slots (a user value and a priority each). Its storage is allocated once, so acquire, evict and release never allocate.
-  - When the pool is full, the lowest priority is evicted, and ties go to the lowest slot index. A newcomer that ranks lower than every live slot is rejected.
-  - `Debris.h` holds `DebrisPolicy` and the decision functions: priority, fade opacity, `ChooseDebrisAction`, particle integration, sphere-vs-planes culling and `ClusterByGrid`.
-- **`DebrisSystem`** owns debris entities: Transform, ColliderComponent, RigidBodyComponent and DebrisComponent.
-  - Hard caps (`maxBodies`, `maxParticles`) evict the lowest priority, which is size up, age down, distance down.
-  - A small, far piece becomes a particle: its RigidBodyComponent is removed, so PhysicsSync drops the body, and it falls ballistically until `particleLifetime` runs out.
-  - Bodies up to `fadeMaxVolume` fade out and are then removed.
-  - Sleeping bodies that share a grid cell merge into one static `RubbleComponent` compound once there are `rubbleMinPieces` of them.
-  - `Update` runs after `DestructionWorld::Update`. Per-debris work runs in parallel over chunks; structural changes are applied serially in query order. `DebrisDeterminism` compares 1/4/32 workers.
-- **Handoff is opt-in**: `DestructionWorld::SetDebrisSystem`. Pieces up to `smallPieceVolume` are adopted, and they leave the instance at that moment:
-  - their chunks are excluded from islands and their internal bonds count as broken;
-  - they get no DestructibleComponent, so they take no contact damage but can still deal it;
-  - `Despawn` leaves them alive.
-  Without a debris system the M7 behaviour and golden hash are unchanged.
-- **Not in M8:** Jolt bodies are not recycled (see the churn benchmark). Debris handed over by `DestructionWorld` carries a `DebrisSourceComponent` (asset and leaf chunks), and rubble piles keep their members' chunks and poses in a `RubbleSourceComponent`, for rendering (M9).
-
-## Destruction rendering (`engine/destruction_render`, namespace `interi::destruction`)
-
-- **`ChunkRenderSet`** (in `interi::destruction`, pure) covers a set of leaves that move together with the highest chunks whose leaves all belong to it. Every cooked chunk, inner ones too, has a render mesh, so an intact structure draws its root mesh and only regions that broke apart fall back to smaller chunks.
-- **`Submesh::interior`** (asset format v2) marks fracture faces: their `surfaceMaterial` is the DestructionMaterial's `interiorMaterialId`, a separate number space from glTF surface materials.
-- **`ChunkMeshCache`** uploads every chunk of an asset into the `MeshPool` once (every hierarchy level, so size the pool for it). **`ChunkGatherer`** turns pieces (anchored ones as occluders), debris (with opacity, skipped when not visible) and rubble into `RenderObject`s, one per chunk submesh, with `ChunkMaterials` (surface and interior tables).
-- **Interior materials** (`InteriorMaterials.h`): tileable procedural albedos (concrete aggregate, rusted steel, wood, glass, sheet metal) by `interiorMaterialId`, generated with integer arithmetic only (a test pins the concrete hash), mapped triplanar.
-- **Effects:** `DestructionWorld::BreakEvents()` lists the bonds broken in the last Update (recording them does not change the simulation). `BreakEffects` spawns per-material particles from them (dust and chips, sparks, splinters, shards) with seeded integer randomness. `GatherCrackDecals` puts a crack decal on every damaged bond whose chunks still move together, with `CrackOverlayIntensity` (none until 10% of the bond's health is lost, full at 90%).
-- **Tests and goldens:** `interi_destruction_render_gpu_tests` (integration) and `interi_destruction_render_golden_tests` (`tests/destruction_render/golden`) run on lavapipe with Jolt. The fractured-wall and decal goldens depend on the simulation, so a Jolt bump or a destruction change can move them. An executable linking both `physics_testing` and `vulkan_testing` gets one merged TSan suppression list (`TsanSuppressions.JoltAndLavapipe_BothInTheOneList` checks it under TSan).
-
 ## Editor (`engine/editor`, `engine/editor_ui`, `tools/editor`, namespace `interi::editor`)
 
 - **Module split.** `interi::editor` is the editor without UI (tested headless): reflection, the scene document,
-  undo, modeling, prefabs, camera and gizmo math, picking, fracture preview, play sessions and replays, projects and
-  editor services. `interi::modeling` (static, editor-only) does CSG through Manifold (Apache-2.0; its
+  undo, modeling, prefabs, camera and gizmo math, picking, projects and editor services. `interi::modeling` (static, editor-only) does CSG through Manifold (Apache-2.0; its
   `.clang-tidy` drops `bugprone-macro-parentheses` for Manifold's command-line `MANIFOLD_PAR`). `interi::editor_ui` is the Dear
   ImGui layer (imgui 1.92 docking, no SDL/Vulkan bindings: input comes from `InputEvent`s, drawing goes through the
   RHI). `tools/editor` builds `level_editor` (the `interi_editor` target name is the core library).
 - **Reflection** is `interi::values`' (`editor/Reflection.h` aliases it: `FieldType` = `values::ValueType`,
   `FieldValue` = `values::Value`). `RegisterEngineReflection` covers the scene components (not the world Transform),
-  primitives, meshes, prefabs, chains, the level bridge's components and VehicleComponent / WreckComponent. Enum
+  primitives, meshes, prefabs, chains and triggers; modules add theirs through `IEditorExtensions::Reflection()`. Enum
   fields carry their options (`values::EnumField`). Field widgets for every value type are `ValueWidget` (`editor_ui/ValueWidgets.h`).
 - **Document.** `EditorScene` holds a scene v2 document as ECS entities (generic objects, ids = stable ids) and keeps
   world transforms and the `HierarchyIndex` current. Snapshots and `Restore` cover reflected components plus kept
-  (unknown) ones; prefab-derived ids never advance `NextId`. `EditorDocument` opens `.scene.json` (expanding prefab
-  instances) or imports a legacy level (any other `.json`) through `LevelBridge.h` (static boxes become Box
-  primitives; the scene is named `<stem>.scene.json` and the level remembered for File > Export level, which
-  `PlaySession`, replays and the sandbox read until M20). Saving collapses prefab instances. Multi-selection:
+  (unknown) ones; prefab-derived ids never advance `NextId`. `EditorDocument` opens `.scene.json` only (expanding prefab
+  instances; InvalidArgument for any other path). Saving collapses prefab instances. Multi-selection:
   `SelectedIds`, `SelectedRoots` (no selected ancestor; what operations act on), `ToggleSelected`.
 - **Undo.** `UndoStack` executes `ICommand`s; commands with the same non-zero merge key merge until `Seal()` (the UI
   seals on widget release), a capacity drops the oldest, `MarkClean`/`IsDirty` track the save point. Edits go through
@@ -533,14 +372,10 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   Headless tests use `tests/editor_ui/ImGuiTestContext.h` (acknowledges texture requests; set
   `io.ConfigInputTrickleEventQueue = false` to apply queued input in one frame).
 - **Viewport.** The forward renderer draws into an offscreen texture shown with `ImGui::Image`; overlays (gizmos,
-  stress lines, brush strokes) are draw-list lines projected with the same `OrbitCamera`. The `MeshPool` only
-  appends, so when it fills the editor waits for the GPU, `Clear`s it and the `ChunkMeshCache`, and re-adds assets
-  as they are drawn (call `EditorRenderer::AddAsset` every frame for drawn assets).
-- **Fracture authoring.** `FracturePreview` cooks each opened glTF in memory with `destruction::CookScene` (what
-  `Cook` writes) and recooks only entries whose settings key (hash of `WriteCookConfig`) changed; the app recooks
-  when no widget is active. Painted seed density is `SeedPattern::Painted` (uniform base + strokes, one random
-  stream per stroke); material volumes assign chunks by centroid after the hierarchy is built. Both live in the
-  `.fracture.json` sidecar, so `fracture_cooker` reproduces the editor's result.
+  module overlays) are draw-list lines projected with the same `OrbitCamera`. The `MeshPool` only appends, so when it
+  fills the editor waits for the GPU, `Clear`s it and re-adds meshes as they are drawn (call `EditorRenderer::AddMesh`
+  every frame for drawn meshes). Objects whose `MeshComponent` asset is not an `.imesh` are left to the module that
+  owns that asset kind (its render feature).
 - **Modeling** (`Modeling.h`): group/ungroup, duplicate and array (subtree copies, entity references inside remapped),
   align, distribute, mirror (negative scale on the local axis nearest the mirror axis, rotation `M R M_k`: exact),
   snap, pivot (origin moves; geometry offset and children compensate) and CSG (result baked to `meshes/csg_<n>.imesh`;
@@ -553,7 +388,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   touched. On Stop (`EndPlay`), the "keep changes made during play" preference either keeps the Values chains set
   (`KeepRuntimeValues`, undoable) and your edits, or undoes the edits made during play. Modules' native
   events aren't available yet (no libraries load in the editor): chains use the core library.
-- **Modules and extensions.** `EditorModules` (`EditorModules.h`) loads the open project's modules into a `ModuleHost` on a scratch World (`--module-libs <dir>[,<dir>]` adds library search paths; a project whose modules don't load falls back to the core chain library with a warning). Play-in-editor then plays with the host's `ChainRegistry` and Values, so a module's native events and functions work; module systems don't run in the editor yet. The data panels edit the host's `DataRegistry`. The extension API is `editor_ui/EditorExtensionsApi.h`: abstract and header-only (`IEditorExtensions`, the `editor.extensions` host service; `IEditorDocument`, `IViewportCanvas`, `DebugDraw`, no ImGui or editor includes), so a module library links no editor symbol and everything crosses by virtual calls (`EditorExtensions` in `EditorExtensions.h` is the editor's implementation; a test module library, `interi_editor_extension_test_module`, registers through it). Modules register panels, viewport overlays, tools (an active tool owns the viewport mouse) and render features (they contribute world-space `DebugDraw` lines and boxes) with ids `<module id>:<name>`; the entries go back to the editor before the library unloads. **Known limitation:** panels draw with ImGui, so a module must link ImGui itself and adopt the editor's context from `PanelContext` (`ImGui::SetCurrentContext`, `SetAllocatorFunctions`); the installed `Interi` package does not export ImGui yet, so M20 decides how editor extension modules get it. Overlays, tools and render features need no ImGui.
+- **Modules and extensions.** `EditorModules` (`EditorModules.h`) loads the open project's modules into a `ModuleHost` on a scratch World (`--module-libs <dir>[,<dir>]` adds library search paths; a project whose modules don't load falls back to the core chain library with a warning). Play-in-editor then plays with the host's `ChainRegistry` and Values, so a module's native events and functions work; module systems don't run in the editor yet. The data panels edit the host's `DataRegistry`. The extension API is `editor_ui/EditorExtensionsApi.h`: abstract and header-only (`IEditorExtensions`, the `editor.extensions` host service; `IEditorDocument`, `IViewportCanvas`, `DebugDraw`, no ImGui or editor includes), so a module library links no editor symbol and everything crosses by virtual calls (`EditorExtensions` in `EditorExtensions.h` is the editor's implementation; a test module library, `interi_editor_extension_test_module`, registers through it). Modules register panels, viewport overlays, tools (an active tool owns the viewport mouse; `ActivateTool` switches it), per-frame updates (`AddUpdate`), component reflection (`Reflection()`) and render features with ids `<module id>:<name>`; the entries go back to the editor before the library unloads. A render feature contributes world-space `DebugDraw` lines and boxes (`contribute`) and/or scene geometry (`render`: `RenderObject`s and `Decal`s into the forward pass, uploaded through the `RenderFeatureContext` into the editor's `MeshPool`; `OutOfMemory` makes the editor clear the pool, raise `generation` and run every feature again; `renderer` is a weak token that expires with the editor's renderer, so a feature releases its GPU resources only while it is alive; `replacesScene` asks the editor to draw only the features' output, e.g. a preview). `IEditorDocument` gives a module the document's World, selection, files, data directory, jobs, scene path, camera focus and `AddMeshObject`. Panels draw with ImGui, so a module links its own copy of ImGui (same version as the editor's) and adopts the editor's context from `PanelContext` (`ImGui::SetCurrentContext`, `SetAllocatorFunctions`); overlays, tools, updates and render features need no ImGui. The Destruction Module is the reference extension (`modules/destruction/libs/destruction_editor`).
 - **HUD designer** (`HudEditing.h`, `editor_ui/HudDesigner.h`): undoable, validated edits of a `HudDocument` (an edit that wouldn't re-parse is refused, drags merge into one undo step) and the panel with the widget list, fields, a live preview and warnings for Values the project doesn't define. The app's HUD menu loads and saves a `.hud.json` through the project files.
 - **Services** (`EditorServices.h`, `editor_ui/ServicePanels.h`): preferences (`editor.json` in the user config
   folder: recent projects, autosave, play, snapping, Tracy frame marks), `AutosaveTimer` (writes
@@ -561,15 +396,9 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   on the logger's flush thread). Projects (`Projects.h`): `CreateProject` (empty or from a module template),
   `LoadProjectModules`; the Project menu opens, creates and lists recent projects, adds installed modules (`AddProjectModule`, refused with the reason in the console and the menu when no Physics Engine fits them all), the Project Settings panel shows the selected Physics Engine, its version and why (`DescribePhysicsEngine`) with a pin dropdown (`PinProjectPhysicsEngine`), and `--project-file <dir>` opens
   one at startup (the folder is mounted over the data tree: its paths are project-relative and writes go there).
-- **Play and replays.** `PlaySession` spawns `ExportLevel(scene)` into fresh physics/ECS/destruction worlds (needs a
-  `JoltRuntime`) and steps at 60 Hz; `Detonate` queues an explosion for the next step and records it. `Replay` files
-  (IRPL: payload hash, versioned archive) hold the level JSON, the step-indexed explosions, the step count and the
-  final `StateHash` (Jolt SaveState + bond health). `RunReplay` reproduces it from a fresh spawn; tests compare 1/4/32
-  workers (`interi_editor_stress_tests`).
-- **Smoke run:** `level_editor --video-driver offscreen --frames 120 --demo 1 --screenshot out.ppm` (plays the level,
-  detonates, saves and verifies a replay, writes the last frame). `--fracture destruction/samples/building.gltf`
-  opens a source in the Fracture panel. `--project-file <dir> --play 1` opens a project and plays its startup scene
-  (prints `Played N steps`). The dock layout is saved in the temp directory
+- **Smoke run:** `level_editor --video-driver offscreen --frames 120 --screenshot out.ppm` (writes the last frame).
+  `--project-file <dir> --play 1` opens a project and plays its startup scene (prints `Played N steps`);
+  `--module-libs <dir>` adds library search paths for the project's modules. The dock layout is saved in the temp directory
   (`interi_editor_layout_v7.ini`; bump the version when windows are added).
 
 ## Dependencies and licensing

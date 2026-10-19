@@ -26,4 +26,4 @@ add_dependencies(interi_platform_tests interi_test_dynlib)
 target_compile_definitions(interi_platform_tests PRIVATE
     INTERI_TEST_DYNLIB_PATH="$<TARGET_FILE:interi_test_dynlib>")
 target_compile_definitions(interi_platform_tests PRIVATE
-    INTERI_TEST_INPUT_FILE="${PROJECT_SOURCE_DIR}/data/gameplay/input.json")
+    INTERI_TEST_INPUT_FILE="${PROJECT_SOURCE_DIR}/tests/platform/data/sample_input.json")

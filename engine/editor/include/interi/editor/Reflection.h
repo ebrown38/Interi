@@ -24,8 +24,8 @@ using values::TypeReflection;
 using values::WriteField;
 
 /// Registers what scene documents hold: the scene components (name, parent, local transform; the world Transform is
-/// derived and not reflected), primitives and meshes, the level bridge's components (LevelBridge.h) and the gameplay
-/// components with kComponentNames (VehicleComponent, WreckComponent).
+/// derived and not reflected), primitives, meshes, prefabs, chains and triggers. Modules add their components through
+/// IEditorExtensions::Reflection().
 void RegisterEngineReflection(ReflectionRegistry& registry);
 
 } // namespace interi::editor

@@ -30,4 +30,9 @@ foreach(kind Module Extension Plugin PhysicsEngine)
                 ${_common} -P ${CMAKE_CURRENT_SOURCE_DIR}/BuildOutOfTree.cmake)
     list(APPEND _tests Package_Scaffold${kind}_BuildsOutOfTree)
 endforeach()
+# The Vulkan component: backend, SDL3 platform, GPU test helpers and the editor API header, from an installed engine.
+add_test(NAME Package_VulkanComponent_BuildsOutOfTree
+    COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/vulkan_consumer -DBINARY=${_root}/vulkan_consumer
+            ${_common} -P ${CMAKE_CURRENT_SOURCE_DIR}/BuildOutOfTree.cmake)
+list(APPEND _tests Package_VulkanComponent_BuildsOutOfTree)
 set_tests_properties(${_tests} PROPERTIES LABELS integration FIXTURES_REQUIRED interi_package)

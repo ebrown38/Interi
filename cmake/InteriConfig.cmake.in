@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 # find_package(Interi): the shared engine libraries (interi::core, interi::ecs, interi::hotreload, interi::sdk, ...),
-# interi::module_check, and the gameplay module helpers (InteriGameplayModule.cmake).
+# interi::module_check, interi::editor_api, and the gameplay module helpers (InteriGameplayModule.cmake). The optional
+# component Vulkan adds interi::rhi_vulkan, interi::platform_sdl and interi::vulkan_testing.
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
@@ -11,4 +12,19 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/InteriTargets.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/InteriGameplayModule.cmake")
+
+# Component Vulkan: interi::rhi_vulkan, interi::platform_sdl and interi::vulkan_testing (if the engine has them).
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/InteriVulkanTargets.cmake")
+    set(Interi_Vulkan_FOUND TRUE)
+    if("Vulkan" IN_LIST Interi_FIND_COMPONENTS)
+        find_dependency(volk CONFIG)
+        find_dependency(VulkanMemoryAllocator CONFIG)
+        find_dependency(unofficial-spirv-reflect CONFIG)
+        find_dependency(SDL3 CONFIG)
+        include("${CMAKE_CURRENT_LIST_DIR}/InteriVulkanTargets.cmake")
+        include("${CMAKE_CURRENT_LIST_DIR}/InteriVulkanTesting.cmake")
+    endif()
+else()
+    set(Interi_Vulkan_FOUND FALSE)
+endif()
 check_required_components(Interi)

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Interi is an MIT-licensed C++23 game engine built only for large-scale, multithreaded structural destruction (Red Faction: Guerrilla style). PC targets are Linux (Clang) and Windows (MSVC). PS5/Xbox backends live in separate private repos. Development follows a milestone plan, one milestone per branch (`milestone-N`). `main` is protected and changes reach it through PRs that must pass CI.
+Interi is an MIT-licensed C++23 modular game engine: a generic core plus gameplay engines in modules. Physics and structural destruction (Red Faction: Guerrilla style) live in the gitignored `modules/physics` (Jolt Physics Engine) and `modules/destruction` (Destruction Module) projects, each with its own README.md and CLAUDE.md. PC targets are Linux (Clang) and Windows (MSVC). PS5/Xbox backends live in separate private repos. Development follows a milestone plan, one milestone per branch (`milestone-N`). `main` is protected and changes reach it through PRs that must pass CI.
 
 ## Starting a milestone
 
@@ -48,7 +48,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
 
 ## Build-system conventions
 
-- **Module projects** (`/modules/<name>/`, gitignored, each with its own nested git history): the root CMake adds every folder that has a `CMakeLists.txt` (`-DINTERI_MODULE_DIRS=` skips them all; the engine builds and passes without them, which is what CI sees). `modules/physics` is the Jolt Physics Engine (M19); its README.md and CLAUDE.md describe it, and it builds standalone through `find_package(Interi)` too.
+- **Module projects** (`/modules/<name>/`, gitignored, each with its own nested git history): the root CMake adds every folder that has a `CMakeLists.txt` (`-DINTERI_MODULE_DIRS=` skips them all; the engine builds and passes without them, which is what CI sees). `modules/physics` is the Jolt Physics Engine and `modules/destruction` the Destruction Module; their README.md and CLAUDE.md describe them. The engine's vcpkg manifest has no Jolt, so in the engine tree they are skipped unless Jolt is installed; build them standalone through `find_package(Interi COMPONENTS Vulkan)` against an installed engine.
 
 - Declare modules with `interi_add_module(name SOURCES ... TEST_SOURCES ... DEPS ...)` from `cmake/InteriModule.cmake`. It creates `interi_<name>` (alias `interi::<name>`) and `interi_<name>_tests`. A module without `TEST_SOURCES` fails to configure, and a test enforces this.
 - Test sources live in `tests/<module>/`, not next to the module.

@@ -34,20 +34,16 @@ public:
 
     /// An empty, unnamed scene.
     void New();
-    /// Opens a scene (`.scene.json`), or imports a legacy level (any other `.json`): the imported scene is named
-    /// `<stem>.scene.json` next to it and the level is remembered as the export path. On failure the open document
-    /// is unchanged. Warnings (unknown components, broken parents) are logged.
+    /// Opens a scene (`.scene.json`; InvalidArgument for any other path). On failure the open document is unchanged.
+    /// Warnings (unknown components, broken parents) are logged.
     [[nodiscard]] Result<void> Open(const IFileSystem& files, std::string_view path);
     /// Writes the scene to Path() (InvalidArgument if it has none) and marks it clean.
     [[nodiscard]] Result<void> Save(IFileSystem& files);
     [[nodiscard]] Result<void> SaveAs(IFileSystem& files, std::string path);
-    /// Writes the scene as a level (LevelBridge.h) to `path`, or ExportPath() when empty.
-    [[nodiscard]] Result<void> ExportLevel(IFileSystem& files, std::string_view path = {});
     /// Writes the scene to its autosave file (EditorServices.h AutosavePath) without marking it clean; returns the
     /// path written.
     [[nodiscard]] Result<std::string> Autosave(IFileSystem& files);
     [[nodiscard]] const std::string& Path() const noexcept { return m_path; }
-    [[nodiscard]] const std::string& ExportPath() const noexcept { return m_exportPath; }
     [[nodiscard]] bool IsDirty() const noexcept { return m_undo.IsDirty(); }
 
     /// The primary selection (the last selected object that still exists), or 0.
@@ -82,7 +78,6 @@ private:
     EditorScene m_scene;
     UndoStack m_undo;
     std::string m_path;
-    std::string m_exportPath;
     std::vector<EditorEntityId> m_selection;
 };
 

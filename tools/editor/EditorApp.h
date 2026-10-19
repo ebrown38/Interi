@@ -8,19 +8,15 @@
 #include <interi/editor/EditorCamera.h>
 #include <interi/editor/EditorDocument.h>
 #include <interi/editor/EditorModules.h>
-#include <interi/editor/FracturePreview.h>
 #include <interi/editor/Gizmo.h>
 #include <interi/editor/Picking.h>
-#include <interi/editor/PlaySession.h>
 #include <interi/editor/ScenePlay.h>
 #include <interi/editor_ui/DataPanels.h>
 #include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/EditorPanels.h>
-#include <interi/editor_ui/FracturePanel.h>
 #include <interi/editor_ui/HudDesigner.h>
 #include <interi/editor_ui/ImGuiInput.h>
 #include <interi/editor_ui/ServicePanels.h>
-#include <interi/editor_ui/StructurePanel.h>
 #include <interi/platform/FileSystem.h>
 
 #include "EditorRenderer.h"
@@ -78,8 +74,6 @@ public:
     /// Opens a level by its path under the data directory.
     [[nodiscard]] Result<void> OpenLevel(std::string_view path);
     [[nodiscard]] FrameResult Frame();
-    /// Opens a glTF under the data directory in the Fracture panel and previews it.
-    void OpenFractureSource(const std::string& path) { OpenSource(path); }
     /// Starts play-in-editor of the open scene (smoke runs: --play 1).
     void PlayScene() { HandlePlay({.play = true, .pause = false, .step = false, .stop = false}, 0.0f); }
     [[nodiscard]] std::uint64_t ScenePlaySteps() const noexcept
@@ -88,12 +82,6 @@ public:
     }
     /// Opens a project folder (project.json): see OpenProjectFolder.
     void OpenProject(const std::filesystem::path& folder) { OpenProjectFolder(folder); }
-    /// A scripted session for smoke runs (--demo): at `frame` of `frames`, plays the level, sets off an explosion at
-    /// the middle wall, saves the session as a replay and verifies it.
-    void DemoStep(std::uint64_t frame, std::uint64_t frames);
-    /// The last replay message (e.g. the verify result).
-    [[nodiscard]] const std::string& ReplayMessage() const noexcept { return m_replayMessage; }
-
     /// Writes the next frame to a PPM file instead of presenting it.
     void CaptureNextFrame(std::string path)
     {
@@ -109,6 +97,8 @@ public:
 
 private:
     void DrawViewport();
+    /// What modules' IEditorDocument needs besides the document.
+    [[nodiscard]] DocumentHost FacadeHost();
     /// Picking, gizmo drags and keyboard shortcuts while the mouse is over the viewport image.
     void HandleViewportInput(const ScreenRect& viewport);
     void ApplyDrag(const Ray& ray);
@@ -127,27 +117,6 @@ private:
     void LoadProjectModulesHost(const sdk::Project& project);
     void DrawHud();
 
-    // Fracture authoring.
-    [[nodiscard]] bool PreviewActive() const;
-    void OpenSource(const std::string& path);
-    void SaveAndCook();
-    void BuildPreviewScene();
-    /// Adds a seed stroke where the ray meets the edited object (or any object for the defaults).
-    void PaintStroke(const Ray& ray);
-    void DrawPreviewOverlay(const ScreenRect& viewport);
-    /// Cooks a glTF under the data directory to its `.idest` (if out of date) and returns that path.
-    [[nodiscard]] Result<std::string> CookSource(const std::string& path);
-
-    // Play-in-editor and structural debugging.
-    void StartPlay();
-    /// Advances the session by the frame's time in fixed steps (at most a few per frame), applying a watched
-    /// replay's events at their steps.
-    void StepPlay(float seconds);
-    void HandleStructureRequests(const StructureRequests& requests);
-    void DrawStructureOverlay(const ScreenRect& viewport);
-    [[nodiscard]] PlayStatus Status() const;
-    /// A destructible asset by virtual path, loaded (and uploaded) once; nullptr if it can't be read.
-    [[nodiscard]] std::shared_ptr<const destruction::DestructibleAsset> Asset(const std::string& path);
     void HandlePlay(const ScenePlayRequests& requests, float seconds);
     /// Opens a project folder: mounts it (its paths are the project's), resolves its modules, loads its data and
     /// opens its startup scene. Errors are logged; the current project stays.
@@ -168,7 +137,6 @@ private:
     JobSystem& m_jobs;
     std::filesystem::path m_dataDir;
     NativeFileSystem m_dataFiles;
-    MemoryFileSystem m_generatedFiles;
     VirtualFileSystem m_files;
     std::string m_iniPath;
     ImGuiContext* m_context = nullptr;
@@ -187,12 +155,7 @@ private:
     Transform m_dragStart;
     std::uint64_t m_dragKey = 0;
     GizmoAxis m_hoveredAxis = GizmoAxis::None;
-    FracturePreview m_preview;
-    FractureTool m_fracture;
-    bool m_painting = false;
-    std::optional<Vec3> m_lastStroke;
-    std::unique_ptr<PlaySession> m_play;
-    /// Play-in-editor of the scene (chains, physics-free); the Structure panel's m_play is the destruction one.
+    /// Play-in-editor of the scene (chains, physics-free).
     std::unique_ptr<ScenePlaySession> m_scenePlay;
     bool m_keepPlayValues = true;
     ScenePlayRequests m_playRequests; ///< From this frame's viewport.
@@ -213,7 +176,7 @@ private:
     std::unique_ptr<chain::ChainRegistry> m_chains;
     std::vector<std::filesystem::path> m_moduleLibraries;
     /// What modules add to the editor. Declared before m_modules: the host takes the entries back while unloading.
-    EditorExtensions m_extensions;
+    EditorExtensions m_extensions{m_document.Reflection()};
     std::unique_ptr<EditorModules> m_modules; ///< The open project's loaded modules (null: none, or they didn't load).
     struct HudState
     {
@@ -225,15 +188,7 @@ private:
         std::string message;
     };
     HudState m_hud;
-    std::optional<Replay> m_watching; ///< The replay being played back, if any.
-    std::size_t m_nextReplayEvent = 0;
-    StructureTool m_structure;
-    std::string m_replayMessage;
-    float m_playTime = 0.0f; ///< Seconds not yet stepped.
-    std::map<std::string, std::shared_ptr<const destruction::DestructibleAsset>, std::less<>> m_assets;
-    std::set<std::string, std::less<>> m_missingAssets;
     std::vector<EditorBox> m_boxes;
-    std::vector<EditorChunk> m_chunks;
     std::vector<EditorMesh> m_meshes;
     std::vector<std::vector<Vec3>> m_meshColors; ///< Storage for m_meshes' slot colours.
     std::map<std::string, std::shared_ptr<const scene::TriangleMesh>, std::less<>> m_meshCache;

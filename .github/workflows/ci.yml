@@ -58,7 +58,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
           restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
@@ -106,7 +106,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
+          key: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
           restore-keys: vcpkg-windows-${{ steps.vcpkg.outputs.commit }}-
       - run: external\vcpkg\bootstrap-vcpkg.bat -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
@@ -128,7 +128,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
           restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset linux-clang-coverage
@@ -162,7 +162,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
+          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**') }}
           restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
       - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
       - run: cmake --preset ${{ matrix.preset }}
@@ -171,46 +171,3 @@ jobs:
         env:
           INTERI_REQUIRE_GPU: 1
         run: ctest --preset ${{ matrix.preset }}
-
-  # Destruction frame-cost benchmarks against benchmarks/baselines (M7.6). Report-only: the stored baselines come from
-  # a development machine, and the gate threshold is set once run-to-run noise on the runner has been measured.
-  benchmarks:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    container: fedora:44
-    steps:
-      - run: dnf install -y --setopt=install_weak_deps=False $FEDORA_PACKAGES
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-      - id: vcpkg
-        run: |
-          git config --global --add safe.directory '*'
-          echo "commit=$(git rev-parse HEAD:external/vcpkg)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: .vcpkg-cache
-          key: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/ports/**', 'cmake/triplets/**') }}
-          restore-keys: vcpkg-fedora44-${{ steps.vcpkg.outputs.commit }}-
-      - run: external/vcpkg/bootstrap-vcpkg.sh -disableMetrics
-      - run: cmake --preset linux-clang-release
-      - run: cmake --build --preset linux-clang-release --target interi_destruction_benchmarks interi_destruction_runtime_benchmarks
-      - name: Run destruction benchmarks
-        run: |
-          mkdir -p bench-results
-          build/linux-clang-release/benchmarks/destruction/interi_destruction_benchmarks \
-            --benchmark_filter='BM_Stress|BM_Label' --benchmark_repetitions=5 --benchmark_report_aggregates_only=true \
-            --benchmark_out=bench-results/destruction.json --benchmark_out_format=json
-          build/linux-clang-release/benchmarks/destruction_runtime/interi_destruction_runtime_benchmarks \
-            --benchmark_repetitions=3 --benchmark_report_aggregates_only=true \
-            --benchmark_out=bench-results/destruction_runtime.json --benchmark_out_format=json
-      - name: Compare against baselines (report only)
-        run: |
-          for name in destruction destruction_runtime; do
-            python3 tools/bench_compare/compare_benchmarks.py --report-only \
-              benchmarks/baselines/linux-clang-release/$name.json bench-results/$name.json | tee -a "$GITHUB_STEP_SUMMARY"
-          done
-      - uses: actions/upload-artifact@v7
-        with:
-          name: destruction-benchmarks
-          path: bench-results

@@ -59,8 +59,6 @@ ScreenRect DrawDockSpace(bool buildDefaultLayout)
         ImGui::DockBuilderDockWindow(kOutlinerWindow, left);
         ImGui::DockBuilderDockWindow(kInspectorWindow, rightTop);
         ImGui::DockBuilderDockWindow(kToolsWindow, rightBottom);
-        ImGui::DockBuilderDockWindow(kFractureWindow, rightBottom);
-        ImGui::DockBuilderDockWindow(kStructureWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kValuesWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kCharactersWindow, rightBottom);
         ImGui::DockBuilderDockWindow(kDataTablesWindow, bottom);
@@ -98,7 +96,6 @@ MenuRequests DrawMainMenu(EditorDocument& document)
     {
         requests.newLevel = ImGui::MenuItem("New");
         requests.save = ImGui::MenuItem("Save", "Ctrl+S", false, !document.Path().empty());
-        requests.exportLevel = ImGui::MenuItem("Export level", nullptr, false, !document.ExportPath().empty());
         ImGui::Separator();
         requests.quit = ImGui::MenuItem("Quit");
         ImGui::EndMenu();
@@ -272,7 +269,6 @@ ToolRequests DrawToolsPanel(ToolSettings& settings, const EditorDocument& docume
                 requests.addPrimitive = scene::ParsePrimitiveShape(name);
             }
         }
-        requests.addSpawnPoint = ImGui::Button("Add spawn point");
         const std::size_t selected = document.SelectedRoots().size();
         ImGui::BeginDisabled(selected == 0);
         requests.focusSelection = ImGui::Button("Focus selection (F)");
@@ -370,7 +366,7 @@ AssetRequests DrawAssetsPanel(std::span<const AssetEntry> assets)
             "Drag destructibles and meshes into the viewport; double-click a scene or level to open it.");
         for (const AssetEntry& asset : assets)
         {
-            const bool openable = asset.kind == AssetKind::Level || asset.kind == AssetKind::Scene;
+            const bool openable = asset.kind == AssetKind::Scene;
             const std::string label = std::format("[{}] {}", ToString(asset.kind), asset.path);
             ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
             if (openable && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))

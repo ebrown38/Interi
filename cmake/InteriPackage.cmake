@@ -42,6 +42,41 @@ if(WIN32 AND INTERI_PROFILING)
 endif()
 install(EXPORT InteriTargets NAMESPACE interi:: DESTINATION ${INTERI_INSTALL_CMAKEDIR})
 
+# The editor extension API: header-only, so a module can add panels, tools, overlays and render features to the
+# editor without linking any editor library.
+install(TARGETS interi_editor_api EXPORT InteriTargets INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES ${PROJECT_SOURCE_DIR}/engine/editor_ui/include/interi/editor_ui/EditorExtensionsApi.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/interi/editor_ui)
+
+# Component `Vulkan` (find_package(Interi COMPONENTS Vulkan)): the Vulkan backend, the SDL3 platform and the helpers
+# for GPU tests, for modules that draw or open windows. Static libraries; their third-party dependencies (volk, VMA,
+# SPIRV-Reflect, SDL3) are found by the config.
+get_property(_vulkan_libraries GLOBAL PROPERTY INTERI_COMPONENT_Vulkan)
+foreach(_library IN LISTS _vulkan_libraries)
+    get_target_property(_source_dir ${_library} SOURCE_DIR)
+    get_target_property(_binary_dir ${_library} BINARY_DIR)
+    install(DIRECTORY "${_source_dir}/include/" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY "${_binary_dir}/generated/include/" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "Export.h")
+endforeach()
+if(_vulkan_libraries)
+    install(TARGETS ${_vulkan_libraries} EXPORT InteriVulkanTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(EXPORT InteriVulkanTargets NAMESPACE interi:: DESTINATION ${INTERI_INSTALL_CMAKEDIR})
+    # GPU test helpers (interi::vulkan_testing): the fixture, the golden-image and offscreen helpers, and the source
+    # that selects lavapipe and carries the sanitizer suppressions.
+    install(FILES
+            ${PROJECT_SOURCE_DIR}/tests/rhi_vulkan/VulkanTestDevice.h
+            ${PROJECT_SOURCE_DIR}/tests/render/gpu/GoldenImage.h
+            ${PROJECT_SOURCE_DIR}/tests/render/gpu/OffscreenTarget.h
+            ${PROJECT_SOURCE_DIR}/tests/render/gpu/RenderScene.h
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/interi/gpu_testing)
+    install(FILES ${PROJECT_SOURCE_DIR}/tests/rhi_vulkan/VulkanTestSupport.cpp
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/interi/gpu_testing)
+    install(FILES ${CMAKE_CURRENT_LIST_DIR}/InteriVulkanTesting.cmake DESTINATION ${INTERI_INSTALL_CMAKEDIR})
+endif()
+
 configure_package_config_file(${CMAKE_CURRENT_LIST_DIR}/InteriConfig.cmake.in
     ${PROJECT_BINARY_DIR}/package/InteriConfig.cmake
     INSTALL_DESTINATION ${INTERI_INSTALL_CMAKEDIR})

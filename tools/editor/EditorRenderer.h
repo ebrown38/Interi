@@ -4,6 +4,7 @@
 #include <interi/core/Result.h>
 #include <interi/core/math/MathTypes.h>
 #include <interi/core/math/Vec.h>
+#include <interi/editor_ui/EditorExtensionsApi.h>
 #include <interi/platform/Window.h>
 #include <interi/render/ForwardRenderer.h>
 
@@ -18,14 +19,7 @@ namespace interi
 {
 class JobSystem;
 class SdlPlatform;
-class World;
 } // namespace interi
-
-namespace interi::destruction
-{
-class DestructionWorld;
-struct DestructibleAsset;
-} // namespace interi::destruction
 
 namespace interi::scene
 {
@@ -34,6 +28,7 @@ struct TriangleMesh;
 
 namespace interi::editor
 {
+class EditorExtensions;
 class ImGuiRenderer;
 
 /// A box: `transform` maps the unit cube (-0.5 .. 0.5) into the world.
@@ -42,15 +37,6 @@ struct EditorBox
     Mat4 transform;
     Vec3 color;
     bool occluder = false;
-};
-
-/// One chunk of a destructible asset (added with AddAsset), with its own materials or one colour.
-struct EditorChunk
-{
-    const destruction::DestructibleAsset* asset = nullptr;
-    std::uint32_t chunk = 0;
-    Mat4 transform;
-    std::optional<Vec3> color; ///< Overrides the chunk's materials (cell preview, selection).
 };
 
 /// A scene mesh (primitive or mesh asset, added with AddMesh) drawn with one colour per material slot (the last
@@ -68,12 +54,14 @@ struct EditorMesh
 struct EditorFrame
 {
     std::span<const EditorBox> boxes;
-    std::span<const EditorChunk> chunks;
     std::span<const EditorMesh> meshes;
-    /// Play mode: destructible pieces, debris and crack decals from the running simulation (both or neither).
-    World* world = nullptr;
-    const destruction::DestructionWorld* destruction = nullptr;
     render::SceneView view;
+    /// Modules' render features add objects and decals to the forward pass (see EditorExtensionsApi.h).
+    const EditorExtensions* extensions = nullptr;
+    IEditorDocument* document = nullptr;
+    /// A render feature draws instead of the scene (a preview, a running simulation): boxes and meshes above
+    /// are left out.
+    bool replaceScene = false;
     ImDrawData* ui = nullptr;
 };
 
@@ -93,11 +81,9 @@ public:
     EditorRenderer(EditorRenderer&&) = delete;
     EditorRenderer& operator=(EditorRenderer&&) = delete;
 
-    /// Uploads every chunk mesh of an asset (once per asset). When the mesh pool is full it is cleared and started
-    /// over, so call this every frame for each asset drawn (it returns at once for cached ones).
-    [[nodiscard]] Result<void> AddAsset(const std::shared_ptr<const destruction::DestructibleAsset>& asset);
     /// Uploads a scene mesh, one range per material slot (once per mesh object; the renderer keeps it alive while
-    /// cached). Same pool rules as AddAsset: call it every frame for each mesh drawn.
+    /// cached). When the pool is full it is cleared and started over, so call this every frame for each mesh drawn (it
+    /// returns at once for cached ones).
     [[nodiscard]] Result<void> AddMesh(const std::shared_ptr<const scene::TriangleMesh>& mesh);
 
     /// The ImTextureID of a `width` x `height` viewport texture for this frame (recreated when the size changes),

@@ -2,8 +2,8 @@
 #pragma once
 
 // Play-in-editor: the edited scene runs with its chains (scene::SceneRuntime) in a world of its own, so stopping is
-// just dropping the session and the document is never touched. Physics-free; the destruction simulation is the
-// Structure panel's PlaySession until the Destruction Module (M20).
+// just dropping the session and the document is never touched. Physics-free: a module that simulates physics plays
+// the scene itself.
 
 #include <interi/chain/Event.h>
 #include <interi/core/Result.h>

@@ -21,12 +21,22 @@ struct ImDrawList;
 namespace interi::editor
 {
 
+/// What the facade needs besides the document.
+struct DocumentHost
+{
+    std::filesystem::path dataDirectory;
+    const IFileSystem* files = nullptr;
+    JobSystem* jobs = nullptr;
+    OrbitCamera* camera = nullptr;
+};
+
 /// An EditorDocument as modules see it.
 class DocumentFacade final : public IEditorDocument
 {
 public:
-    explicit DocumentFacade(EditorDocument& document) noexcept
+    DocumentFacade(EditorDocument& document, const DocumentHost& host) noexcept
         : m_document(&document)
+        , m_host(host)
     {
     }
     [[nodiscard]] World& GetWorld() override { return m_document->Scene().GetWorld(); }
@@ -34,9 +44,16 @@ public:
     [[nodiscard]] std::uint64_t Selection() const override { return m_document->Selection(); }
     [[nodiscard]] std::string ObjectName(std::uint64_t id) const override;
     [[nodiscard]] Transform ObjectTransform(std::uint64_t id) const override;
+    [[nodiscard]] std::filesystem::path DataDirectory() const override { return m_host.dataDirectory; }
+    [[nodiscard]] const IFileSystem& Files() const override { return *m_host.files; }
+    [[nodiscard]] JobSystem& Jobs() override { return *m_host.jobs; }
+    [[nodiscard]] std::string ScenePath() const override { return std::string(m_document->Path()); }
+    void FocusCamera(const Vec3& target, float distance) override;
+    std::uint64_t AddMeshObject(std::string name, const Transform& transform, std::string meshAsset) override;
 
 private:
     EditorDocument* m_document;
+    DocumentHost m_host;
 };
 
 /// The viewport image drawn over with ImGui's draw list, projected with the editor camera.
@@ -75,6 +92,7 @@ public:
     Result<void> AddOverlay(std::string_view provider, OverlayDef def) override;
     Result<void> AddTool(std::string_view provider, ToolDef def) override;
     Result<void> AddRenderFeature(std::string_view provider, RenderFeatureDef def) override;
+    Result<void> AddUpdate(std::string_view provider, UpdateDef def) override;
 
     [[nodiscard]] std::shared_ptr<void> Extract(std::string_view provider) override;
     void Restore(std::shared_ptr<void> token) override;
@@ -83,6 +101,7 @@ public:
     [[nodiscard]] std::size_t OverlayCount() const noexcept { return m_overlays.size(); }
     [[nodiscard]] std::size_t ToolCount() const noexcept { return m_tools.size(); }
     [[nodiscard]] std::size_t RenderFeatureCount() const noexcept { return m_features.size(); }
+    [[nodiscard]] std::size_t UpdateCount() const noexcept { return m_updates.size(); }
 
     /// An "Extensions" menu in the main menu bar: panels to show or hide, tools to activate (none active: the
     /// editor's own selection tool). Call inside the menu bar.
@@ -104,8 +123,13 @@ public:
     /// Draws collected debug geometry over the viewport.
     static void DrawDebug(const DebugDraw& draw, IViewportCanvas& canvas);
 
+    /// Runs every update with the frame's duration.
+    void RunUpdates(float seconds, IEditorDocument& document) const;
+    /// True when a render feature asks the editor to draw only what the features add.
+    [[nodiscard]] bool ScenePreviewActive(IEditorDocument& document) const;
+
     /// Activates the tool `id` (empty: none). False for an unknown id.
-    bool ActivateTool(std::string_view id);
+    bool ActivateTool(std::string_view id) override;
     [[nodiscard]] std::string_view ActiveTool() const noexcept { return m_activeTool; }
     void SetPanelVisible(std::string_view id, bool visible);
     [[nodiscard]] bool PanelVisible(std::string_view id) const;
@@ -127,6 +151,7 @@ private:
     std::vector<Entry<OverlayDef>> m_overlays;
     std::vector<Entry<ToolDef>> m_tools;
     std::vector<Entry<RenderFeatureDef>> m_features;
+    std::vector<Entry<UpdateDef>> m_updates;
     std::string m_activeTool;
 };
 

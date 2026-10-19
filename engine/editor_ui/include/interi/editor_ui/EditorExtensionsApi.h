@@ -31,6 +31,7 @@
 #include <interi/core/math/Vec.h>
 #include <interi/ecs/World.h>
 #include <interi/hotreload/ModuleService.h>
+#include <interi/platform/FileSystem.h>
 #include <interi/render/Decals.h>
 #include <interi/render/ForwardRenderer.h>
 #include <interi/render/MeshPool.h>
@@ -40,10 +41,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
+
+namespace interi
+{
+class JobSystem;
+}
 
 namespace interi::editor
 {
@@ -68,6 +75,20 @@ public:
     [[nodiscard]] virtual std::string ObjectName(std::uint64_t id) const = 0;
     /// World transform of an object (identity for an unknown id).
     [[nodiscard]] virtual Transform ObjectTransform(std::uint64_t id) const = 0;
+
+    /// The folder asset paths are relative to: the data tree, or the open project's folder.
+    [[nodiscard]] virtual std::filesystem::path DataDirectory() const = 0;
+    /// The virtual file system the editor reads assets through.
+    [[nodiscard]] virtual const IFileSystem& Files() const = 0;
+    [[nodiscard]] virtual JobSystem& Jobs() = 0;
+    /// The open scene's path under the data directory ("" for an unsaved one).
+    [[nodiscard]] virtual std::string ScenePath() const = 0;
+    /// Points the viewport camera at `target` from `distance` metres.
+    virtual void FocusCamera(const Vec3& target, float distance) = 0;
+    /// Adds an object that draws the mesh asset `meshAsset` (a `MeshComponent`; an asset the editor itself does not
+    /// draw, such as a cooked destructible, is drawn by the module's render feature) as one undo step. Returns its
+    /// editor id.
+    virtual std::uint64_t AddMeshObject(std::string name, const Transform& transform, std::string meshAsset) = 0;
 };
 
 struct ViewportRect
@@ -205,12 +226,22 @@ struct RenderFeatureOutput
 struct RenderFeatureDef
 {
     std::string id;
+    /// When it returns true the editor draws only what the features add (a fracture preview, a running simulation):
+    /// the scene's own objects and the selection gizmo are left out. Optional.
+    std::function<bool(IEditorDocument& document)> replacesScene{}; // NOLINT(readability-redundant-member-init)
     /// World-space debug geometry. Optional when `render` is set.
     std::function<void(DebugDraw& draw, IEditorDocument& document)>
         contribute{}; // NOLINT(readability-redundant-member-init)
     /// Scene geometry for the forward pass. Optional when `contribute` is set.
     std::function<Result<void>(RenderFeatureContext& context, RenderFeatureOutput& output, IEditorDocument& document)>
         render{}; // NOLINT(readability-redundant-member-init)
+};
+
+struct UpdateDef
+{
+    std::string id;
+    /// Called once per frame (a running simulation advances here) with the frame's duration in seconds.
+    std::function<void(float seconds, IEditorDocument& document)> update;
 };
 
 /// The `editor.extensions` host service.
@@ -225,6 +256,9 @@ public:
     virtual Result<void> AddOverlay(std::string_view provider, OverlayDef def) = 0;
     virtual Result<void> AddTool(std::string_view provider, ToolDef def) = 0;
     virtual Result<void> AddRenderFeature(std::string_view provider, RenderFeatureDef def) = 0;
+    virtual Result<void> AddUpdate(std::string_view provider, UpdateDef def) = 0;
+    /// Makes the tool `id` the active one (empty: none, the editor's own selection tool). False for an unknown id.
+    virtual bool ActivateTool(std::string_view id) = 0;
 };
 
 } // namespace interi::editor

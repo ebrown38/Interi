@@ -4,6 +4,7 @@
 #include <interi/core/Result.h>
 #include <interi/core/math/MathTypes.h>
 #include <interi/core/math/Vec.h>
+#include <interi/editor_ui/EditorExtensionsApi.h>
 #include <interi/platform/Window.h>
 #include <interi/render/ForwardRenderer.h>
 
@@ -34,6 +35,7 @@ struct TriangleMesh;
 
 namespace interi::editor
 {
+class EditorExtensions;
 class ImGuiRenderer;
 
 /// A box: `transform` maps the unit cube (-0.5 .. 0.5) into the world.
@@ -74,6 +76,12 @@ struct EditorFrame
     World* world = nullptr;
     const destruction::DestructionWorld* destruction = nullptr;
     render::SceneView view;
+    /// Modules' render features add objects and decals to the forward pass (see EditorExtensionsApi.h).
+    const EditorExtensions* extensions = nullptr;
+    IEditorDocument* document = nullptr;
+    /// A render feature draws instead of the scene (a preview, a running simulation): boxes, chunks and meshes above
+    /// are left out.
+    bool replaceScene = false;
     ImDrawData* ui = nullptr;
 };
 

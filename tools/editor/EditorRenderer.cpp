@@ -7,6 +7,7 @@
 #include <interi/destruction_render/ChunkMeshCache.h>
 #include <interi/destruction_render/CrackDecals.h>
 #include <interi/destruction_render/InteriorMaterials.h>
+#include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/ImGuiRenderer.h>
 #include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/render/Camera.h>
@@ -74,6 +75,7 @@ struct EditorRenderer::State
     destruction::ChunkMaterials chunkMaterials;
     destruction::ChunkGatherer gatherer;
     std::vector<Decal> decals;
+    std::uint32_t poolGeneration = 0; ///< Raised whenever the mesh pool is cleared (see RenderFeatureContext).
     std::unique_ptr<rhi::ISwapchain> swapchain;
     std::unique_ptr<FrameGraph> graph;
     MeshRange cube;
@@ -186,6 +188,7 @@ Result<void> EditorRenderer::ResetMeshPool()
     state.device->WaitForValue(state.device->LastSubmittedValue());
     state.chunkMeshes->Clear();
     state.sceneMeshes.clear();
+    ++state.poolGeneration;
     state.meshes->Clear();
     return UploadNow(*state.device,
                      [&](rhi::UploadQueue& uploads, rhi::ICommandList& commands) -> Result<void>
@@ -309,14 +312,39 @@ bool EditorRenderer::Render(const EditorFrame& frame)
     if (state.viewport.IsValid())
     {
         state.objects.clear();
-        for (const EditorBox& box : frame.boxes)
+        state.decals.clear();
+        // Features first: a full mesh pool is cleared while they gather, which invalidates every range handed out so
+        // far, so the editor's own objects take their ranges afterwards.
+        if (frame.extensions != nullptr && frame.document != nullptr)
+        {
+            RenderFeatureContext context;
+            context.device = state.device.get();
+            context.resources = state.resources.get();
+            context.meshes = state.meshes.get();
+            context.generation = state.poolGeneration;
+            context.maxObjects = state.renderer->MaxObjects();
+            context.upload = [&state](const RenderFeatureContext::UploadFunction& record)
+            { return UploadNow(*state.device, record); };
+            RenderFeatureOutput output{.objects = &state.objects, .decals = &state.decals};
+            const auto gathered = frame.extensions->GatherRenderObjects(context, output, *frame.document,
+                                                                        [this]() { return ResetMeshPool(); });
+            state.poolGeneration = context.generation;
+            if (!gathered)
+            {
+                INTERI_LOG_ERROR("Editor", "render features: {}", gathered.error().message);
+            }
+        }
+        const auto boxes = frame.replaceScene ? std::span<const EditorBox>{} : frame.boxes;
+        const auto meshes = frame.replaceScene ? std::span<const EditorMesh>{} : frame.meshes;
+        const auto chunks = frame.replaceScene ? std::span<const EditorChunk>{} : frame.chunks;
+        for (const EditorBox& box : boxes)
         {
             state.objects.push_back({.mesh = state.cube,
                                      .transform = box.transform,
                                      .material = {.baseColor = box.color, .roughness = 0.8f},
                                      .occluder = box.occluder});
         }
-        for (const EditorMesh& mesh : frame.meshes)
+        for (const EditorMesh& mesh : meshes)
         {
             const auto found = state.sceneMeshes.find(mesh.mesh);
             if (found == state.sceneMeshes.end())
@@ -339,15 +367,15 @@ bool EditorRenderer::Render(const EditorFrame& frame)
                                          .occluder = mesh.occluder});
             }
         }
-        for (const EditorChunk& chunk : frame.chunks)
+        for (const EditorChunk& chunk : chunks)
         {
-            const destruction::AssetMeshes* meshes =
+            const destruction::AssetMeshes* assetMeshes =
                 chunk.asset == nullptr ? nullptr : state.chunkMeshes->Find(chunk.asset);
-            if (meshes == nullptr)
+            if (assetMeshes == nullptr)
             {
                 continue;
             }
-            for (const destruction::ChunkSubmesh& submesh : meshes->Submeshes(chunk.chunk))
+            for (const destruction::ChunkSubmesh& submesh : assetMeshes->Submeshes(chunk.chunk))
             {
                 Material material = state.chunkMaterials.Get(submesh);
                 if (chunk.color)
@@ -357,7 +385,6 @@ bool EditorRenderer::Render(const EditorFrame& frame)
                 state.objects.push_back({.mesh = submesh.mesh, .transform = chunk.transform, .material = material});
             }
         }
-        state.decals.clear();
         if (frame.world != nullptr && frame.destruction != nullptr)
         {
             (void)state.gatherer.Gather(*frame.world, *frame.destruction, *state.chunkMeshes, state.chunkMaterials,

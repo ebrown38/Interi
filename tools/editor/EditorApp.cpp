@@ -1413,6 +1413,11 @@ void EditorApp::BuildScene()
     }
 }
 
+DocumentHost EditorApp::FacadeHost()
+{
+    return {.dataDirectory = m_dataDir, .files = &m_files, .jobs = &m_jobs, .camera = &m_camera};
+}
+
 void EditorApp::DrawViewport()
 {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -1462,7 +1467,7 @@ void EditorApp::DrawViewport()
                                   .down = ImGui::IsMouseDown(ImGuiMouseButton_Left),
                                   .released = ImGui::IsMouseReleased(ImGuiMouseButton_Left)};
             ViewportCanvas canvas(*ImGui::GetWindowDrawList(), m_camera, viewport);
-            DocumentFacade document(m_document);
+            DocumentFacade document(m_document, FacadeHost());
             if (!m_extensions.RunActiveTool(canvas, input, document))
             {
                 HandleViewportInput(viewport);
@@ -1475,7 +1480,7 @@ void EditorApp::DrawViewport()
         DrawStructureOverlay(viewport);
         {
             ViewportCanvas canvas(*ImGui::GetWindowDrawList(), m_camera, viewport);
-            DocumentFacade document(m_document);
+            DocumentFacade document(m_document, FacadeHost());
             m_extensions.DrawOverlays(canvas, document);
             DebugDraw debug;
             m_extensions.CollectRenderFeatures(debug, document);
@@ -1617,7 +1622,7 @@ FrameResult EditorApp::Frame()
         ImGui::EndMainMenuBar();
     }
     {
-        DocumentFacade document(m_document);
+        DocumentFacade document(m_document, FacadeHost());
         m_extensions.DrawPanels(document);
     }
     DrawHud();
@@ -1645,6 +1650,10 @@ FrameResult EditorApp::Frame()
     HandleStructureRequests(structure);
     HandlePlay(m_playRequests, io.DeltaTime);
     UpdateServices(io.DeltaTime);
+    {
+        DocumentFacade facade(m_document, FacadeHost());
+        m_extensions.RunUpdates(io.DeltaTime, facade);
+    }
     if (m_play != nullptr && !m_structure.paused)
     {
         StepPlay(io.DeltaTime);
@@ -1748,12 +1757,16 @@ FrameResult EditorApp::Frame()
             (void)m_renderer->AddAsset(asset);
         }
     }
+    DocumentFacade facade(m_document, FacadeHost());
     result.presented = m_renderer->Render({.boxes = m_boxes,
                                            .chunks = m_chunks,
                                            .meshes = m_meshes,
                                            .world = m_play != nullptr ? &m_play->GetWorld() : nullptr,
                                            .destruction = m_play != nullptr ? &m_play->Destruction() : nullptr,
                                            .view = view,
+                                           .extensions = &m_extensions,
+                                           .document = &facade,
+                                           .replaceScene = m_extensions.ScenePreviewActive(facade),
                                            .ui = ImGui::GetDrawData()});
     return result;
 }

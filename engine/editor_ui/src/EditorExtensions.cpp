@@ -2,6 +2,7 @@
 #include <interi/core/Log.h>
 #include <interi/editor_ui/EditorExtensions.h>
 #include <interi/editor_ui/ViewportOverlay.h>
+#include <interi/scene/Mesh.h>
 
 #include <imgui.h>
 
@@ -17,6 +18,7 @@ struct EditorExtensions::Taken
     std::vector<Entry<OverlayDef>> overlays;
     std::vector<Entry<ToolDef>> tools;
     std::vector<Entry<RenderFeatureDef>> features;
+    std::vector<Entry<UpdateDef>> updates;
     bool activeToolLost = false;
     std::string activeTool;
 };
@@ -36,6 +38,31 @@ void TakeProvider(Entries& entries, Entries& taken, std::string_view provider)
 }
 
 } // namespace
+
+void DocumentFacade::FocusCamera(const Vec3& target, float distance)
+{
+    if (m_host.camera != nullptr)
+    {
+        m_host.camera->target = target;
+        m_host.camera->distance = distance;
+    }
+}
+
+std::uint64_t DocumentFacade::AddMeshObject(std::string name, const Transform& transform, std::string meshAsset)
+{
+    return m_document->Add(
+        [&](EditorScene& scene)
+        {
+            const EditorEntityId id = scene.CreateObject(name, transform);
+            (void)scene.AddComponent(id, scene::MeshComponent::kComponentName);
+            const auto entity = scene.Find(id);
+            if (auto* mesh = entity ? scene.GetWorld().GetMut<scene::MeshComponent>(*entity) : nullptr)
+            {
+                mesh->asset.path = std::move(meshAsset);
+            }
+            return id;
+        });
+}
 
 std::vector<std::uint64_t> DocumentFacade::SelectedIds() const
 {
@@ -117,7 +144,8 @@ bool EditorExtensions::IdTaken(const std::string& id) const
 {
     const auto same = [&](const auto& entry) { return entry.def.id == id; };
     return std::ranges::any_of(m_panels, same) || std::ranges::any_of(m_overlays, same) ||
-           std::ranges::any_of(m_tools, same) || std::ranges::any_of(m_features, same);
+           std::ranges::any_of(m_tools, same) || std::ranges::any_of(m_features, same) ||
+           std::ranges::any_of(m_updates, same);
 }
 
 Result<void> EditorExtensions::AddPanel(std::string_view provider, PanelDef def)
@@ -163,12 +191,25 @@ Result<void> EditorExtensions::AddTool(std::string_view provider, ToolDef def)
 
 Result<void> EditorExtensions::AddRenderFeature(std::string_view provider, RenderFeatureDef def)
 {
-    INTERI_TRY(Check(provider, def.id, static_cast<bool>(def.contribute) || static_cast<bool>(def.render)));
+    INTERI_TRY(Check(provider, def.id,
+                     static_cast<bool>(def.contribute) || static_cast<bool>(def.render) ||
+                         static_cast<bool>(def.replacesScene)));
     if (IdTaken(def.id))
     {
         return MakeError(ErrorCode::InvalidArgument, std::format("editor extension '{}' already exists", def.id));
     }
     m_features.push_back({.provider = std::string(provider), .def = std::move(def), .visible = true});
+    return {};
+}
+
+Result<void> EditorExtensions::AddUpdate(std::string_view provider, UpdateDef def)
+{
+    INTERI_TRY(Check(provider, def.id, static_cast<bool>(def.update)));
+    if (IdTaken(def.id))
+    {
+        return MakeError(ErrorCode::InvalidArgument, std::format("editor extension '{}' already exists", def.id));
+    }
+    m_updates.push_back({.provider = std::string(provider), .def = std::move(def), .visible = true});
     return {};
 }
 
@@ -192,6 +233,7 @@ std::shared_ptr<void> EditorExtensions::Extract(std::string_view provider)
     TakeProvider(m_overlays, taken->overlays, provider);
     TakeProvider(m_tools, taken->tools, provider);
     TakeProvider(m_features, taken->features, provider);
+    TakeProvider(m_updates, taken->updates, provider);
     return taken;
 }
 
@@ -209,6 +251,10 @@ void EditorExtensions::Restore(std::shared_ptr<void> token)
     for (auto& entry : taken->tools)
     {
         m_tools.push_back(std::move(entry));
+    }
+    for (auto& entry : taken->updates)
+    {
+        m_updates.push_back(std::move(entry));
     }
     for (auto& entry : taken->features)
     {
@@ -394,6 +440,20 @@ Result<void> EditorExtensions::GatherRenderObjects(RenderFeatureContext& context
         ++context.generation;
     }
     return {};
+}
+
+void EditorExtensions::RunUpdates(float seconds, IEditorDocument& document) const
+{
+    for (const auto& update : m_updates)
+    {
+        update.def.update(seconds, document);
+    }
+}
+
+bool EditorExtensions::ScenePreviewActive(IEditorDocument& document) const
+{
+    return std::ranges::any_of(m_features, [&](const auto& feature)
+                               { return feature.def.replacesScene && feature.def.replacesScene(document); });
 }
 
 void EditorExtensions::DrawDebug(const DebugDraw& draw, IViewportCanvas& canvas)

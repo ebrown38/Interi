@@ -109,6 +109,8 @@ public:
 
 private:
     void DrawViewport();
+    /// What modules' IEditorDocument needs besides the document.
+    [[nodiscard]] DocumentHost FacadeHost();
     /// Picking, gizmo drags and keyboard shortcuts while the mouse is over the viewport image.
     void HandleViewportInput(const ScreenRect& viewport);
     void ApplyDrag(const Ray& ray);

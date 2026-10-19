@@ -25,6 +25,7 @@
 #include <interi/platform/FileSystem.h>
 #include <interi/values/Value.h>
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <string_view>

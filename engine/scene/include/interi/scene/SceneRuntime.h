@@ -12,6 +12,7 @@
 //   4. Trigger volumes (Triggers.h) are tested against the actors; changes raise trigger.Overlap / OverlapEnd.
 
 #include <interi/chain/ChainAsset.h>
+#include <interi/chain/ChainFunction.h>
 #include <interi/chain/Event.h>
 #include <interi/chain/Executor.h>
 #include <interi/core/Result.h>
@@ -56,6 +57,11 @@ struct SceneRuntimeDesc
     /// Instantiate the scene into this World instead of a private one (a game whose module systems run on the same
     /// World; see game/GameSession.h). It must outlive the runtime.
     World* world = nullptr;
+    /// Chain Functions (chain/ChainFunction.h): a call node's event `<functionProvider>:<Name>` that no module
+    /// provides is loaded from `<functionFolder>/<Name>.chainfn.json`, registered under the provider (a provider of the
+    /// registries' ModuleSet) and inlined into the chain before it compiles. Empty provider: no functions.
+    std::string functionProvider;
+    std::string functionFolder = "content/functions";
 };
 
 class SceneRuntime
@@ -91,6 +97,11 @@ public:
     [[nodiscard]] const std::vector<std::string>& Warnings() const noexcept { return m_warnings; }
 
 private:
+    /// Loads and registers the functions `asset` calls (recursively), then inlines them. Error: a function that can't
+    /// be read or registered, or that expands wrongly.
+    Result<chain::ChainAsset> ExpandFunctions(chain::ChainAsset asset, const IFileSystem& files,
+                                              const SceneRuntimeDesc& desc);
+
     SceneRuntime(const values::ReflectionRegistry& reflection, chain::ChainRegistry& chains,
                  values::ValueRegistry* values, const IFileSystem& files, JobSystem& jobs,
                  const SceneRuntimeDesc& desc);
@@ -105,6 +116,8 @@ private:
     OverlapTracker m_overlaps;
     std::vector<std::string> m_warnings;
     std::map<chain::ChainExecutor::ChainId, std::string> m_chainPaths;
+    chain::ChainRegistry* m_chainRegistry = nullptr;
+    std::map<std::string, chain::ChainFunction> m_functions; ///< By name: the functions chains call.
 };
 
 } // namespace interi::scene

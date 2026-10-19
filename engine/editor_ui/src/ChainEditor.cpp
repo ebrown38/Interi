@@ -315,6 +315,7 @@ CanvasOutcome DrawCanvas(ChainAsset& asset, UndoStack& undo, ChainEditorState& s
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
                                ImGuiButtonFlags_MouseButtonMiddle);
     const bool hovered = ImGui::IsItemHovered();
+    state.canvasOrigin = {origin.x, origin.y};
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList& list = *ImGui::GetWindowDrawList();
     list.PushClipRect(origin, ImVec2(origin.x + size.x, origin.y + size.y), true);
@@ -544,6 +545,14 @@ CanvasOutcome DrawCanvas(ChainAsset& asset, UndoStack& undo, ChainEditorState& s
                        .transform([](const std::string&) {}),
                    outcome.edited);
         }
+    }
+
+    // An edit above changed the node or link count: the layout is stale, so draw again next frame.
+    if (layout.rects.size() != asset.nodes.size() || layout.links.size() != asset.links.size())
+    {
+        list.PopClipRect();
+        outcome.edited = true;
+        return outcome;
     }
 
     // Groups and comments sit behind the nodes.

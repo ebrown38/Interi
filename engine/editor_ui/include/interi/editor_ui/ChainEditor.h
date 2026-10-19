@@ -70,6 +70,7 @@ struct ChainEditorState
     // View.
     std::array<float, 2> pan = {40.0f, 40.0f};
     float zoom = 1.0f;
+    std::array<float, 2> canvasOrigin = {0.0f, 0.0f}; ///< Screen position of the canvas (set each frame).
     bool showMinimap = true;
     // Selection.
     std::set<std::string> selected; ///< Node ids.

@@ -115,6 +115,7 @@ void Metadata(std::string& page, const sdk::ModuleManifest& manifest)
     page += manifest.library.empty() ? "- **Code:** none (content only)\n"
                                      : "- **Code:** native library, runs with full trust and no sandbox\n";
     std::vector<std::string> items;
+    items.reserve(manifest.dependencies.size());
     for (const sdk::ModuleDependency& dependency : manifest.dependencies)
     {
         items.push_back(
@@ -245,6 +246,7 @@ void Values(std::string& page, const values::ModuleContent& content)
         return;
     }
     std::vector<const values::ValueDefinition*> sorted;
+    sorted.reserve(content.values.size());
     for (const values::ValueDefinition& value : content.values)
     {
         sorted.push_back(&value);
@@ -268,6 +270,7 @@ void Tables(std::string& page, const values::ModuleContent& content)
         return;
     }
     std::vector<const values::DataTableDefinition*> sorted;
+    sorted.reserve(content.dataTables.size());
     for (const values::DataTableDefinition& table : content.dataTables)
     {
         sorted.push_back(&table);

@@ -63,6 +63,7 @@ DependencyGraphView BuildDependencyGraph(const sdk::ModuleGraph& graph)
                               .row = 0});
     }
     std::vector<GraphNodeView*> order;
+    order.reserve(view.nodes.size());
     for (GraphNodeView& node : view.nodes)
     {
         order.push_back(&node);

@@ -30,7 +30,6 @@ ImVec4 StatusColor(ModuleStatus status)
     case ModuleStatus::Enabled:
         return kGreen;
     case ModuleStatus::Implicit:
-        return kBlue;
     case ModuleStatus::Engine:
         return kBlue;
     case ModuleStatus::Available:

@@ -60,6 +60,7 @@ std::string EngineId(const sdk::ModuleGraph& graph)
 std::vector<std::string> LoadedIds(const sdk::ModuleGraph& graph)
 {
     std::vector<std::string> ids;
+    ids.reserve(graph.modules.size());
     for (const sdk::ResolvedModule& module : graph.modules)
     {
         ids.push_back(module.manifest.id);

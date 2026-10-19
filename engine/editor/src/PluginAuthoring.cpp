@@ -143,7 +143,7 @@ std::string SourceText(const PluginStubDesc& desc, const std::optional<sdk::Func
                         "// Register runs when the engine loads (or reloads) the module; see\n"
                         "// interi/hotreload/ModuleApi.h for the rules.\n",
                         desc.name, desc.id, hook ? "hook" : "event", desc.target.id);
-    if (hook)
+    if (split) // set for hooks only
     {
         text += "#include <interi/hotreload/ModuleApi.h>\n#include <interi/sdk/Hooks.h>\n\nnamespace\n{\n\n"
                 "using interi::sdk::HookNext;\n";

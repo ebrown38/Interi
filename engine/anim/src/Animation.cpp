@@ -7,6 +7,7 @@
 #include <cmath>
 #include <format>
 #include <set>
+#include <utility>
 
 namespace interi::anim
 {
@@ -198,7 +199,7 @@ Result<void> ValidateSkeleton(const Skeleton& skeleton)
         {
             return Invalid(std::format("joint {}: empty or duplicate name '{}'", i, joint.name));
         }
-        if (joint.parent < -1 || joint.parent >= static_cast<std::int32_t>(i))
+        if (joint.parent < -1 || std::cmp_greater_equal(joint.parent, i))
         {
             return Invalid(
                 std::format("joint '{}': parent {} must be -1 or an earlier joint", joint.name, joint.parent));
@@ -234,7 +235,7 @@ Result<void> ValidateClip(const Clip& clip, const Skeleton& skeleton)
     };
     for (const JointTrack& track : clip.tracks)
     {
-        if (track.joint < 0 || track.joint >= static_cast<std::int32_t>(skeleton.joints.size()) ||
+        if (track.joint < 0 || std::cmp_greater_equal(track.joint, skeleton.joints.size()) ||
             !seen.insert(track.joint).second)
         {
             return Invalid(std::format("clip '{}': unknown or repeated joint {}", clip.name, track.joint));

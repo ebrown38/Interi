@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <format>
+#include <ranges>
 #include <set>
 
 namespace interi::loc
@@ -173,13 +174,13 @@ std::vector<std::string> Localization::Languages() const
 
 std::optional<std::string_view> Localization::FindIn(std::string_view language, std::string_view key) const noexcept
 {
-    for (auto it = m_tables.rbegin(); it != m_tables.rend(); ++it)
+    for (const Entry& entry : std::views::reverse(m_tables))
     {
-        if (it->table.language != language)
+        if (entry.table.language != language)
         {
             continue;
         }
-        if (const auto found = it->table.strings.find(key); found != it->table.strings.end())
+        if (const auto found = entry.table.strings.find(key); found != entry.table.strings.end())
         {
             return std::string_view(found->second);
         }

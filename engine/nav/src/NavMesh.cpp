@@ -226,14 +226,14 @@ Result<NavMesh> NavMesh::Bake(std::span<const Vec3> vertices, std::span<const st
         !rcErodeWalkableArea(&context, config.walkableRadius, *compact) || !rcBuildDistanceField(&context, *compact) ||
         !rcBuildRegions(&context, *compact, 0, config.minRegionArea, config.mergeRegionArea))
     {
-        return Result<NavMesh>(MakeError(ErrorCode::Degenerate, "navigation bake: nothing walkable"));
+        return MakeError(ErrorCode::Degenerate, "navigation bake: nothing walkable");
     }
     std::unique_ptr<rcContourSet, ContourDeleter> contours(rcAllocContourSet());
     if (!contours ||
         !rcBuildContours(&context, *compact, config.maxSimplificationError, config.maxEdgeLen, *contours) ||
         contours->nconts == 0)
     {
-        return Result<NavMesh>(MakeError(ErrorCode::Degenerate, "navigation bake: nothing walkable"));
+        return MakeError(ErrorCode::Degenerate, "navigation bake: nothing walkable");
     }
     std::unique_ptr<rcPolyMesh, PolyMeshDeleter> polys(rcAllocPolyMesh());
     std::unique_ptr<rcPolyMeshDetail, DetailDeleter> detail(rcAllocPolyMeshDetail());
@@ -242,7 +242,7 @@ Result<NavMesh> NavMesh::Bake(std::span<const Vec3> vertices, std::span<const st
                                *detail) ||
         polys->npolys == 0)
     {
-        return Result<NavMesh>(MakeError(ErrorCode::Degenerate, "navigation bake: nothing walkable"));
+        return MakeError(ErrorCode::Degenerate, "navigation bake: nothing walkable");
     }
     for (int i = 0; i < polys->npolys; ++i)
     {
@@ -402,7 +402,8 @@ Result<NavPath> NavMesh::FindPath(const Vec3& from, const Vec3& to, const Vec3& 
     path.points.reserve(static_cast<std::size_t>(straightCount));
     for (int i = 0; i < straightCount; ++i)
     {
-        path.points.emplace_back(straight[i * 3], straight[i * 3 + 1], straight[i * 3 + 2]);
+        const auto at = static_cast<std::size_t>(i) * 3;
+        path.points.emplace_back(straight[at], straight[at + 1], straight[at + 2]);
     }
     return path;
 }

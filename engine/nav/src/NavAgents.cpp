@@ -60,8 +60,8 @@ NavStepResult StepNavAgents(World& world, const NavMesh* mesh, float dt)
     NavStepResult result;
     for (const Walker& walker : walkers)
     {
-        NavAgentComponent* agent = world.GetMut<NavAgentComponent>(walker.entity);
-        Transform* transform = world.GetMut<Transform>(walker.entity);
+        auto* agent = world.GetMut<NavAgentComponent>(walker.entity);
+        auto* transform = world.GetMut<Transform>(walker.entity);
         const auto fail = [&]
         {
             agent->state = AgentState::Idle;

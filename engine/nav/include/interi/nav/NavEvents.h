@@ -46,6 +46,6 @@ private:
 
 /// Registers the events and triggers as the engine. The registry's ModuleSet must declare NavigationContracts().
 /// `source` must outlive every chain that can run (the events hold a reference).
-Result<void> RegisterNavigationLibrary(chain::ChainRegistry& registry, std::shared_ptr<NavSource> source);
+Result<void> RegisterNavigationLibrary(chain::ChainRegistry& registry, const std::shared_ptr<NavSource>& source);
 
 } // namespace interi::nav

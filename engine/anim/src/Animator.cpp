@@ -154,7 +154,7 @@ Result<AnimGraph> ParseAnimGraph(std::string_view text)
             auto clip = text_field(entry, "clip");
             if (!id || !clip)
             {
-                return Invalid("animation graph: a state needs \"id\" and \"clip\"");
+                return Invalid(R"(animation graph: a state needs "id" and "clip")");
             }
             state.id = *id;
             state.clip = *clip;
@@ -191,7 +191,7 @@ Result<AnimGraph> ParseAnimGraph(std::string_view text)
             auto trigger = text_field(entry, "trigger");
             if (!from || !to || !trigger)
             {
-                return Invalid("animation graph: a transition needs \"from\", \"to\" and \"trigger\"");
+                return Invalid(R"(animation graph: a transition needs "from", "to" and "trigger")");
             }
             transition.from = *from;
             transition.to = *to;

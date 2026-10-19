@@ -91,7 +91,7 @@ std::vector<std::string> NavigationContracts()
             std::string(kTriggerFailed)};
 }
 
-Result<void> RegisterNavigationLibrary(chain::ChainRegistry& registry, std::shared_ptr<NavSource> source)
+Result<void> RegisterNavigationLibrary(chain::ChainRegistry& registry, const std::shared_ptr<NavSource>& source)
 {
     chain::EventRegistry& events = registry.Events();
     const std::string_view engine = sdk::kEngineProviderId;

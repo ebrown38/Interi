@@ -11,6 +11,8 @@
 #include "NavTestUtil.h"
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 using namespace interi;
 using namespace interi::nav;
 using namespace interi::nav::testing;

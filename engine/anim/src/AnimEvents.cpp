@@ -89,14 +89,14 @@ Result<void> RegisterAnimationLibrary(chain::ChainRegistry& registry)
                               {
                                   const std::uint64_t id = call.Get<values::EntityRef>(0).id;
                                   const std::uint32_t state = AnimNameHash(call.Get<std::string>(1));
-                                  const float blend = call.Get<float>(2);
+                                  const float fade = call.Get<float>(2);
                                   if (!call.Get<std::string>(1).empty())
                                   {
                                       Defer(call, id != 0 ? id : call.Entity(),
-                                            [state, blend](AnimatorComponent& a)
+                                            [state, fade](AnimatorComponent& a)
                                             {
                                                 a.requestState = state;
-                                                a.requestBlend = blend;
+                                                a.requestBlend = fade;
                                             });
                                   }
                                   call.Fire(0);

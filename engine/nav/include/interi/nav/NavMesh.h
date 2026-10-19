@@ -19,7 +19,7 @@
 #include <span>
 #include <vector>
 
-struct dtNavMesh;
+class dtNavMesh;
 
 namespace interi::nav
 {

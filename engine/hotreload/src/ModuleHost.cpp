@@ -402,6 +402,8 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     auto animation = anim::RegisterAnimationLibrary(*m_chains);
     INTERI_VERIFY(animation.has_value(), "the animation library must register");
     m_navigation = std::make_shared<nav::NavSource>();
+    m_navigationService = std::make_unique<NavigationService>(*m_navigation);
+    m_desc.services.try_emplace(std::string(NavigationService::kServiceName), m_navigationService.get());
     auto navigation = nav::RegisterNavigationLibrary(*m_chains, m_navigation);
     INTERI_VERIFY(navigation.has_value(), "the navigation library must register");
     if (m_desc.shadowDirectory.empty())

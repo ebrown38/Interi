@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
+#include <interi/chain/Executor.h>
 #include <interi/game/GameSession.h>
+#include <interi/nav/NavAgents.h>
 #include <interi/scene/Hierarchy.h>
 #include <interi/testing/ScopedTempDir.h>
 
+#include "../nav/NavTestUtil.h"
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -145,4 +148,77 @@ TEST_F(GameSessionTest, SaveSlots_NeedADirectory_AndRoundTrip)
     EXPECT_EQ((*session)->GetWorld().Get<Transform>(nodes.at(1).entity)->position, Vec3(1, 0, 0));
     EXPECT_EQ((*session)->Slots().size(), 3u);
     EXPECT_EQ((*session)->Slots()[2].label, "after one move");
+}
+
+namespace
+{
+
+constexpr std::string_view kNavScene = R"json({"version": 2, "objects": [
+  {"id": 1, "components": {"interi.Chains": {"chains": ["content/chains/nav.chain.json"]},
+                           "interi.LocalTransform": {"position": [0, 0, 0]}}}]})json";
+
+constexpr std::string_view kNavChain = R"json({"version": 1, "nodes": [
+  {"id": "start", "event": "trigger.Start"},
+  {"id": "go", "event": "nav.MoveTo", "params": {"destination": {"const": [3, 0, 0]}, "speed": {"const": 6}}},
+  {"id": "arrived", "event": "nav.Arrived"},
+  {"id": "hide", "event": "world.Hide"},
+  {"id": "failed", "event": "nav.Failed"},
+  {"id": "show", "event": "world.Show"}],
+  "links": [{"from": "start", "to": "go"}, {"from": "arrived", "to": "hide"}, {"from": "failed", "to": "show"}]})json";
+
+void WriteNavMesh(const fs::path& path)
+{
+    interi::nav::testing::Geometry floor = interi::nav::testing::SimpleFloor();
+    interi::nav::NavBakeSettings settings;
+    settings.agentRadius = 0.3f;
+    auto mesh = interi::nav::NavMesh::Bake(floor.vertices, floor.indices, settings);
+    ASSERT_TRUE(mesh.has_value());
+    const std::vector<std::byte> bytes = mesh->Write();
+    fs::create_directories(path.parent_path());
+    std::ofstream(path, std::ios::binary)
+        .write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+} // namespace
+
+TEST_F(GameSessionTest, Navigation_ChainSendsAnAgentAndGetsTheArrivalTrigger)
+{
+    Write(m_temp.Path() / "content/scenes/main.scene.json", kNavScene);
+    Write(m_temp.Path() / "content/chains/nav.chain.json", kNavChain);
+    WriteNavMesh(m_temp.Path() / "content/navmesh.inav");
+    auto session = game::GameSession::Open(Desc());
+    ASSERT_TRUE(session.has_value()) << session.error().message;
+    const Entity agent = scene::BuildHierarchy((*session)->GetWorld()).nodes.at(1).entity;
+    ASSERT_TRUE((*session)->GetWorld().Add(agent, interi::nav::NavAgentComponent{}));
+
+    for (int i = 0; i < 80; ++i)
+    {
+        (*session)->Step();
+    }
+    World& world = (*session)->GetWorld();
+    EXPECT_TRUE(world.Has<chain::HiddenComponent>(agent)) << "nav.Arrived never fired";
+    EXPECT_NEAR(world.Get<Transform>(agent)->position.x, 3.0f, 0.2f);
+    // The scene's local transform was updated too, so propagation kept the agent where it walked.
+    EXPECT_NEAR(world.Get<scene::LocalTransformComponent>(agent)->position.x, 3.0f, 0.2f);
+    EXPECT_EQ(world.Get<interi::nav::NavAgentComponent>(agent)->state, interi::nav::AgentState::Idle);
+}
+
+TEST_F(GameSessionTest, Navigation_DamagedMeshIsAWarning_AndAgentsFail)
+{
+    Write(m_temp.Path() / "content/scenes/main.scene.json", kNavScene);
+    Write(m_temp.Path() / "content/chains/nav.chain.json", kNavChain);
+    Write(m_temp.Path() / "content/navmesh.inav", "not a navmesh");
+    auto session = game::GameSession::Open(Desc());
+    ASSERT_TRUE(session.has_value());
+    const auto warnings = (*session)->Warnings();
+    ASSERT_FALSE(warnings.empty());
+    EXPECT_NE(warnings.back().find("navmesh.inav"), std::string::npos);
+    const Entity agent = scene::BuildHierarchy((*session)->GetWorld()).nodes.at(1).entity;
+    ASSERT_TRUE((*session)->GetWorld().Add(agent, interi::nav::NavAgentComponent{}));
+    for (int i = 0; i < 5; ++i)
+    {
+        (*session)->Step();
+    }
+    EXPECT_FALSE((*session)->GetWorld().Has<chain::HiddenComponent>(agent));
+    EXPECT_EQ((*session)->GetWorld().Get<interi::nav::NavAgentComponent>(agent)->state, interi::nav::AgentState::Idle);
 }

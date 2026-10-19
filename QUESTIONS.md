@@ -152,3 +152,8 @@
 - **Task:** Milestone 24, 24.4
 - **Context:** HUD text uses `{valueId}`; ids contain `:`.
 - **Assumption made:** See the localization phase: `{@key}` references a string-table key (keys have no `:`/`|` conflict because `@` starts the token).
+
+## Where does a project keep its cooked navmesh, and who adds NavAgentComponent / AnimatorComponent to entities?
+- **Task:** Milestone 24, 24.2 / 24.1.2 wiring into `GameSession`
+- **Context:** The plan gives no project-level format for the cooked `.inav`, and no spawn-time hook that attaches the components.
+- **Assumption made:** `GameDesc::navMesh` defaults to `content/navmesh.inav`; the game (or a module) adds `NavAgentComponent` / `AnimatorComponent` itself. Scene-file reflection and editor UI for both components, and a navmesh bake step in the editor/cook, are not done in M24.

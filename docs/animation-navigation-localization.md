@@ -9,10 +9,13 @@ Four small libraries that games reach through chains and `module.json`. None of 
 - **States.** An `AnimationSet` is a skeleton, clips and an `.animstates.json` graph (states, `*` transitions, triggers, crossfade seconds). Sets are bound to character archetype ids (`AnimationLibrary::BindArchetype`); `MakeAnimator` returns the `AnimatorComponent` for an entity of that archetype. A module ships sets in `animationSets`; `LoadModuleAnimations` reads them.
 - **Chains.** `anim.Play(target, state, blend)` and `anim.Trigger(target, trigger)` only record a request on the `AnimatorComponent`; the game calls `StepAnimator(library, animator, dt, pose)` on the fixed step, which applies the request and returns the local pose. The last request of a step wins.
 
+Animation and localization are libraries a game or module drives itself: `GameSession` does not step animators or own a `Localization` yet.
+
 ## Navigation (`engine/nav`, `interi::nav`)
 
 - **Bake and query.** `NavMesh::Bake(vertices, indices, settings)` voxelizes with Recast; `FindPath` and `NearestPoint` use Detour with a query object per call, so any number of threads may query one mesh. Recast and Detour (zlib) are private dependencies. Cook a mesh to `.inav` (`Write`/`Read`, payload hash) and ship that: the float math in Recast is reproducible on one toolchain, not across platforms.
 - **Agents.** `NavAgentComponent` (destination, speed, state). `StepNavAgents(world, mesh, dt)` walks every moving agent along its straight path, re-planning each step, in stable-id order; `RaiseNavTriggers` raises `nav.Arrived` / `nav.Failed` for the chains.
+- **In a game.** `GameSession` loads the cooked mesh from `content/navmesh.inav` (`GameDesc::navMesh`; a missing file is fine, a damaged one a warning) into `ModuleHost::Navigation()`, and each `Step()` walks the agents after the scene step: it writes the move into the object's `LocalTransformComponent` (relative to the parent for a child) so propagation keeps it, and raises `nav.Arrived` / `nav.Failed` for the next step. Entities get their `NavAgentComponent` from the game (nothing adds it for you). Modules reach the mesh through the host service `engine.navigation` (`hotreload::NavigationService`, `registrar.ServiceAs<...>`).
 - **Chains.** `nav.FindPath(from, to)` -> `Found {distance, next}` | `NotFound`, `nav.MoveTo(target, destination, speed)`, `nav.Stop(target)`. They read the mesh from `ModuleHost::Navigation()` (a `NavSource`); set it between steps.
 
 ## AI behaviours (`engine/sdk/Ai.h`)

@@ -9,7 +9,7 @@ interi_add_module(game
         src/GameSession.cpp
         src/HeaderCheck.cpp
         src/ProjectModules.cpp
-    DEPS interi::scene interi::hotreload interi::runtime interi::sdk interi::values interi::chain interi::ecs
+    DEPS interi::scene interi::nav interi::hotreload interi::runtime interi::sdk interi::values interi::chain interi::ecs
          interi::jobs interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing

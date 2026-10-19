@@ -32,6 +32,13 @@ namespace interi::editor
 [[nodiscard]] Result<EditorEntityId> InstantiatePrefab(EditorDocument& document, const IFileSystem& files,
                                                        std::string path, const Transform& world);
 
+/// Adds a cooked model (its `manifest.imodel.json`, see asset_import) at a world transform as one undo step and
+/// selects it: a root object with a child per mesh. Each child shows the cooked `.imesh` and takes its slot colours
+/// from the base colour of the slot's cooked material (grey when the slot has none). NotFound / Corrupt /
+/// InvalidArgument for a manifest that can't be read.
+[[nodiscard]] Result<EditorEntityId> InstantiateModel(EditorDocument& document, const IFileSystem& files,
+                                                      std::string manifestPath, const Transform& world);
+
 /// Puts an instance back to its prefab: every override is dropped (one undo step). Objects added under it stay.
 [[nodiscard]] Result<void> RevertInstance(EditorDocument& document, const IFileSystem& files, EditorEntityId root);
 

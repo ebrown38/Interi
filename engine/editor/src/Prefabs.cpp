@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
+#include <interi/asset_import/ModelManifest.h>
+#include <interi/assets/Material.h>
 #include <interi/editor/Commands.h>
 #include <interi/editor/Prefabs.h>
 #include <interi/platform/FileSystem.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <format>
 #include <map>
 #include <memory>
@@ -183,6 +186,72 @@ Result<EditorEntityId> InstantiatePrefab(EditorDocument& document, const IFileSy
     document.Undo().Execute(std::make_unique<MacroCommand>("Instance prefab", std::move(commands)));
     document.Select(id);
     return id;
+}
+
+Result<EditorEntityId> InstantiateModel(EditorDocument& document, const IFileSystem& files, std::string manifestPath,
+                                        const Transform& world)
+{
+    INTERI_TRY_ASSIGN(bytes, files.ReadFile(manifestPath));
+    auto manifest =
+        asset_import::ParseModelManifest(std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()));
+    if (!manifest)
+    {
+        return MakeError(manifest.error().code, std::format("{}: {}", manifestPath, manifest.error().message));
+    }
+    EditorScene& scene = document.Scene();
+    const EditorEntityId rootId = scene.NextId();
+    const auto transformFields = [](const Transform& t) -> std::vector<std::pair<std::string, std::string>>
+    {
+        return {{"position", values::ValueToJsonText(t.position)},
+                {"rotation", values::ValueToJsonText(t.rotation)},
+                {"scale", values::ValueToJsonText(t.scale)}};
+    };
+    const auto object = [&](EditorEntityId id, std::string name, EditorEntityId parent, const Transform& local)
+    {
+        scene::SceneObject result{.id = id, .components = {}};
+        result.components.push_back({.name = scene::NameComponent::kComponentName,
+                                     .fields = {{"name", values::ValueToJsonText(std::move(name))}}});
+        result.components.push_back({.name = scene::ParentComponent::kComponentName,
+                                     .fields = {{"parent", values::ValueToJsonText(values::EntityRef{parent})}}});
+        result.components.push_back(
+            {.name = scene::LocalTransformComponent::kComponentName, .fields = transformFields(local)});
+        return result;
+    };
+    std::vector<scene::SceneObject> objects;
+    objects.push_back(object(rootId, std::filesystem::path(manifestPath).parent_path().filename().string(), 0, world));
+    EditorEntityId next = rootId;
+    for (const asset_import::ModelManifestMesh& mesh : manifest->meshes)
+    {
+        scene::SceneObject child = object(++next, mesh.name, rootId, Transform{});
+        values::ValueList colors{.element = values::ValueType::Color, .items = {}};
+        for (const std::string& materialPath : mesh.materials)
+        {
+            values::Color color{.r = 0.6f, .g = 0.6f, .b = 0.6f, .a = 1.0f};
+            if (!materialPath.empty())
+            {
+                if (const auto material = assets::LoadMaterialAsset(files, materialPath))
+                {
+                    color = {.r = material->baseColor.x,
+                             .g = material->baseColor.y,
+                             .b = material->baseColor.z,
+                             .a = material->baseColor.w};
+                }
+            }
+            colors.items.emplace_back(color);
+        }
+        child.components.push_back({.name = scene::MeshComponent::kComponentName,
+                                    .fields = {{"asset", values::ValueToJsonText(values::AssetRef{mesh.mesh})},
+                                               {"colors", values::ValueToJsonText(std::move(colors))}}});
+        std::ranges::sort(child.components, {}, &scene::SceneComponent::name);
+        objects.push_back(std::move(child));
+    }
+    std::ranges::sort(objects.front().components, {}, &scene::SceneComponent::name);
+    INTERI_TRY_ASSIGN(snapshots, SnapshotsOf(scene, std::move(objects)));
+    Commands commands;
+    CreateAll(scene, commands, std::move(snapshots));
+    document.Undo().Execute(std::make_unique<MacroCommand>("Instance model", std::move(commands)));
+    document.Select(rootId);
+    return rootId;
 }
 
 Result<void> RevertInstance(EditorDocument& document, const IFileSystem& files, EditorEntityId root)

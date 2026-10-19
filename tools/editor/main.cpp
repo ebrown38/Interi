@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Interi editor: builds scenes. A docking ImGui shell over the forward renderer: viewport (orbit camera: right mouse
 // drag orbits, middle drag pans, wheel zooms), outliner, reflection-driven inspector and undo/redo. Modules add panels,
-// tools, overlays and render features to it (editor_ui/EditorExtensionsApi.h): the Destruction Module's Fracture and
-// Structure panels, for one.
+// tools, overlays and render features to it (editor_ui/EditorExtensionsApi.h).
 //
 //   level_editor [--level <scene under data/>] [--video-driver <name>] [--frames <count>]
 //                [--screenshot <file.ppm>] [--validation 1]

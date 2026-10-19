@@ -3,7 +3,7 @@
 
 // Play-in-editor: the edited scene runs with its chains (scene::SceneRuntime) in a world of its own, so stopping is
 // just dropping the session and the document is never touched. Physics-free: a module that simulates physics plays
-// the scene itself (the Destruction Module's Structure panel does).
+// the scene itself.
 
 #include <interi/chain/Event.h>
 #include <interi/core/Result.h>

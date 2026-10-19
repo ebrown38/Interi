@@ -3,7 +3,7 @@
 
 // A running scene as a save section ("scene.state", the engine's): the run-time Values, and for every object its
 // local transform and whether it is hidden. Restoring goes into a freshly created runtime of the same scene (the
-// way destruction state restores into a freshly loaded level):
+// way a module's state restores into a freshly loaded level):
 //   - objects the save doesn't list (a collected coin, a chain-spawned crate that did not exist yet) are destroyed;
 //   - objects the save lists but the scene no longer has are skipped and logged;
 //   - run-time Values are replaced by the saved ones (Values no loaded module defines any more are dropped).

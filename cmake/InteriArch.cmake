@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Engine-wide CPU baseline and floating-point settings. Applied as directory-wide compile options so every Interi
 # target (libraries, tests, benchmarks, tools) agrees on the ISA: inline SIMD in headers must compile identically
-# everywhere, and Jolt (M5) exports AVX2/FMA requirements of its own.
+# everywhere, and libraries linked in (a physics engine, say) can export AVX2/FMA requirements of their own.
 #
 # Baseline: x86-64-v3 (AVX2, FMA, F16C, BMI1/2, LZCNT), i.e. Haswell / Zen 1 and newer, matching PS5 and
 # Xbox Series (Zen 2). The engine's math code tests INTERI_SIMD_* (set here), never compiler-specific macros such

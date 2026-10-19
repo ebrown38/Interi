@@ -18,12 +18,6 @@
         "docking-experimental"
       ]
     },
-    {
-      "name": "joltphysics",
-      "features": [
-        "rtti"
-      ]
-    },
     "manifold",
     "meshoptimizer",
     "miniaudio",

@@ -70,7 +70,7 @@ class SpdxExpressionTests(unittest.TestCase):
 class CheckLicensesTests(unittest.TestCase):
     def test_all_deps_on_allowlist_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
-            installed = make_installed_dir(Path(tmp), {"gtest": "BSD-3-Clause", "jolt": "MIT"})
+            installed = make_installed_dir(Path(tmp), {"gtest": "BSD-3-Clause", "xxhash": "BSD-2-Clause"})
             self.assertEqual(check_licenses.find_violations(installed, POLICY), [])
 
     def test_gpl_dep_injected_fails(self):

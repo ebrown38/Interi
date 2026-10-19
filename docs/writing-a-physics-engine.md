@@ -46,8 +46,9 @@ Changing the engine (pin, module order, enabled modules) re-resolves the project
 
 ## Worked example: the Jolt module
 
-`com.interi.physics.jolt` (the first real Physics Engine, kept in a separate repository folder, `modules/physics/`)
-shows every part:
+`com.interi.physics.jolt` (the first real Physics Engine, kept outside the engine repository in the gitignored
+`modules/physics/` and built standalone against an installed engine) shows every part; the Destruction Module
+(`modules/destruction/`) is a module built on it:
 
 - `module.json`: kind `PhysicsEngine`, Values (`gravity`, `stepRate`, `bodyBudget`) and data tables (`Layers`,
   `PhysicsMaterials`).

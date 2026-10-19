@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
-// The audio hot paths: the mixer (audio thread) and contact batching (simulation thread, per step).
+// The audio hot path: the mixer (audio thread).
 #include <interi/audio/Mixer.h>
 #include <interi/core/Random.h>
-#include <interi/destruction_audio/ImpactBatcher.h>
 
 #include <benchmark/benchmark.h>
 
@@ -37,31 +36,5 @@ void BM_Mixer_Block(benchmark::State& state)
     state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(voices) * 512);
 }
 BENCHMARK(BM_Mixer_Block)->Arg(16)->Arg(64)->Arg(256);
-
-/// One step's contacts (a collapse: thousands of debris hits) grouped into voices.
-void BM_ImpactBatcher_Flush(benchmark::State& state)
-{
-    const auto contacts = static_cast<std::size_t>(state.range(0));
-    std::vector<interi::destruction::ImpactSound> sounds;
-    interi::Random random(5);
-    for (std::size_t i = 0; i < contacts; ++i)
-    {
-        sounds.push_back({.point = interi::Vec3(random.NextFloat(-40.0f, 40.0f), random.NextFloat(0.0f, 20.0f),
-                                                random.NextFloat(-40.0f, 40.0f)),
-                          .impulse = random.NextFloat(100.0f, 5000.0f),
-                          .bank = random.NextBelow(6)});
-    }
-    interi::destruction::ImpactBatcher batcher;
-    for (auto _ : state)
-    {
-        for (const auto& sound : sounds)
-        {
-            batcher.Add(sound);
-        }
-        benchmark::DoNotOptimize(batcher.Flush().data());
-    }
-    state.SetItemsProcessed(state.iterations() * static_cast<std::int64_t>(contacts));
-}
-BENCHMARK(BM_ImpactBatcher_Flush)->Arg(256)->Arg(4096);
 
 } // namespace

@@ -58,7 +58,7 @@ struct Hasher<Handle<T>>
     }
 };
 
-/// Dense storage with stable generational handles (entities, destruction chunks).
+/// Dense storage with stable generational handles (entities, chunks).
 ///
 /// Values live contiguously (iteration is a linear scan); removal swaps the last value into the hole, so value
 /// addresses and dense order are not stable, but handles are. Insert, Remove and Get are O(1).

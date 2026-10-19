@@ -1,8 +1,11 @@
 # Interi
 
-An open-source (MIT) C++ game engine built for one thing: large-scale, multithreaded structural
-destruction in the style of *Red Faction: Guerrilla*. Targets PC (Linux/Windows), with console
-backends (PS5, Xbox Series X|S) maintained in separate private repositories.
+An open-source (MIT) modular C++ game engine: a generic core (ECS, job system, Vulkan renderer, audio,
+scenes, Chain Reaction visual logic, module SDK with hot reload, and an editor) with gameplay engines as
+modules. Physics (Jolt) and large-scale, multithreaded structural destruction in the style of
+*Red Faction: Guerrilla* are modules, kept in `modules/` (see `modules/physics` and `modules/destruction`, each with
+its own README). Targets PC (Linux/Windows), with console backends (PS5, Xbox Series X|S) maintained in separate private
+repositories.
 
 ## Building (Linux)
 
@@ -32,6 +35,19 @@ Developer prompt (use `bootstrap-vcpkg.bat`).
 The engine targets x86-64-v3 (AVX2/FMA: Haswell, Zen 1 and newer), the same baseline as PS5 and Xbox Series.
 Benchmarks live in `benchmarks/`; measure with the release preset, e.g.
 `build/linux-clang-release/benchmarks/core/interi_core_benchmarks`.
+
+## Modules
+
+`modules/<name>/` (gitignored, each with its own git history) holds Modules, Extensions and Plugins that are not part of
+the engine: the Jolt Physics Engine and the Destruction Module. They build against an installed engine:
+
+```sh
+cmake --install build/linux-clang-debug --prefix /tmp/interi
+cmake -S modules/destruction -B /tmp/destruction-build -G Ninja -DCMAKE_PREFIX_PATH=/tmp/interi \
+  -DCMAKE_TOOLCHAIN_FILE=external/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_OVERLAY_PORTS=modules/physics/ports
+```
+
+`tools/new_module/new_module.py` scaffolds a new one; `docs/writing-a-physics-engine.md` explains Physics Engines.
 
 ## Development workflow (TDD)
 

@@ -9,7 +9,7 @@ interi_add_module(anim SHARED
         src/Animation.cpp
         src/Animator.cpp
         src/HeaderCheck.cpp
-    DEPS interi::chain interi::ecs interi::sdk interi::values interi::core
+    DEPS interi::chain interi::ecs interi::sdk interi::values interi::platform interi::core
     PRIVATE_DEPS nlohmann_json::nlohmann_json
     TEST_DEPS interi::testing
     TEST_SOURCES

@@ -75,6 +75,35 @@ struct ModuleTemplate
     std::string description;
 };
 
+/// An AI behaviour a module contributes (`behaviours`): a named, documented chain asset the module's computer players
+/// run. Its id is `<module id>:<name>`.
+struct AiBehaviourDecl
+{
+    std::string name;
+    std::string description;
+    std::string chain; ///< Chain asset inside the module (optional: a native behaviour has none).
+};
+
+/// A computer player a module offers (`computerPlayers`), id `<module id>:<name>`. `behaviour` is a local name of this
+/// module or a full behaviour id of another one.
+struct ComputerPlayerDecl
+{
+    std::string name;
+    std::string behaviour;
+    std::string description;
+};
+
+/// An animation set a module ships (`animationSets`, see anim/Animator.h): files inside the module and the character
+/// archetype ids whose entities use it.
+struct AnimationSetDecl
+{
+    std::string name;
+    std::string skeleton;
+    std::vector<std::string> clips;
+    std::string graph;
+    std::vector<std::string> archetypes;
+};
+
 /// A parsed module.json. The format:
 ///
 ///     {
@@ -88,6 +117,11 @@ struct ModuleTemplate
 ///       "contracts": [ "service.PhysicsQueries" ],
 ///       "overrides": [ { "target": "com.author.base:FireGun", "version": "^1.0" } ],
 ///       "templates": [ { "name": "Coin game", "path": "templates/coins", "description": "..." } ],
+///       "behaviours": [ { "name": "Patrol", "description": "...", "chain": "content/chains/patrol.chain.json" } ],
+///       "computerPlayers": [ { "name": "Guard", "behaviour": "Patrol", "description": "..." } ],
+///       "animationSets": [ { "name": "hero", "skeleton": "anim/hero.skeleton.json",
+///                            "clips": ["anim/idle.clip.json"], "graph": "anim/hero.animstates.json",
+///                            "archetypes": ["com.author.fps:Hero"] } ],
 ///       "physicsEngines": [ { "id": "com.interi.physics.jolt", "version": "^5", "default": true,
 ///                            "library": "fps_jolt" },
 ///                          { "id": "com.interi.physics.physx", "version": "^4" } ],
@@ -122,6 +156,9 @@ struct ModuleManifest
     std::vector<std::string> contracts; ///< Shared contract ids this Extension declares.
     std::vector<OverrideDeclaration> overrides;
     std::vector<ModuleTemplate> templates;
+    std::vector<AiBehaviourDecl> behaviours;
+    std::vector<ComputerPlayerDecl> computerPlayers;
+    std::vector<AnimationSetDecl> animationSets;
     std::vector<PhysicsEngineEntry> physicsEngines;
     std::optional<PhysicsEngineRef> extends; ///< PhysicsEngine only.
 

@@ -16,6 +16,8 @@
 
 #include <interi/anim/Animation.h>
 #include <interi/core/Result.h>
+#include <interi/platform/FileSystem.h>
+#include <interi/sdk/Manifest.h>
 
 #include <cstdint>
 #include <map>
@@ -103,6 +105,12 @@ private:
     std::vector<AnimationSet> m_sets;
     std::map<std::string, std::uint32_t, std::less<>> m_archetypes;
 };
+
+/// Loads the manifest's `animationSets` (files read from `moduleFiles`, rooted at the module's folder) into `library`
+/// as sets `<module id>:<name>` and binds their archetypes. All or nothing per module: on an error the library may
+/// hold the sets loaded before it. NotFound/IoError for a missing file, InvalidArgument for invalid data.
+Result<void> LoadModuleAnimations(const sdk::ModuleManifest& manifest, const IFileSystem& moduleFiles,
+                                  AnimationLibrary& library);
 
 /// Applies the animator's requests, advances it by `dt` seconds and writes the resulting local pose.
 /// anim.Trigger takes the first transition (in graph order) from the playing state or "*" whose trigger matches;

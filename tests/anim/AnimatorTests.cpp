@@ -5,6 +5,7 @@
 #include <interi/ecs/CommandBuffer.h>
 #include <interi/ecs/World.h>
 #include <interi/jobs/JobSystem.h>
+#include <interi/platform/FileSystem.h>
 
 #include "../chain/ChainTestUtil.h"
 #include "AnimTestUtil.h"
@@ -219,4 +220,31 @@ TEST(AnimEvents, EntityWithoutAnimator_IsSkipped)
     const Entity plain = f.world.CreateEntity(chain::StableIdComponent{.id = 9}, Transform{});
     f.Run(R"json("event": "anim.Trigger", "params": {"trigger": {"const": "go"}})json", 9);
     EXPECT_FALSE(f.world.Has<AnimatorComponent>(plain));
+}
+
+TEST(LoadModuleAnimations, LoadsFilesAndBindsArchetypes)
+{
+    const AnimationSet source = ArmSet();
+    MemoryFileSystem files;
+    const auto put = [&](const std::string& path, const std::string& text)
+    { ASSERT_TRUE(files.WriteFile(path, std::as_bytes(std::span(text))).has_value()); };
+    put("anim/arm.skeleton.json", WriteSkeleton(source.skeleton));
+    put("anim/raise.clip.json", WriteClip(source.clips[0], source.skeleton));
+    put("anim/hold.clip.json", WriteClip(source.clips[1], source.skeleton));
+    put("anim/arm.animstates.json", WriteAnimGraph(source.graph));
+    auto manifest = sdk::ParseManifest(R"({"id": "com.test.arm", "version": "1.0.0", "animationSets": [
+        {"name": "arm", "skeleton": "anim/arm.skeleton.json",
+         "clips": ["anim/raise.clip.json", "anim/hold.clip.json"], "graph": "anim/arm.animstates.json",
+         "archetypes": ["com.test.arm:Arm"]}]})");
+    ASSERT_TRUE(manifest.has_value()) << manifest.error().message;
+
+    AnimationLibrary library;
+    const auto loaded = LoadModuleAnimations(*manifest, files, library);
+    ASSERT_TRUE(loaded.has_value()) << loaded.error().message;
+    EXPECT_NE(library.Find("com.test.arm:arm"), nullptr);
+    EXPECT_TRUE(library.MakeAnimator("com.test.arm:Arm").has_value());
+
+    AnimationLibrary missing;
+    MemoryFileSystem empty;
+    EXPECT_FALSE(LoadModuleAnimations(*manifest, empty, missing).has_value());
 }

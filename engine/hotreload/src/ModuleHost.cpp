@@ -4,6 +4,7 @@
 #include <interi/core/Log.h>
 #include <interi/hotreload/ModuleHost.h>
 #include <interi/platform/DynamicLibrary.h>
+#include <interi/sdk/Ai.h>
 #include <interi/sdk/Toolchain.h>
 
 #include <algorithm>
@@ -381,6 +382,10 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
         m_desc.engineContracts.push_back(std::move(id));
     }
     for (std::string& id : nav::NavigationContracts())
+    {
+        m_desc.engineContracts.push_back(std::move(id));
+    }
+    for (std::string& id : sdk::AiContracts())
     {
         m_desc.engineContracts.push_back(std::move(id));
     }

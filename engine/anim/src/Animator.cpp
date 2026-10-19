@@ -301,6 +301,54 @@ Result<AnimatorComponent> AnimationLibrary::MakeAnimator(std::string_view archet
     return animator;
 }
 
+namespace
+{
+
+Result<std::string> ReadText(const IFileSystem& files, const std::string& path)
+{
+    INTERI_TRY_ASSIGN(bytes, files.ReadFile(path));
+    return std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+} // namespace
+
+Result<void> LoadModuleAnimations(const sdk::ModuleManifest& manifest, const IFileSystem& moduleFiles,
+                                  AnimationLibrary& library)
+{
+    for (const sdk::AnimationSetDecl& decl : manifest.animationSets)
+    {
+        AnimationSet set;
+        set.id = std::format("{}:{}", manifest.id, decl.name);
+        INTERI_TRY_ASSIGN(skeletonText, ReadText(moduleFiles, decl.skeleton));
+        INTERI_TRY_ASSIGN(skeleton, ParseSkeleton(skeletonText));
+        set.skeleton = std::move(skeleton);
+        for (const std::string& path : decl.clips)
+        {
+            INTERI_TRY_ASSIGN(clipText, ReadText(moduleFiles, path));
+            auto clip = ParseClip(clipText, set.skeleton);
+            if (!clip)
+            {
+                return MakeError(clip.error().code, std::format("{}: {}", path, clip.error().message));
+            }
+            set.clips.push_back(std::move(*clip));
+        }
+        INTERI_TRY_ASSIGN(graphText, ReadText(moduleFiles, decl.graph));
+        auto graph = ParseAnimGraph(graphText);
+        if (!graph)
+        {
+            return MakeError(graph.error().code, std::format("{}: {}", decl.graph, graph.error().message));
+        }
+        set.graph = std::move(*graph);
+        const std::string id = set.id;
+        INTERI_TRY(library.Add(std::move(set)));
+        for (const std::string& archetype : decl.archetypes)
+        {
+            INTERI_TRY(library.BindArchetype(archetype, id));
+        }
+    }
+    return {};
+}
+
 void StepAnimator(const AnimationLibrary& library, AnimatorComponent& a, float dt, Pose& out)
 {
     const AnimationSet& set = library.Get(a.set);

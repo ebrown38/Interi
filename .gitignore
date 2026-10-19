@@ -21,3 +21,5 @@ __pycache__/
 
 # Module projects kept next to the engine, each with its own nested git history (M19)
 /modules/
+/QUESTIONS.md
+/project-analysis/

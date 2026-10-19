@@ -136,7 +136,7 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
         const auto poly = ReadAt<dtPoly>(base, polysAt, i);
         // Detour reads verts[0] and verts[1] of an off-mesh polygon unchecked, so the type must match the range.
         const bool offMesh = poly.getType() == DT_POLYTYPE_OFFMESH_CONNECTION;
-        if (offMesh != (i >= static_cast<std::size_t>(h.offMeshBase)))
+        if (offMesh != (std::cmp_greater_equal(i, h.offMeshBase)))
         {
             return corrupt("polygon type");
         }
@@ -187,7 +187,7 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
     for (int i = 0; i < h.offMeshConCount; ++i)
     {
         const unsigned conPoly = ReadAt<dtOffMeshConnection>(base, offMeshAt, static_cast<std::size_t>(i)).poly;
-        if (conPoly < static_cast<unsigned>(h.offMeshBase) || conPoly >= polyCount ||
+        if (std::cmp_less(conPoly, h.offMeshBase) || conPoly >= polyCount ||
             !FiniteFloats(base, offMeshAt + static_cast<std::size_t>(i) * sizeof(dtOffMeshConnection), 7))
         {
             return corrupt("off-mesh connection");

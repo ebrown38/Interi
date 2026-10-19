@@ -13,9 +13,11 @@
 #include <interi/sdk/Manifest.h>
 #include <interi/sdk/Project.h>
 #include <interi/testing/DeterministicRng.h>
+#include <interi/testing/Environment.h>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -56,9 +58,7 @@ std::vector<fs::path> FilesWithSuffix(const fs::path& root, std::string_view suf
 
 std::uint32_t Iterations()
 {
-    const char* text = std::getenv("INTERI_FUZZ_ITERATIONS");
-    const long value = text != nullptr ? std::strtol(text, nullptr, 10) : 0;
-    return value > 0 ? static_cast<std::uint32_t>(value) : 400;
+    return interi::testing::EnvUint("INTERI_FUZZ_ITERATIONS", 400);
 }
 
 std::uint32_t Below(interi::testing::DeterministicRng& rng, std::uint32_t bound)

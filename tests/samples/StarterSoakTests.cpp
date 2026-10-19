@@ -4,6 +4,7 @@
 // working mid-run, and the run must not depend on the worker count.
 #include <interi/game/GameSession.h>
 #include <interi/testing/DeterministicRng.h>
+#include <interi/testing/Environment.h>
 #include <interi/testing/ScopedTempDir.h>
 #include <interi/testing/StateHasher.h>
 
@@ -22,9 +23,7 @@ constexpr const char* kActions[] = {"moveRight", "moveLeft", "moveUp", "moveDown
 
 std::uint32_t SoakSteps()
 {
-    const char* text = std::getenv("INTERI_SOAK_STEPS");
-    const long value = text != nullptr ? std::strtol(text, nullptr, 10) : 0;
-    return value > 0 ? static_cast<std::uint32_t>(value) : 3000;
+    return interi::testing::EnvUint("INTERI_SOAK_STEPS", 3000);
 }
 
 std::int32_t Int(game::GameSession& session, const char* id)

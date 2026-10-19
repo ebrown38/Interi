@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+#include <interi/anim/AnimEvents.h>
 #include <interi/chain/CoreLibrary.h>
 #include <interi/core/Log.h>
 #include <interi/hotreload/ModuleHost.h>
@@ -375,6 +376,14 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     {
         m_desc.engineContracts.push_back(std::move(id));
     }
+    for (std::string& id : anim::AnimationContracts())
+    {
+        m_desc.engineContracts.push_back(std::move(id));
+    }
+    for (std::string& id : nav::NavigationContracts())
+    {
+        m_desc.engineContracts.push_back(std::move(id));
+    }
     for (std::string& id : sdk::PhysicsContracts())
     {
         m_desc.engineContracts.push_back(std::move(id));
@@ -385,6 +394,11 @@ ModuleHost::ModuleHost(World& world, ModuleHostDesc desc)
     }
     auto core = chain::RegisterCoreLibrary(*m_chains);
     INTERI_VERIFY(core.has_value(), "the chain core library must register");
+    auto animation = anim::RegisterAnimationLibrary(*m_chains);
+    INTERI_VERIFY(animation.has_value(), "the animation library must register");
+    m_navigation = std::make_shared<nav::NavSource>();
+    auto navigation = nav::RegisterNavigationLibrary(*m_chains, m_navigation);
+    INTERI_VERIFY(navigation.has_value(), "the navigation library must register");
     if (m_desc.shadowDirectory.empty())
     {
         std::error_code ignored;

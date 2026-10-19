@@ -4,13 +4,21 @@
 //
 //   interi_player --package <dir> [--steps <n>] [--realtime] [--press <action>@<step>]... [--print <value id>]...
 //                 [--user-dir <dir>] [--workers <n>] [--verify-only]
+//                 [--window [--video-driver <name>] [--frames <n>]]
 //
 // Without --realtime the steps run as fast as possible (headless smoke runs and CI); --realtime paces them to the
 // fixed step clock. --press raises an input action before a step. Exit code: 0 played, 1 the package didn't verify
 // or the game didn't open, 2 usage.
+//
+// --window opens an SDL window and plays in real time: keyboard, mouse and gamepad events go through the game's
+// content/input.json bindings into the chains (RaiseInputAction), until the window closes or --frames frames have
+// passed. Scene drawing is not part of the player yet: a renderer plugs into the same loop.
 #include <interi/core/Log.h>
 #include <interi/exporter/ProjectExport.h>
 #include <interi/game/GameSession.h>
+#include <interi/platform/InputConfig.h>
+#include <interi/platform/InputMapper.h>
+#include <interi/platform_sdl/SdlPlatform.h>
 #include <interi/runtime/FixedStepClock.h>
 #include <interi/values/Value.h>
 
@@ -29,7 +37,8 @@ namespace
 
 constexpr const char* kUsage =
     "usage: interi_player --package <dir> [--steps <n>] [--realtime] [--press <action>@<step>]...\n"
-    "                     [--print <value id>]... [--user-dir <dir>] [--workers <n>] [--verify-only]\n";
+    "                     [--print <value id>]... [--user-dir <dir>] [--workers <n>] [--verify-only]\n"
+    "                     [--window [--video-driver <name>] [--frames <n>]]\n";
 
 struct Press
 {
@@ -47,6 +56,9 @@ int main(int argc, char** argv)
     std::uint32_t workers = interi::JobSystemDesc::kAutoWorkerCount;
     bool realtime = false;
     bool verifyOnly = false;
+    bool window = false;
+    std::string videoDriver;
+    std::uint64_t frames = 0; // 0: until the window closes
     std::vector<Press> presses;
     std::vector<std::string> prints;
     for (int i = 1; i < argc; ++i)
@@ -84,6 +96,18 @@ int main(int argc, char** argv)
         else if (argument == "--print" && hasValue)
         {
             prints.emplace_back(argv[++i]);
+        }
+        else if (argument == "--video-driver" && hasValue)
+        {
+            videoDriver = argv[++i];
+        }
+        else if (argument == "--frames" && hasValue)
+        {
+            frames = std::strtoull(argv[++i], nullptr, 10);
+        }
+        else if (argument == "--window")
+        {
+            window = true;
         }
         else if (argument == "--realtime")
         {
@@ -143,7 +167,60 @@ int main(int argc, char** argv)
 
     interi::FixedStepClock clock;
     auto last = std::chrono::steady_clock::now();
-    for (std::uint64_t step = 0; step < steps; ++step)
+    if (window)
+    {
+        auto platform = interi::SdlPlatform::Create({.videoDriver = videoDriver});
+        if (!platform)
+        {
+            std::fprintf(stderr, "no window: %s\n", platform.error().message.c_str());
+            return 1;
+        }
+        auto opened_window = (*platform)->OpenWindow({.title = info->gameName});
+        if (!opened_window)
+        {
+            std::fprintf(stderr, "no window: %s\n", opened_window.error().message.c_str());
+            return 1;
+        }
+        interi::InputMapper mapper;
+        if (auto config = session.Files().ReadFile("content/input.json"))
+        {
+            const std::string text(reinterpret_cast<const char*>(config->data()), config->size());
+            if (auto applied = interi::ApplyInputConfig(text, mapper, interi::InputMerge::Add); !applied)
+            {
+                std::fprintf(stderr, "warning: input config: %s\n", applied.error().message.c_str());
+            }
+        }
+        std::vector<interi::InputEvent> events;
+        std::uint64_t played = 0;
+        for (std::uint64_t frame = 0; frames == 0 || frame < frames; ++frame)
+        {
+            events.clear();
+            (*platform)->PollEvents(events);
+            mapper.Update(events);
+            if (mapper.QuitRequested())
+            {
+                break;
+            }
+            for (std::size_t action = 0; action < mapper.ActionCount(); ++action)
+            {
+                const auto id = static_cast<interi::InputMapper::ActionId>(action);
+                if (mapper.WasPressed(id))
+                {
+                    session.RaiseInputAction(mapper.ActionName(id));
+                }
+            }
+            const auto now = std::chrono::steady_clock::now();
+            for (std::uint32_t n = clock.Advance(now - last); n > 0; --n)
+            {
+                session.Step();
+                ++played;
+            }
+            last = now;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        steps = played;
+    }
+    for (std::uint64_t step = 0; !window && step < steps; ++step)
     {
         for (const Press& press : presses)
         {

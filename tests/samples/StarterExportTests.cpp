@@ -141,6 +141,22 @@ TEST_F(StarterExportTest, ExportToolAndPlayer_ExportThenPlayThePackage)
     EXPECT_NE(output.find("com.interi.starter:won=true"), std::string::npos) << output;
 }
 
+TEST_F(StarterExportTest, Player_RunsInAWindowOnTheDummyVideoDriver)
+{
+    exporter::ExportDesc desc;
+    desc.projectDirectory = m_project;
+    desc.outputDirectory = m_package;
+    desc.librarySearchPaths = {kLibraries};
+    ASSERT_TRUE(exporter::ExportProject(desc).has_value());
+    std::string output;
+    ASSERT_EQ(RunProcess("\"" + kPlayer.string() + "\" --package \"" + m_package.string() +
+                             "\" --window --video-driver dummy --frames 30 --print com.interi.starter:total",
+                         output),
+              0)
+        << output;
+    EXPECT_NE(output.find("com.interi.starter:total=5"), std::string::npos) << output;
+}
+
 TEST_F(StarterExportTest, Player_RefusesATamperedPackage)
 {
     exporter::ExportDesc desc;

@@ -34,8 +34,9 @@ the startup scene. `--steps` runs as fast as possible (headless smoke runs, CI);
 `--press action@step` raises an input action; `--print id` prints a Value at the end; `--user-dir` is where save slots go.
 Exit codes: 0 played, 1 the package didn't verify or the game didn't open, 2 usage.
 
-Rendering and windowing front ends (the Vulkan renderer, SDL window and input) plug into the same `GameSession`: they own
-the clock, translate input to `RaiseInputAction`, and draw the HUD (`hud::BuildFrame`) and the scene.
+`--window` (with `--video-driver` and `--frames`) opens an SDL window and plays in real time: input events go through the
+game's `content/input.json` bindings into the chains until the window closes. Drawing the scene and HUD
+(`hud::BuildFrame`, the forward renderer) is not in the player yet: a renderer plugs into the same loop.
 
 ## Installing the tools
 

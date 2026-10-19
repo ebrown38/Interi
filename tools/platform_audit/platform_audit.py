@@ -45,6 +45,7 @@ BACKEND_LINK_HOME = (
     "engine/render/CMakeLists.txt",
     "engine/editor_ui/CMakeLists.txt",
     "tools/editor/CMakeLists.txt",
+    "tools/player/CMakeLists.txt",
     "benchmarks/render/CMakeLists.txt",  # GPU benchmarks
     "tests/",
 )

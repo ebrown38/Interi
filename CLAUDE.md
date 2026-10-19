@@ -4,7 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Interi is an MIT-licensed C++23 modular game engine: the generic core (ECS, jobs, rendering, audio, scenes, chains, the module host and SDK, the editor) plus gameplay engines that live in **modules**. Physics and structural destruction (Red Faction: Guerrilla style) are no longer in the engine: the Jolt Physics Engine and the Destruction Module are gitignored projects in `modules/` (`modules/physics`, `modules/destruction`), each with its own nested git history, README.md and CLAUDE.md. PC targets are Linux (Clang) and Windows (MSVC). PS5/Xbox backends live in separate private repos. Development follows a milestone plan, one milestone per branch (`milestone-N`). `main` is protected and changes reach it through PRs that must pass CI.
+Interi is an MIT-licensed C++23 **modular game engine**. The engine is generic; a game is a *project* (`project.json`)
+that lists **modules**, and modules carry the gameplay. Gameplay is data first (module.json Values, tables and
+characters; Chain Reaction graphs) and native code second (a shared library built against the engine). Physics and
+structural destruction (Red Faction: Guerrilla style) are not in the engine: the Jolt Physics Engine and the Destruction
+Module are gitignored projects in `modules/` (`modules/physics`, `modules/destruction`), each with its own nested git
+history, README.md and CLAUDE.md. PC targets are Linux (Clang) and Windows (MSVC); PS5/Xbox backends live in separate
+private repos and plug in through `INTERI_EXTERNAL_PLATFORM_DIR`. `main` is protected and changes reach it through PRs
+that must pass CI. The milestone plan (M13–M25) is complete; new work follows the same per-phase, test-first rules.
+
+## Architecture at a glance
+
+Bottom to top (each layer depends only on the ones above it in this list):
+
+1. **Foundation**: `core` (memory, containers, math, logging, archive, budgets), `jobs`, `platform` (files, input,
+   windows as interfaces; no SDL), `ecs`.
+2. **Contracts**: `sdk` (manifests, module graph, identity rule, hooks, projects), `values` (typed Values, characters,
+   tables, project data), `loc`.
+3. **Gameplay runtime**: `chain` (Chain Reaction), `scene` (objects, prefabs, triggers, `SceneRuntime`), `hud`, `anim`,
+   `nav`, `runtime` (fixed step, cameras, saves), `audio`.
+4. **Hosting**: `hotreload` (`ModuleHost`, the module ABI), `game` (`GameSession`: a project running), `exporter`
+   (packages).
+5. **Backends and tools**: `rhi` (neutral) with `rhi_vulkan`, `platform_sdl`, `render`, `modeling`, `editor`,
+   `editor_ui`, and the executables in `tools/` (`level_editor`, `interi_module_check`, `interi_export`,
+   `interi_player`, `new_module`, `license_check`, `platform_audit`).
+
+The shared engine libraries (`INTERI_BUILD_SHARED`) are what the host and every gameplay module link, so there is one
+copy of each global. Vulkan, SDL, POSIX and Win32 stay inside their modules (the platform audit enforces it).
 
 ## Documentation map
 
@@ -444,7 +470,7 @@ Warnings are errors on both compilers: `-Wall -Wextra -Wpedantic -Wconversion -W
   leave the package (`Corrupt`) and another toolchain or newer format (`VersionMismatch`).
 - **`tools/export`** (`interi_export`) and **`tools/player`** (`interi_player`, the engine without the editor: verifies the
   package, opens `game/` as a `GameSession`, `--steps`, `--press action@step`, `--print id`, `--realtime`). The player is
-  headless: a windowed front end (Vulkan renderer, SDL input) plugs into `GameSession` and is not part of M25.
+  headless by default; `--window` opens an SDL window (`--video-driver dummy` in tests), feeds `content/input.json` bindings into the chains and runs in real time. It does not draw the scene: a renderer plugs into that loop.
   `cmake --install` installs both. `GameSession` still reads `project_data.json`; `cooked.ival` is written and tested but
   not yet consumed by the player.
 - **Platform audit** (`tools/platform_audit/platform_audit.py`, ctest `PlatformAudit_*`): Vulkan, SDL, POSIX and Win32

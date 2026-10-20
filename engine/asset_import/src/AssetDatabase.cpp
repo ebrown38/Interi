@@ -8,6 +8,7 @@
 #include <interi/core/Log.h>
 #include <interi/hotreload/FileWatcher.h>
 #include <interi/platform/FileSystem.h>
+#include <interi/platform/PrivateFiles.h>
 #include <interi/scene/Mesh.h>
 
 #include "ImportUtil.h"
@@ -179,8 +180,36 @@ Json MetaToJson(const AssetRecord& record)
     return meta;
 }
 
-/// Fills `record` (whose path and kind are known) from a .meta; false if the text is unusable.
-bool ReadMeta(std::string_view text, AssetRecord& record)
+// A product path must be a normalised virtual path inside the imported folder: Cook and Prune delete it.
+bool IsContainedProduct(std::string_view path, std::string_view importedFolder)
+{
+    const auto normalized = NormalizeVirtualPath(path);
+    return normalized && *normalized == path && path.size() > importedFolder.size() + 1 &&
+           path.starts_with(importedFolder) && path[importedFolder.size()] == '/';
+}
+
+// Deletes a product only when it is a regular file inside `<root>/<imported>` reached without following a link: the
+// imported folder, every directory below it and the file itself are opened as themselves (RemoveFileBeneath), so
+// neither a symlinked `imported` nor a directory swapped for a link mid-delete can redirect it outside the root.
+bool RemoveProduct(const fs::path& root, std::string_view importedFolder, std::string_view product)
+{
+    if (!IsContainedProduct(product, importedFolder))
+    {
+        INTERI_LOG_WARN("assets", "refusing to delete '{}', it is outside '{}'", product, importedFolder);
+        return false;
+    }
+    const auto removed = RemoveFileBeneath(root, product);
+    if (!removed)
+    {
+        INTERI_LOG_WARN("assets", "refusing to delete '{}': {}", product, removed.error().message);
+        return false;
+    }
+    return *removed;
+}
+
+/// Fills `record` (whose path and kind are known) from a .meta; false if the text is unusable. Products outside the
+/// imported folder are dropped with a warning.
+bool ReadMeta(std::string_view text, AssetRecord& record, std::string_view importedFolder)
 {
     const Json meta = Json::parse(text, nullptr, false);
     if (meta.is_discarded() || !meta.is_object() || !meta.contains("guid") || !meta["guid"].is_string())
@@ -249,6 +278,12 @@ bool ReadMeta(std::string_view text, AssetRecord& record)
             field("guid", guidText);
             product.guid = assets::ParseGuid(guidText).value_or(assets::Guid{});
             product.hash = item.is_object() && item.contains("hash") ? ParseHex(item["hash"]).value_or(0) : 0;
+            if (!IsContainedProduct(product.path, importedFolder))
+            {
+                INTERI_LOG_WARN("assets", "ignoring product '{}' of '{}', it is outside '{}'", product.path,
+                                record.path, importedFolder);
+                continue;
+            }
             record.products.push_back(std::move(product));
         }
     }
@@ -367,6 +402,11 @@ struct AssetDatabase::Impl
         : options(std::move(o))
         , files(options.root)
     {
+        // Product paths are compared with this folder in normalised form ("imported/", "./imported" and so on).
+        if (auto folder = NormalizeVirtualPath(options.importedFolder))
+        {
+            options.importedFolder = std::move(*folder);
+        }
         if (!options.guids)
         {
             options.guids = &assets::NewGuid;
@@ -695,8 +735,7 @@ struct AssetDatabase::Impl
         {
             if (!kept.contains(old.path))
             {
-                std::error_code ignored;
-                fs::remove(options.root / old.path, ignored);
+                RemoveProduct(options.root, options.importedFolder, old.path);
             }
         }
         record.products.clear();
@@ -807,7 +846,8 @@ Result<void> AssetDatabase::Scan()
         bool fresh = true;
         if (const auto text = impl.files.ReadFile(path + std::string(kMetaExtension)))
         {
-            if (ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record))
+            if (ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record,
+                         impl.options.importedFolder))
             {
                 fresh = false;
             }
@@ -960,11 +1000,12 @@ std::vector<std::string> AssetDatabase::Prune()
         AssetRecord record = MakeRecord(sourcePath);
         if (const auto text = impl.files.ReadFile(sourcePath + std::string(kMetaExtension)))
         {
-            (void)ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record);
+            (void)ReadMeta(std::string_view(reinterpret_cast<const char*>(text->data()), text->size()), record,
+                           impl.options.importedFolder);
         }
         for (const CookedProduct& product : record.products)
         {
-            if (fs::remove(impl.options.root / product.path, error))
+            if (RemoveProduct(impl.options.root, impl.options.importedFolder, product.path))
             {
                 removed.push_back(product.path);
             }

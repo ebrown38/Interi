@@ -570,3 +570,126 @@ TEST_F(AssetDatabaseTest, FindByProduct_NamesTheSource)
     EXPECT_EQ(record->path, "models/cube.obj");
     EXPECT_EQ(db.FindByProduct("imported/nothing.imesh"), nullptr);
 }
+
+namespace
+{
+
+// Cooks a.png, then points the product path in a.png.meta at `hostile` (a file that must survive).
+void PoisonProductPath(const std::filesystem::path& root, const std::string& hostile)
+{
+    std::string meta = ReadText(root, "a.png.meta");
+    const std::string product = "imported/a.png.itex";
+    const auto at = meta.find(product);
+    ASSERT_NE(at, std::string::npos) << meta;
+    meta.replace(at, product.size(), hostile);
+    WriteText(root, "a.png.meta", meta);
+}
+
+} // namespace
+
+TEST_F(AssetDatabaseTest, Cook_MetaProductsOutsideImported_NothingDeleted)
+{
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "victim.txt", "keep");
+    WriteText(Root(), "keep/inside.txt", "keep");
+    const std::string absolute = (outside.Path() / "victim.txt").generic_string();
+    // The traversal path names the same victim file from inside the root.
+    const std::string traversal = "../" + outside.Path().filename().string() + "/victim.txt";
+    for (const std::string& hostile :
+         {absolute, traversal, std::string("imported/../keep/inside.txt"), std::string("keep/inside.txt")})
+    {
+        WriteFile(Root(), "a.png", SolidPng(10));
+        std::filesystem::remove(Root() / "a.png.meta");
+        {
+            AssetDatabase db = Make();
+            ASSERT_TRUE(db.Scan().has_value());
+            ASSERT_TRUE(db.CookAll().failed.empty());
+        }
+        PoisonProductPath(Root(), hostile);
+        WriteFile(Root(), "a.png", SolidPng(200)); // a new source cooks again and forgets the old products
+        AssetDatabase db = Make();
+        ASSERT_TRUE(db.Scan().has_value());
+        ASSERT_NE(db.FindByPath("a.png"), nullptr);
+        EXPECT_TRUE(db.FindByPath("a.png")->products.empty()) << hostile; // the hostile entry was dropped on load
+        const CookReport report = db.CookAll();
+        EXPECT_EQ(report.cooked, (std::vector<std::string>{"a.png"})) << hostile;
+        EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt")) << hostile;
+        EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt")) << hostile;
+    }
+}
+
+TEST_F(AssetDatabaseTest, Prune_MetaProductsOutsideImported_NothingDeleted)
+{
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "victim.txt", "keep");
+    WriteText(Root(), "keep/inside.txt", "keep");
+    const std::string absolute = (outside.Path() / "victim.txt").generic_string();
+    const std::string traversal = "../" + outside.Path().filename().string() + "/victim.txt";
+    for (const std::string& hostile :
+         {absolute, traversal, std::string("imported/../keep/inside.txt"), std::string("keep/inside.txt")})
+    {
+        WriteFile(Root(), "a.png", SolidPng(10));
+        std::filesystem::remove(Root() / "a.png.meta");
+        {
+            AssetDatabase db = Make();
+            ASSERT_TRUE(db.Scan().has_value());
+            ASSERT_TRUE(db.CookAll().failed.empty());
+        }
+        PoisonProductPath(Root(), hostile);
+        std::filesystem::remove(Root() / "a.png");
+        AssetDatabase db = Make();
+        (void)db.Prune();
+        EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt")) << hostile;
+        EXPECT_TRUE(std::filesystem::exists(Root() / "keep/inside.txt")) << hostile;
+    }
+}
+
+TEST_F(AssetDatabaseTest, Prune_ImportedFolderSymlinkedOutside_TargetSurvives)
+{
+    // The imported folder itself is a link out of the root, and a stale .meta names a product "inside" it.
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "a.png.itex", "keep");
+    WriteFile(Root(), "a.png", SolidPng(10));
+    {
+        AssetDatabase db = Make();
+        ASSERT_TRUE(db.Scan().has_value());
+        ASSERT_TRUE(db.CookAll().failed.empty());
+    }
+    std::filesystem::remove_all(Root() / "imported");
+    std::error_code error;
+    std::filesystem::create_directory_symlink(outside.Path(), Root() / "imported", error);
+    if (error)
+    {
+        GTEST_SKIP() << "symlinks are not available: " << error.message();
+    }
+    std::filesystem::remove(Root() / "a.png");
+    AssetDatabase db = Make();
+    (void)db.Prune();
+    EXPECT_TRUE(std::filesystem::exists(outside.Path() / "a.png.itex"));
+    EXPECT_FALSE(std::filesystem::exists(Root() / "a.png.meta"));
+}
+
+TEST_F(AssetDatabaseTest, Prune_ProductSymlinkedOutside_TargetSurvives)
+{
+    interi::testing::ScopedTempDir outside;
+    WriteText(outside.Path(), "victim.txt", "keep");
+    WriteFile(Root(), "a.png", SolidPng(10));
+    {
+        AssetDatabase db = Make();
+        ASSERT_TRUE(db.Scan().has_value());
+        ASSERT_TRUE(db.CookAll().failed.empty());
+    }
+    // The recorded product becomes a link to a file outside the root, and the directory above it does too.
+    std::filesystem::remove(Root() / "imported/a.png.itex");
+    std::error_code error;
+    std::filesystem::create_symlink(outside.Path() / "victim.txt", Root() / "imported/a.png.itex", error);
+    if (error)
+    {
+        GTEST_SKIP() << "symlinks are not available: " << error.message();
+    }
+    std::filesystem::remove(Root() / "a.png");
+    AssetDatabase db = Make();
+    (void)db.Prune();
+    EXPECT_TRUE(std::filesystem::exists(outside.Path() / "victim.txt"));
+    EXPECT_FALSE(std::filesystem::exists(Root() / "a.png.meta"));
+}

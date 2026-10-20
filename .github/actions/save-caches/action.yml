@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+name: Save the Interi build caches
+description: >-
+  Saves the vcpkg binary cache and the compiler cache under the run-unique keys ./.github/actions/setup-interi
+  returned, and prints the compiler cache's hit rate. Run it with `if: always()` so failed builds still keep what they
+  built.
+inputs:
+  vcpkg-key:
+    description: The setup action's vcpkg-key output.
+    required: true
+  ccache-key:
+    description: The setup action's ccache-key output (empty when there is no compiler cache).
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Compiler cache statistics
+      if: always() && inputs.ccache-key != ''
+      shell: bash
+      run: ccache --show-stats
+    - name: Save the vcpkg binary cache
+      if: always() && inputs.vcpkg-key != ''
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .vcpkg-cache
+        key: ${{ inputs.vcpkg-key }}
+    - name: Save the compiler cache
+      if: always() && inputs.ccache-key != ''
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .ccache
+        key: ${{ inputs.ccache-key }}

@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MIT
+#include <interi/core/Archive.h>
+#include <interi/core/Hash.h>
 #include <interi/nav/NavMesh.h>
 
 #include "NavTestUtil.h"
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <thread>
 
 using namespace interi;
@@ -28,7 +33,259 @@ NavMesh Bake(const Geometry& g)
     return std::move(*mesh);
 }
 
+// Rewrites a baked `.inav` with `edit` applied to the Detour tile inside, hashing the result so the damage reaches the
+// tile validation instead of stopping at the payload hash.
+template <class Edit>
+std::vector<std::byte> WithEditedTile(Edit&& edit)
+{
+    const std::vector<std::byte> bytes = Bake(SimpleFloor()).Write();
+    auto outer = ArchiveReader::Open(bytes, MakeFourCC("INAV"), 1);
+    EXPECT_TRUE(outer.has_value());
+    std::uint64_t hash = 0;
+    std::vector<std::byte> payload;
+    (*outer)(hash, payload);
+    constexpr std::array<std::byte, 4> kTileMagic = {std::byte{'V'}, std::byte{'A'}, std::byte{'N'}, std::byte{'D'}};
+    const auto it = std::search(payload.begin(), payload.end(), kTileMagic.begin(), kTileMagic.end());
+    EXPECT_NE(it, payload.end());
+    const auto tileStart = static_cast<std::size_t>(it - payload.begin());
+    edit(payload, tileStart);
+    std::vector<std::byte> file;
+    ArchiveWriter writer(file, MakeFourCC("INAV"), 1);
+    hash = HashBytes(payload.data(), payload.size());
+    writer(hash, payload);
+    return file;
+}
+
+void SetInt(std::vector<std::byte>& payload, std::size_t tileStart, std::size_t fieldOffset, std::int32_t value)
+{
+    std::memcpy(payload.data() + tileStart + fieldOffset, &value, sizeof value);
+}
+
+// Offsets inside dtMeshHeader (ints from the start): magic, version, x, y, layer, userId, polyCount, vertCount,
+// maxLinkCount, detailMeshCount, detailVertCount, detailTriCount, bvNodeCount, offMeshConCount, offMeshBase.
+constexpr std::size_t kPolyCount = 6 * 4;
+constexpr std::size_t kVertCount = 7 * 4;
+constexpr std::size_t kMaxLinkCount = 8 * 4;
+constexpr std::size_t kDetailMeshCount = 9 * 4;
+constexpr std::size_t kDetailVertCount = 10 * 4;
+constexpr std::size_t kDetailTriCount = 11 * 4;
+constexpr std::size_t kBvNodeCount = 12 * 4;
+constexpr std::size_t kOffMeshBase = 14 * 4;
+constexpr std::size_t kBvQuantFactor = 96; // after bmin and bmax (floats at 72 and 84)
+
+std::int32_t GetInt(const std::vector<std::byte>& payload, std::size_t tileStart, std::size_t fieldOffset)
+{
+    std::int32_t value = 0;
+    std::memcpy(&value, payload.data() + tileStart + fieldOffset, sizeof value);
+    return value;
+}
+
+// Byte offsets of the detail meshes (dtPolyDetail, 12 bytes: vertBase, triBase, vertCount, triCount) and detail
+// triangles (4 bytes: three indices and the edge flags); the sections follow the header (100 bytes), vertices (12),
+// polygons (32) and links (12).
+std::size_t DetailMeshesAt(const std::vector<std::byte>& payload, std::size_t tile)
+{
+    return tile + 100 + static_cast<std::size_t>(GetInt(payload, tile, kVertCount)) * 12 +
+           static_cast<std::size_t>(GetInt(payload, tile, kPolyCount)) * 32 +
+           static_cast<std::size_t>(GetInt(payload, tile, kMaxLinkCount)) * 12;
+}
+
+std::size_t DetailTrisAt(const std::vector<std::byte>& payload, std::size_t tile)
+{
+    return DetailMeshesAt(payload, tile) + static_cast<std::size_t>(GetInt(payload, tile, kDetailMeshCount)) * 12 +
+           static_cast<std::size_t>(GetInt(payload, tile, kDetailVertCount)) * 12;
+}
+
+// Moves the tile's last polygon past offMeshBase the way Detour lays out off-mesh connections: offMeshBase and
+// detailMeshCount count ground polygons only, so the polygon loses its detail mesh (12 bytes). With `offMeshType` it
+// also becomes a two-vertex off-mesh polygon; without, it stays a ground polygon in the off-mesh range.
+void MoveLastPolygonPastOffMeshBase(std::vector<std::byte>& payload, std::size_t tile, bool offMeshType)
+{
+    // Sections after the 100-byte header: vertices (12 bytes each), dtPoly (32), dtLink (12), dtPolyDetail (12).
+    const auto polyCount = static_cast<std::size_t>(GetInt(payload, tile, kPolyCount));
+    const auto vertCount = static_cast<std::size_t>(GetInt(payload, tile, kVertCount));
+    const auto maxLinkCount = static_cast<std::size_t>(GetInt(payload, tile, kMaxLinkCount));
+    const std::size_t polys = tile + 100 + vertCount * 12;
+    if (offMeshType)
+    {
+        const std::size_t last = polys + (polyCount - 1) * 32;
+        payload[last + 30] = std::byte{2};                                             // vertCount
+        payload[last + 31] = (payload[last + 31] & std::byte{0x3f}) | std::byte{0x40}; // type: off-mesh connection
+    }
+    const std::size_t lastDetail = polys + polyCount * 32 + maxLinkCount * 12 + (polyCount - 1) * 12;
+    payload.erase(payload.begin() + static_cast<std::ptrdiff_t>(lastDetail),
+                  payload.begin() + static_cast<std::ptrdiff_t>(lastDetail + 12));
+    SetInt(payload, tile, kDetailMeshCount, static_cast<std::int32_t>(polyCount - 1));
+    SetInt(payload, tile, kOffMeshBase, static_cast<std::int32_t>(polyCount - 1));
+    std::uint32_t length = 0;
+    const std::size_t lengthAt = tile - sizeof length; // payload is bytes: this is a byte offset
+    std::memcpy(&length, payload.data() + lengthAt, sizeof length);
+    length -= 12;
+    std::memcpy(payload.data() + lengthAt, &length, sizeof length);
+}
+
 } // namespace
+
+TEST(NavMesh, Read_UnmodifiedEditedTile_StillLoads)
+{
+    const auto bytes = WithEditedTile([](auto&, std::size_t) {});
+    EXPECT_TRUE(NavMesh::Read(bytes).has_value());
+}
+
+TEST(NavMesh, Read_HostileTileHeader_Corrupt)
+{
+    const std::array<std::pair<std::size_t, std::int32_t>, 9> edits = {{
+        {kPolyCount, -1},
+        {kPolyCount, 0x7fffffff},
+        {kPolyCount, 1 << 22},
+        {kVertCount, -5},
+        {kVertCount, 1 << 20},
+        {kMaxLinkCount, 0},
+        {kDetailVertCount, 0x40000000},
+        {kBvNodeCount, 0x7fffffff},
+        {kOffMeshBase, -1},
+    }};
+    for (const auto& [offset, value] : edits)
+    {
+        const auto bytes =
+            WithEditedTile([&](auto& payload, std::size_t tile) { SetInt(payload, tile, offset, value); });
+        const auto mesh = NavMesh::Read(bytes);
+        ASSERT_FALSE(mesh.has_value()) << "offset " << offset << " value " << value;
+        EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+    }
+}
+
+TEST(NavMesh, Read_TruncatedTile_Corrupt)
+{
+    // Cut the tile's last four bytes and fix its length prefix, so the damage reaches the tile validation.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::uint32_t length = 0;
+            const std::size_t lengthAt = tile - sizeof length; // payload is bytes: this is a byte offset
+            std::memcpy(&length, payload.data() + lengthAt, sizeof length);
+            payload.erase(payload.begin() + static_cast<std::ptrdiff_t>(tile + length - 4),
+                          payload.begin() + static_cast<std::ptrdiff_t>(tile + length));
+            length -= 4;
+            std::memcpy(payload.data() + lengthAt, &length, sizeof length);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_FlatTileBounds_Corrupt)
+{
+    // bmin is at byte 72 of the header and bmax at 84; make the tile zero wide.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            float bmax[3];
+            std::memcpy(bmax, payload.data() + tile + 84, sizeof bmax);
+            std::memcpy(payload.data() + tile + 72, bmax, sizeof bmax);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_OffMeshRangeWithGroundPolygons_Corrupt)
+{
+    // The last polygon is claimed to be an off-mesh connection but is a ground polygon.
+    const auto bytes =
+        WithEditedTile([](auto& payload, std::size_t tile) { MoveLastPolygonPastOffMeshBase(payload, tile, false); });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(mesh.error().message.find("polygon type"), std::string::npos) << mesh.error().message;
+}
+
+TEST(NavMesh, Read_OffMeshPolygonWithoutDetailMesh_Loads)
+{
+    // Detour gives off-mesh polygons no detail mesh (detailMeshCount == offMeshBase < polyCount); that is valid.
+    const auto bytes =
+        WithEditedTile([](auto& payload, std::size_t tile) { MoveLastPolygonPastOffMeshBase(payload, tile, true); });
+    const auto mesh = NavMesh::Read(bytes);
+    EXPECT_TRUE(mesh.has_value()) << mesh.error().message;
+}
+
+TEST(NavMesh, Read_EmptyDetailMesh_Corrupt)
+{
+    const auto bytes = WithEditedTile([](auto& payload, std::size_t tile)
+                                      { payload[DetailMeshesAt(payload, tile) + 9] = std::byte{0}; });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(mesh.error().message.find("detail mesh range"), std::string::npos) << mesh.error().message;
+}
+
+TEST(NavMesh, Read_DetailMeshWithoutBoundaryEdge_Corrupt)
+{
+    // Clear every detail triangle's edge flags: no polygon has a boundary edge left.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            const std::size_t tris = DetailTrisAt(payload, tile);
+            for (std::int32_t t = 0; t < GetInt(payload, tile, kDetailTriCount); ++t)
+            {
+                payload[tris + static_cast<std::size_t>(t) * 4 + 3] = std::byte{0};
+            }
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(mesh.error().message.find("boundary edge"), std::string::npos) << mesh.error().message;
+}
+
+TEST(NavMesh, Read_BadBvQuantFactor_Corrupt)
+{
+    for (const float factor : {1e30f, -1.0f, 0.0f})
+    {
+        const auto bytes = WithEditedTile(
+            [&](auto& payload, std::size_t tile)
+            {
+                ASSERT_GT(GetInt(payload, tile, kBvNodeCount), 0); // the baked tile has a BV tree
+                std::memcpy(payload.data() + tile + kBvQuantFactor, &factor, sizeof factor);
+            });
+        const auto mesh = NavMesh::Read(bytes);
+        ASSERT_FALSE(mesh.has_value()) << factor;
+        EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt) << factor;
+        EXPECT_NE(mesh.error().message.find("quantization"), std::string::npos) << mesh.error().message;
+    }
+}
+
+TEST(NavMesh, Read_PolygonWithoutVertices_Corrupt)
+{
+    // dtPoly: firstLink (4), verts (12), neis (12), flags (2), vertCount (1), areaAndtype (1).
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::int32_t vertCount = 0;
+            std::memcpy(&vertCount, payload.data() + tile + kVertCount, sizeof vertCount);
+            const std::size_t polys = tile + 100 + static_cast<std::size_t>(vertCount) * 12;
+            payload[polys + 30] = std::byte{0};
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_PolygonVertexIndexOutOfRange_Corrupt)
+{
+    // The first polygon's verts[0] sits right after its firstLink, in the polygon array after the vertex array.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            std::int32_t vertCount = 0;
+            std::memcpy(&vertCount, payload.data() + tile + kVertCount, sizeof vertCount);
+            const std::size_t polys = tile + 100 + static_cast<std::size_t>(vertCount) * 12;
+            const std::uint16_t bad = 0xFFFF;
+            std::memcpy(payload.data() + polys + 4, &bad, sizeof bad);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
 
 TEST(NavMesh, OpenFloor_PathIsAStraightLine)
 {

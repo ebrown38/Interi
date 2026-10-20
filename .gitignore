@@ -5,6 +5,8 @@
 /coverage/
 *.profraw
 *.profdata
+/.vcpkg-cache/
+/.ccache/
 
 # IDE
 /.idea/

@@ -7,4 +7,5 @@
 #include <interi/platform/InputConfig.h>
 #include <interi/platform/InputEvents.h>
 #include <interi/platform/InputMapper.h>
+#include <interi/platform/PrivateFiles.h>
 #include <interi/platform/Window.h>

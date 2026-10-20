@@ -130,6 +130,21 @@ Result<void> CheckAlignment(const cgltf_data& gltf)
     return {};
 }
 
+/// cgltf_accessor_unpack_floats with the checks cgltf 1.15 lacks (CVE-2026-112018, CVE-2026-112019). Its sparse pass
+/// writes at any index below the accessor's count, so the accessor must have exactly the `components` the caller sized
+/// `out` for; and it steps through the tightly packed sparse values by the base view's stride, so a sparse accessor's
+/// stride must equal its element size.
+bool UnpackFloats(const cgltf_accessor& accessor, std::size_t components, std::vector<float>& out)
+{
+    if (cgltf_num_components(accessor.type) != components ||
+        (accessor.is_sparse && accessor.stride != cgltf_calc_size(accessor.type, accessor.component_type)))
+    {
+        return false;
+    }
+    out.resize(accessor.count * components);
+    return cgltf_accessor_unpack_floats(&accessor, out.data(), out.size()) == out.size();
+}
+
 class GltfImporter
 {
 public:
@@ -462,13 +477,12 @@ private:
                     return MakeError(ErrorCode::Corrupt,
                                      std::format("animation {}: channel {} has bad key counts", a, c));
                 }
-                out.times.resize(keys);
-                if (cgltf_accessor_unpack_floats(sampler.input, out.times.data(), keys) != keys)
+                if (!UnpackFloats(*sampler.input, 1, out.times))
                 {
                     return MakeError(ErrorCode::Corrupt, std::format("animation {}: unreadable key times", a));
                 }
-                std::vector<float> values(sampler.output->count * components);
-                if (cgltf_accessor_unpack_floats(sampler.output, values.data(), values.size()) != values.size())
+                std::vector<float> values;
+                if (!UnpackFloats(*sampler.output, components, values))
                 {
                     return MakeError(ErrorCode::Corrupt, std::format("animation {}: unreadable key values", a));
                 }
@@ -652,8 +666,7 @@ private:
             {
                 return MakeError(ErrorCode::Corrupt, std::format("mesh '{}': attribute counts differ", name));
             }
-            out.resize(vertexCount * components);
-            if (cgltf_accessor_unpack_floats(accessor, out.data(), out.size()) != out.size())
+            if (!UnpackFloats(*accessor, components, out))
             {
                 return MakeError(ErrorCode::Corrupt, std::format("mesh '{}': unreadable attribute", name));
             }

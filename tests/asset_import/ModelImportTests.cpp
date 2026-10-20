@@ -399,6 +399,79 @@ TEST(GltfImport, IndexOutOfRange_IsCorrupt)
     EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
 }
 
+namespace
+{
+
+/// One triangle whose POSITION accessor is sparse: a zeroed base of three `type` elements (a view with `byteStride`
+/// when non-zero) and sparse values moving vertex 1 to (1, 0, 0) and vertex 2 to (0, 1, 0).
+GltfFile MakeSparseTriangleGltf(const char* type = "VEC3", std::size_t components = 3, std::size_t byteStride = 0)
+{
+    GltfBuffer buffer;
+    const std::size_t stride = byteStride != 0 ? byteStride : components * sizeof(float);
+    std::vector<float> values(2 * components, 0.0f);
+    values[0] = 1.0f;              // vertex 1: x
+    values[components + 1] = 1.0f; // vertex 2: y
+    const int indices = buffer.Add(Pack(std::vector<std::uint16_t>{0, 1, 2}), 5123, 3, "SCALAR", 34963);
+    const int positions = buffer.Add(std::vector<std::byte>(3 * stride), 5126, 3, type, 34962);
+    const std::size_t positionView = buffer.bufferViews.size() - 1;
+    if (byteStride != 0)
+    {
+        buffer.bufferViews[positionView]["byteStride"] = byteStride;
+    }
+    // The sparse indices and values are views without accessors of their own.
+    const auto addView = [&](const std::vector<std::byte>& data)
+    {
+        buffer.bufferViews.push_back({{"buffer", 0}, {"byteOffset", buffer.bytes.size()}, {"byteLength", data.size()}});
+        buffer.bytes.insert(buffer.bytes.end(), data.begin(), data.end());
+        return buffer.bufferViews.size() - 1;
+    };
+    const std::size_t sparseIndices = addView(Pack(std::vector<std::uint16_t>{1, 2, 0, 0})); // padded to 4 bytes
+    const std::size_t sparseValues = addView(Pack(values));
+    buffer.accessors[static_cast<std::size_t>(positions)]["sparse"] = {
+        {"count", 2},
+        {"indices", {{"bufferView", sparseIndices}, {"componentType", 5123}}},
+        {"values", {{"bufferView", sparseValues}}}};
+    nlohmann::json doc = {
+        {"asset", {{"version", "2.0"}}},
+        {"scene", 0},
+        {"scenes", {{{"nodes", {0}}}}},
+        {"nodes", {{{"mesh", 0}}}},
+        {"meshes", {{{"primitives", {{{"attributes", {{"POSITION", positions}}}, {"indices", indices}}}}}}},
+        {"accessors", buffer.accessors},
+        {"bufferViews", buffer.bufferViews},
+        {"buffers",
+         {{{"byteLength", buffer.bytes.size()},
+           {"uri", "data:application/octet-stream;base64," + Base64(buffer.bytes)}}}}};
+    return {.main = Bytes(doc.dump()), .bin = {}};
+}
+
+} // namespace
+
+TEST(GltfImport, SparsePositions_AreApplied)
+{
+    auto model = ImportGltfBytes(MakeSparseTriangleGltf());
+    ASSERT_TRUE(model.has_value()) << model.error().message;
+    ASSERT_EQ(model->meshes.size(), 1u);
+    const auto bounds = scene::BoundsOf(model->meshes[0].mesh);
+    EXPECT_EQ(bounds.max, Vec3(1, 1, 0));
+}
+
+// cgltf 1.15's sparse pass writes past an output sized for fewer components (CVE-2026-112018) and steps through the
+// sparse values by the base view's stride (CVE-2026-112019); the importer refuses both shapes (ASan catches a miss).
+TEST(GltfImport, SparseAccessorOfAnotherType_IsCorrupt)
+{
+    auto model = ImportGltfBytes(MakeSparseTriangleGltf("VEC4", 4));
+    ASSERT_FALSE(model.has_value());
+    EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
+}
+
+TEST(GltfImport, SparseAccessorWithAByteStride_IsCorrupt)
+{
+    auto model = ImportGltfBytes(MakeSparseTriangleGltf("VEC3", 3, 16));
+    ASSERT_FALSE(model.has_value());
+    EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
+}
+
 TEST(GltfImport, NotGltf_IsCorrupt)
 {
     MemoryFileSystem files;

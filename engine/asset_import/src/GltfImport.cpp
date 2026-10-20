@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -125,6 +126,39 @@ Result<void> CheckAlignment(const cgltf_data& gltf)
         {
             return MakeError(ErrorCode::Corrupt,
                              std::format("glTF: accessor {} is not aligned to its component size", i));
+        }
+    }
+    return {};
+}
+
+/// cgltf 1.15's validation computes accessor sizes without overflow checks (CVE-2026-75148, CVE-2026-32845) and reads
+/// sparse indices before it checks that their view lies inside its buffer, so check both first. The accessor checks
+/// only rule out wrapping (64 bytes bounds an element); cgltf_validate still compares the sizes.
+Result<void> CheckBounds(const cgltf_data& gltf)
+{
+    constexpr cgltf_size kMaxElementSize = 64; // a float mat4
+    constexpr cgltf_size kLimit = std::numeric_limits<cgltf_size>::max() - kMaxElementSize;
+    const auto fits = [](cgltf_size offset, cgltf_size size, cgltf_size count, cgltf_size limit) // offset + size*count
+    { return offset <= limit && (count == 0 || size <= (limit - offset) / count); };
+    for (std::size_t i = 0; i < gltf.buffer_views_count; ++i)
+    {
+        const cgltf_buffer_view& view = gltf.buffer_views[i];
+        if (view.buffer != nullptr && !fits(view.offset, view.size, 1, view.buffer->size))
+        {
+            return MakeError(ErrorCode::Corrupt, std::format("glTF: buffer view {} lies outside its buffer", i));
+        }
+    }
+    for (std::size_t i = 0; i < gltf.accessors_count; ++i)
+    {
+        const cgltf_accessor& accessor = gltf.accessors[i];
+        const cgltf_accessor_sparse& sparse = accessor.sparse;
+        if ((accessor.buffer_view != nullptr &&
+             (accessor.count == 0 || !fits(accessor.offset, accessor.stride, accessor.count - 1, kLimit))) ||
+            (accessor.is_sparse && (!fits(sparse.indices_byte_offset,
+                                          cgltf_component_size(sparse.indices_component_type), sparse.count, kLimit) ||
+                                    !fits(sparse.values_byte_offset, kMaxElementSize, sparse.count, kLimit))))
+        {
+            return MakeError(ErrorCode::Corrupt, std::format("glTF: accessor {} is too large for its buffer", i));
         }
     }
     return {};
@@ -848,6 +882,7 @@ Result<ImportedModel> ImportGltfData(std::span<const std::byte> data, const IFil
                          std::format("glTF: loading buffers failed ({})", static_cast<int>(result)));
     }
     INTERI_TRY(CheckAlignment(*gltf));
+    INTERI_TRY(CheckBounds(*gltf));
     if (const cgltf_result result = cgltf_validate(gltf.get()); result != cgltf_result_success)
     {
         return MakeError(ErrorCode::Corrupt, std::format("glTF: validation failed ({})", static_cast<int>(result)));

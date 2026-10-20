@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <set>
 
 using namespace interi;
@@ -470,6 +471,62 @@ TEST(GltfImport, SparseAccessorWithAByteStride_IsCorrupt)
     auto model = ImportGltfBytes(MakeSparseTriangleGltf("VEC3", 3, 16));
     ASSERT_FALSE(model.has_value());
     EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
+}
+
+namespace
+{
+
+/// The sparse triangle (accessor 1 = positions; views 2 and 3 = sparse indices and values) with its JSON edited.
+GltfFile EditSparseTriangleGltf(const std::function<void(nlohmann::json&)>& edit)
+{
+    GltfFile file = MakeSparseTriangleGltf();
+    nlohmann::json doc =
+        nlohmann::json::parse(std::string(reinterpret_cast<const char*>(file.main.data()), file.main.size()));
+    edit(doc);
+    file.main = Bytes(doc.dump());
+    return file;
+}
+
+} // namespace
+
+// cgltf 1.15's validation computes `stride * (count - 1)` without an overflow check (CVE-2026-75148): 12 * 2^62 wraps
+// to 0, so a count of 2^62 + 1 passes for a 36-byte view.
+TEST(GltfImport, AccessorCountThatWrapsTheBoundsCheck_IsCorrupt)
+{
+    auto model = ImportGltfBytes(
+        EditSparseTriangleGltf([](nlohmann::json& doc) { doc["accessors"][1]["count"] = (1ull << 62) + 1; }));
+    ASSERT_FALSE(model.has_value());
+    EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(model.error().message.find("accessor 1 "), std::string::npos) << model.error().message;
+}
+
+// The same wrap in the sparse checks (CVE-2026-32845): 4-byte indices and 12-byte values times 2^62 + 1 wrap to 4 and
+// 12, and cgltf then reads 2^62 + 1 indices to bound them (a crash without the check).
+TEST(GltfImport, SparseCountThatWrapsTheBoundsCheck_IsCorrupt)
+{
+    auto model = ImportGltfBytes(EditSparseTriangleGltf(
+        [](nlohmann::json& doc)
+        {
+            doc["accessors"][1]["sparse"]["count"] = (1ull << 62) + 1;
+            doc["accessors"][1]["sparse"]["indices"]["componentType"] = 5125;
+        }));
+    ASSERT_FALSE(model.has_value());
+    EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(model.error().message.find("accessor 1 "), std::string::npos) << model.error().message;
+}
+
+// cgltf reads the sparse indices before it checks that their view lies inside its buffer.
+TEST(GltfImport, SparseIndicesViewPastItsBuffer_IsCorrupt)
+{
+    auto model = ImportGltfBytes(EditSparseTriangleGltf(
+        [](nlohmann::json& doc)
+        {
+            doc["bufferViews"][2]["byteLength"] = 1 << 20;
+            doc["accessors"][1]["sparse"]["count"] = 1 << 19;
+        }));
+    ASSERT_FALSE(model.has_value());
+    EXPECT_EQ(model.error().code, ErrorCode::Corrupt);
+    EXPECT_NE(model.error().message.find("buffer view 2 "), std::string::npos) << model.error().message;
 }
 
 TEST(GltfImport, NotGltf_IsCorrupt)

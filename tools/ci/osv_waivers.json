@@ -12,6 +12,16 @@
       "reason": "Sparse values read with the base view's byteStride in cgltf_accessor_unpack_floats. asset_import's UnpackFloats refuses sparse accessors whose stride differs from their element size (GltfImport.SparseAccessorWithAByteStride_IsCorrupt); cgltf_accessor_read_float returns 0 for sparse accessors."
     },
     {
+      "id": "CVE-2026-32845",
+      "port": "cgltf",
+      "reason": "Integer overflow in cgltf_validate's sparse accessor size checks, followed by an over-read in cgltf_calc_index_bound. asset_import's CheckBounds runs before cgltf_validate and refuses sparse counts whose index or value sizes wrap, and buffer views that extend past their buffer (GltfImport.SparseCountThatWrapsTheBoundsCheck_IsCorrupt, GltfImport.SparseIndicesViewPastItsBuffer_IsCorrupt)."
+    },
+    {
+      "id": "CVE-2026-75148",
+      "port": "cgltf",
+      "reason": "Integer overflow of stride * (count - 1) in cgltf_validate's accessor bounds check. asset_import's CheckBounds runs before cgltf_validate and refuses accessors whose size computation wraps or whose count is 0 (GltfImport.AccessorCountThatWrapsTheBoundsCheck_IsCorrupt)."
+    },
+    {
       "id": "CVE-2026-32837",
       "port": "miniaudio",
       "reason": "Out-of-bounds read in the WAV BEXT metadata parser. engine/audio decodes through ma_decoder, whose WAV backend calls ma_dr_wav_init without MA_DR_WAV_WITH_METADATA, so metadata chunks are never parsed. Fixed upstream after 0.11.25 (1df46ae); drop this waiver when the vcpkg baseline moves past it."

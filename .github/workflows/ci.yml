@@ -211,7 +211,7 @@ jobs:
           python3 tools/ci/select_tests.py select --build-dir build/linux-clang-coverage --changes-env CHANGED_FILES
           --output build/linux-clang-coverage/selected-tests.txt --summary "$GITHUB_STEP_SUMMARY"
       - run: >-
-          ctest --preset linux-clang-coverage --no-tests=ignore
+          ctest --preset linux-clang-coverage -L "unit|stress|benchmark|integration|golden" --no-tests=ignore
           --tests-from-file "$GITHUB_WORKSPACE/build/linux-clang-coverage/selected-tests.txt" --output-junit ctest-junit.xml
         env:
           INTERI_REQUIRE_GPU: 1

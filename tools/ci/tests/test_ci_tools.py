@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests for the CI helpers: toolchain pin check, OSV scan of the vcpkg SBOM, JUnit summary. Offline: git and
-the OSV API are replaced by fakes."""
+"""Unit tests for the CI helpers: toolchain pin check, OSV scan of the vcpkg SBOM, JUnit summary, test selection.
+Offline: git, the OSV API, Ninja and CTest are replaced by fakes."""
 import io
 import json
 import sys
@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import check_toolchain  # noqa: E402
 import junit_summary  # noqa: E402
 import osv_scan  # noqa: E402
+import select_tests  # noqa: E402
 
 PINS = {"CLANG": "22.1", "CLANG_FORMAT": "22.1", "MSVC_TOOLSET": "14.51"}
 BANNERS = {
@@ -181,6 +182,194 @@ class JunitSummaryTests(unittest.TestCase):
     def test_missing_file_is_reported(self):
         self.assertIn("No test results", junit_summary.summarize("linux", Path("/nonexistent/ctest.xml")))
 
+
+SOURCE, BUILD = Path("/s"), Path("/s/build")
+BUILD_NINJA = """# a CMake-style manifest in miniature
+include CMakeFiles/rules.ninja
+build engine/core/CMakeFiles/core.dir/A.cpp.o: CXX_COMPILER__core_Debug /s/engine/core/src/A.cpp || order_core
+  FLAGS = -O0
+build engine/core/libinteri_core.so: CXX_SHARED_LIBRARY_LINKER__core_Debug engine/core/CMakeFiles/core.dir/A.cpp.o
+build tests/CMakeFiles/core_tests.dir/T.cpp.o: CXX_COMPILER__core_tests_Debug /s/tests/core/T.cpp
+build tests/core_tests: CXX_EXECUTABLE_LINKER__core_tests_Debug tests/CMakeFiles/core_tests.dir/T.cpp.o $
+    | engine/core/libinteri_core.so || engine/plug/libplug.so
+build engine/plug/CMakeFiles/plug.dir/P.cpp.o: CXX_COMPILER__plug_Debug /s/tests/plug/P.cpp
+build engine/plug/libplug.so: CXX_MODULE_LIBRARY_LINKER__plug_Debug engine/plug/CMakeFiles/plug.dir/P.cpp.o
+build vk/CMakeFiles/vk.dir/V$ Space.cpp.o: CXX_COMPILER__vk_Debug /s/engine/vk/V$ Space.cpp
+build vk/vk_tests: CXX_EXECUTABLE_LINKER__vk_Debug vk/CMakeFiles/vk.dir/V$ Space.cpp.o |@ validation_stamp
+build build.ninja: RERUN_CMAKE | /s/CMakeLists.txt /s/engine/core/Version.cpp.in $
+    /usr/share/cmake/Modules/X.cmake
+"""
+NINJA_DEPS = """engine/core/CMakeFiles/core.dir/A.cpp.o: #deps 2, deps mtime 1 (VALID)
+    /s/engine/core/src/A.cpp
+    /s/engine/core/include/interi/core/A.h
+
+tests/CMakeFiles/core_tests.dir/T.cpp.o: #deps 1, deps mtime 1 (VALID)
+    /s/engine/core/include/interi/core/A.h
+"""
+INSTALL_SCRIPT = """if(CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/include" TYPE DIRECTORY FILES "/s/engine/core/include/")
+  file(INSTALL DESTINATION "include" TYPE DIRECTORY FILES "/s/build/gen/" FILES_MATCHING REGEX "x")
+  file(INSTALL DESTINATION "lib64" TYPE SHARED_LIBRARY FILES "/s/build/engine/core/libinteri_core.so")
+endif()
+"""
+
+COMPILE_COMMANDS = json.dumps([
+    {"directory": "/s/build", "output": "vk/CMakeFiles/vk.dir/V$ Space.cpp.o".replace("$ ", " "),
+     "command": 'c++ -DPLUGIN=\\"/s/build/engine/plug/libplug.so\\" -DOUT=\\"/tmp/x\\" -c /s/engine/vk/V.cpp'},
+    {"directory": "/s/build", "output": "tests/CMakeFiles/core_tests.dir/T.cpp.o",
+     "command": 'c++ -DLIBS=\\"/s/build/engine/core\\" -c /s/tests/core/T.cpp'},
+])
+
+
+def ctest_entry(name, command, working_dir=None, **fixtures):
+    properties = [{"name": "LABELS", "value": ["unit"]}]
+    if working_dir:
+        properties.append({"name": "WORKING_DIRECTORY", "value": working_dir})
+    properties += [{"name": key, "value": value} for key, value in fixtures.items()]
+    return {"name": name, "command": command, "properties": properties}
+
+
+CTEST_JSON = json.dumps({"kind": "ctestInfo", "tests": [
+    ctest_entry("Core.One", ["/s/build/tests/core_tests", "--gtest_filter=Core.One"], "/s/build/tests"),
+    ctest_entry("Vk.One", ["/s/build/vk/vk_tests", "--gtest_filter=Vk.One"], "/s/build/vk"),
+    ctest_entry("CiTools", ["/usr/bin/python3", "-m", "unittest"], "/s/tools/ci/tests"),
+    ctest_entry("Spdx", ["/usr/bin/python3", "/s/tools/license_check/check.py", "--root", "/s"]),
+    ctest_entry("Notices", ["/usr/bin/python3", "/s/tools/license_check/notices.py", "--output", "/s/NOTICES.md"]),
+    ctest_entry("Package_Install", ["/usr/bin/cmake", "--install", "/s/build", "--prefix", "/s/build/pkg/install"],
+                FIXTURES_SETUP="pkg"),
+    ctest_entry("Package_Starter", ["/usr/bin/cmake", "-DSOURCE=/s/samples/starter", "-DPREFIX=/s/build/pkg|/x",
+                                    "-P", "/s/tests/package/Build.cmake"], FIXTURES_REQUIRED=["pkg"]),
+]})
+
+
+class SelectTestsTests(unittest.TestCase):
+    def setUp(self):
+        self.graph = select_tests.Graph()
+        select_tests.parse_ninja(BUILD_NINJA, BUILD, self.graph, read=lambda path: "rule CXX\n  command = c++\n")
+        select_tests.parse_deps(NINJA_DEPS, BUILD, self.graph)
+        select_tests.parse_compile_commands(COMPILE_COMMANDS, BUILD, self.graph)
+        self.tests = select_tests.parse_ctest_json(CTEST_JSON)
+        self.installed = select_tests.parse_install_script(INSTALL_SCRIPT, BUILD)
+
+    def choose(self, *changes):
+        return select_tests.select([tuple(change.split("\t")) for change in changes], self.tests, self.graph, SOURCE,
+                                   BUILD, self.installed)
+
+    def test_header_selects_its_dependents_the_package_and_repo_scans(self):
+        selection = self.choose("M\tengine/core/include/interi/core/A.h")
+        self.assertEqual(selection.full_reason, "")
+        self.assertEqual(selection.names, ["Core.One", "Package_Install", "Package_Starter", "Spdx"])
+
+    def test_runtime_loaded_module_selects_through_order_only_edge_or_compiled_path(self):
+        self.assertEqual(self.choose("M\ttests/plug/P.cpp").names, ["Core.One", "Spdx", "Vk.One"])
+
+    def test_compiled_build_directory_depends_on_what_is_linked_there(self):
+        self.assertIn("/s/build/tests/CMakeFiles/core_tests.dir/T.cpp.o",
+                      self.graph.dependents["/s/build/engine/core/libinteri_core.so"])
+        self.assertNotIn("/tmp/x", self.graph.dependents)
+
+    def test_files_next_to_a_named_script_select_it(self):
+        selection = self.choose("M\ttools/license_check/policy.json")
+        self.assertEqual((selection.full_reason, selection.names), ("", ["Notices", "Spdx"]))
+
+    def test_repository_root_files_match_exactly(self):
+        self.assertEqual(self.choose("M\tNOTICES.md").names, ["Notices", "Spdx"])
+        self.assertEqual(self.choose("M\tOTHER.md").names, ["Spdx"])
+
+    def test_escaped_paths_parse(self):
+        self.assertEqual(self.choose("A\tengine/vk/V Space.cpp").names, ["Spdx", "Vk.One"])
+
+    def test_docs_select_only_repository_scans(self):
+        self.assertEqual(self.choose("M\tdocs/guide.md", "D\tREADME.md").names, ["Spdx"])
+
+    def test_python_tool_selects_its_unit_tests(self):
+        selection = self.choose("M\ttools/ci/osv_scan.py")
+        self.assertEqual((selection.full_reason, selection.names), ("", ["CiTools", "Spdx"]))
+
+    def test_build_configuration_runs_everything(self):
+        everything = sorted(t.name for t in self.tests)
+        for change in ("M\tengine/core/CMakeLists.txt", "M\tengine/core/Version.cpp.in", "M\t.github/workflows/ci.yml",
+                       "M\tcmake/InteriModule.cmake", "M\texternal/vcpkg"):
+            selection = self.choose(change)
+            self.assertEqual(selection.names, everything, change)
+            self.assertNotEqual(selection.full_reason, "", change)
+
+    def test_untraced_data_runs_everything(self):
+        selection = self.choose("M\tsamples/starter/project.json")
+        self.assertEqual(selection.untraced, ["samples/starter/project.json"])
+        self.assertEqual(len(selection.names), len(self.tests))
+
+    def test_deleted_source_runs_everything(self):
+        self.assertIn("deleted", self.choose("D\ttests/core/Old.cpp").full_reason)
+
+    def test_link_edge_validations_are_not_inputs(self):
+        self.assertNotIn("/s/build/validation_stamp", self.graph.dependents)
+
+    def test_regeneration_inputs_span_continuation_lines(self):
+        self.assertIn("/usr/share/cmake/Modules/X.cmake", self.graph.regenerate)
+
+    def test_install_script_lists_files_and_directories(self):
+        self.assertEqual(self.installed, {"/s/engine/core/include", "/s/build/gen",
+                                          "/s/build/engine/core/libinteri_core.so"})
+
+    def test_windows_relative_outputs_normalize(self):
+        self.assertEqual(select_tests.normalize("bin\\core_tests.exe", BUILD), "/s/build/bin/core_tests.exe")
+
+    def test_change_markers_parse(self):
+        self.assertEqual(select_tests.parse_changes("ALL\tschedule event"), (None, "schedule event"))
+        self.assertEqual(select_tests.parse_changes("NONE\n"), ([], ""))
+        self.assertEqual(select_tests.parse_changes("M\ta.cpp\nA\tb.h\n"), ([("M", "a.cpp"), ("A", "b.h")], ""))
+        self.assertEqual(self.choose().names, [])
+
+
+class FakeGit:
+    def __init__(self, diff="M\ta.cpp\n", commits=("before1",), merge_base="base1", head="head1"):
+        self.diff, self.commits, self.merge_base, self.head, self.calls = diff, commits, merge_base, head, []
+
+    def __call__(self, *args):
+        self.calls.append(args)
+        if args[0] == "cat-file":
+            return "" if args[2].split("^")[0] in self.commits else None
+        if args[0] == "merge-base":
+            return self.merge_base
+        if args[0] == "rev-parse":
+            return self.head + "\n"
+        return self.diff
+
+
+class ChangedFilesTests(unittest.TestCase):
+    def changes(self, event, git, base="", before="", branch="main"):
+        return select_tests.changed_files(event, base, before, branch, "main", git)
+
+    def test_pull_request_diffs_against_base(self):
+        git = FakeGit()
+        self.assertEqual(self.changes("pull_request", git, base="base9"), ["M\ta.cpp"])
+        self.assertIn(("diff", "--name-status", "--no-renames", "base9", "HEAD"), git.calls)
+
+    def test_default_branch_push_diffs_against_before(self):
+        git = FakeGit()
+        self.changes("push", git, before="before1")
+        self.assertIn(("diff", "--name-status", "--no-renames", "before1", "HEAD"), git.calls)
+
+    def test_branch_push_diffs_against_default_branch(self):
+        git = FakeGit()
+        self.changes("push", git, before="before1", branch="feature")  # earlier pushes may have been cancelled
+        self.assertIn(("merge-base", "origin/main", "HEAD"), git.calls)
+        self.assertIn(("diff", "--name-status", "--no-renames", "base1", "HEAD"), git.calls)
+
+    def test_unknown_history_runs_everything(self):
+        for before in ("gone", "0" * 40, ""):
+            self.assertTrue(self.changes("push", FakeGit(commits=()), before=before)[0].startswith("ALL\t"), before)
+        self.assertTrue(self.changes("push", FakeGit(merge_base=None), branch="feature")[0].startswith("ALL\t"))
+
+    def test_scheduled_and_failed_and_huge_runs_run_everything(self):
+        self.assertEqual(self.changes("schedule", FakeGit()), ["ALL\tschedule event"])
+        self.assertTrue(self.changes("pull_request", FakeGit(diff=None), base="b")[0].startswith("ALL\t"))
+        huge = "".join(f"M\tengine/core/src/File{i}.cpp\n" for i in range(2000))  # over the environment's limit
+        self.assertTrue(self.changes("pull_request", FakeGit(diff=huge), base="b")[0].startswith("ALL\t"))
+
+    def test_empty_change_is_marked(self):
+        self.assertEqual(self.changes("pull_request", FakeGit(diff=""), base="b"), ["NONE"])
 
 if __name__ == "__main__":
     unittest.main()

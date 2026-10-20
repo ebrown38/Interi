@@ -338,8 +338,8 @@ class FakeGit:
 
 
 class ChangedFilesTests(unittest.TestCase):
-    def changes(self, event, git, base="", before="", branch="main"):
-        return select_tests.changed_files(event, base, before, branch, "main", git)
+    def changes(self, event, git, base="", before="", branch="main", ref_type="branch"):
+        return select_tests.changed_files(event, base, before, branch, "main", git, ref_type)
 
     def test_pull_request_diffs_against_base(self):
         git = FakeGit()
@@ -367,6 +367,11 @@ class ChangedFilesTests(unittest.TestCase):
         self.assertTrue(self.changes("pull_request", FakeGit(diff=None), base="b")[0].startswith("ALL\t"))
         huge = "".join(f"M\tengine/core/src/File{i}.cpp\n" for i in range(2000))  # over the environment's limit
         self.assertTrue(self.changes("pull_request", FakeGit(diff=huge), base="b")[0].startswith("ALL\t"))
+
+    def test_tag_push_runs_everything(self):  # a tag on the default branch's head would otherwise diff as empty
+        for branch in ("v1.0", "main"):
+            self.assertEqual(self.changes("push", FakeGit(), before="before1", branch=branch, ref_type="tag"),
+                             ["ALL\ttag push"], branch)
 
     def test_empty_change_is_marked(self):
         self.assertEqual(self.changes("pull_request", FakeGit(diff=""), base="b"), ["NONE"])

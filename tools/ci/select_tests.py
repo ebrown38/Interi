@@ -27,6 +27,7 @@ paths baked into the tests, which the graph can't see. Docs (DOC_PATTERNS) selec
 
 Usage:
   select_tests.py changes --event <name> [--base <sha>] [--before <sha>] [--branch <name>] [--default-branch <name>]
+                    [--ref-type branch|tag]
   select_tests.py select --build-dir build/<preset> --changes-env <variable> --output <file> [--summary <file>]
 """
 import argparse
@@ -63,7 +64,8 @@ NULL_SHA = re.compile(r"^0+$")
 
 # --- changes ----------------------------------------------------------------------------------------------------------
 
-def changed_files(event: str, base: str, before: str, branch: str, default_branch: str, git=None) -> list:
+def changed_files(event: str, base: str, before: str, branch: str, default_branch: str, git=None,
+                  ref_type: str = "branch") -> list:
     """`<status>\\t<path>` lines for the event, or a single `ALL\\t<reason>` line."""
     git = git or _git
     try:
@@ -71,6 +73,8 @@ def changed_files(event: str, base: str, before: str, branch: str, default_branc
             if not base:
                 return [f"{ALL}\tno pull request base"]
             since = base
+        elif event == "push" and ref_type != "branch":
+            return [f"{ALL}\t{ref_type or 'unknown ref'} push"]
         elif event == "push" and branch != default_branch:
             since = (git("merge-base", f"origin/{default_branch}", "HEAD") or "").strip()
             if not since:
@@ -402,6 +406,7 @@ def main(argv=None):
     changes.add_argument("--before", default="")
     changes.add_argument("--branch", default="", help="the pushed branch")
     changes.add_argument("--default-branch", default="main")
+    changes.add_argument("--ref-type", default="branch", help="github.ref_type: a tag push runs everything")
     chooser = commands.add_parser("select")
     chooser.add_argument("--build-dir", type=Path, required=True)
     chooser.add_argument("--changes-env", required=True, help="environment variable holding the `changes` output")
@@ -410,7 +415,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "changes":
-        print("\n".join(changed_files(args.event, args.base, args.before, args.branch, args.default_branch)))
+        print("\n".join(changed_files(args.event, args.base, args.before, args.branch, args.default_branch,
+                                       ref_type=args.ref_type)))
         return 0
 
     build_dir = args.build_dir.resolve()

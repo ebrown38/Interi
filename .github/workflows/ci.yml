@@ -29,7 +29,7 @@ env:
 jobs:
   # The files this push or pull request changed (a branch push: everything since it left the default branch). The build
   # jobs run only the tests those files can reach in the build graph (tools/ci/select_tests.py); scheduled and manual
-  # runs, and changes it can't trace, run everything.
+  # runs, tag pushes, and changes it can't trace, run everything.
   changes:
     runs-on: ubuntu-24.04
     outputs:
@@ -46,9 +46,10 @@ jobs:
           BEFORE: ${{ github.event.before }}
           BRANCH: ${{ github.ref_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           python3 tools/ci/select_tests.py changes --event "$EVENT" --base "$BASE" --before "$BEFORE" \
-            --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" > changes.txt
+            --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --ref-type "$REF_TYPE" > changes.txt
           cat changes.txt
           { echo "files<<CHANGED_FILES_END"; cat changes.txt; echo "CHANGED_FILES_END"; } >> "$GITHUB_OUTPUT"
 

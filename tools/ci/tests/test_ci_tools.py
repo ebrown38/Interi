@@ -264,7 +264,7 @@ class SelectTestsTests(unittest.TestCase):
         self.assertEqual(self.choose("M\ttests/plug/P.cpp").names, ["Core.One", "Spdx", "Vk.One"])
 
     def test_compiled_build_directory_depends_on_what_is_linked_there(self):
-        self.assertIn("/s/build/tests/CMakeFiles/core_tests.dir/T.cpp.o",
+        self.assertIn(select_tests.normalize("/s/build/tests/CMakeFiles/core_tests.dir/T.cpp.o", BUILD),
                       self.graph.dependents["/s/build/engine/core/libinteri_core.so"])
         self.assertNotIn("/tmp/x", self.graph.dependents)
 
@@ -306,7 +306,7 @@ class SelectTestsTests(unittest.TestCase):
         self.assertNotIn("/s/build/validation_stamp", self.graph.dependents)
 
     def test_regeneration_inputs_span_continuation_lines(self):
-        self.assertIn("/usr/share/cmake/Modules/X.cmake", self.graph.regenerate)
+        self.assertIn(select_tests.normalize("/usr/share/cmake/Modules/X.cmake", BUILD), self.graph.regenerate)
 
     def test_install_script_lists_files_and_directories(self):
         self.assertEqual(self.installed, {"/s/engine/core/include", "/s/build/gen",

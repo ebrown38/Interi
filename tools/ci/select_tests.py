@@ -269,8 +269,8 @@ def _command_paths(test: Test) -> list:
     paths = []
     for arg in test.command[1:]:
         value = arg.split("=", 1)[1] if arg.startswith("-D") and "=" in arg else arg
-        paths += [part for part in value.split("|") if os.path.isabs(part.replace("\\", "/"))
-                  or re.match(r"^[A-Za-z]:[\\/]", part)]
+        # Not os.path.isabs: on Windows (Python 3.13+) a rooted path without a drive is relative.
+        paths += [part for part in value.split("|") if re.match(r"^([A-Za-z]:)?[\\/]", part)]
     return paths
 
 

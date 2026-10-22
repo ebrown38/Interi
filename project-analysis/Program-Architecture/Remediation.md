@@ -15,9 +15,10 @@ Nothing here has been applied. These are instructions, not changes.
 - **Depends on:** ARCH-004 (to keep the new rule enforced)
 - **Steps:**
   1. Add a small engine-feature seam below `hotreload`, using Branch by Abstraction. One option is `sdk` or `chain`, since `chain::ChainRegistry` is what features register into, e.g. `interi/chain/EngineLibrary.h`:
-     - `struct EngineLibrary { std::string_view name; std::vector<std::string> (*contracts)(); Result<void> (*registerInto)(ChainRegistry&, ServiceTable&); };`
+     - `struct EngineLibrary { std::string name; std::function<std::vector<std::string>()> contracts; std::function<Result<void>(ChainRegistry&, ServiceTable&)> registerInto; };`
+     - `registerInto` is a callable, not a raw function pointer, so each descriptor instance can carry its own state (a captured `std::shared_ptr` or another opaque context); a stateless feature passes a capture-less lambda.
      - plus a value type `EngineLibraries` (a plain list, not a global).
-  2. In `anim`, `nav` and (moved out of `sdk`) an `ai` feature, expose `anim::EngineLibrary()`, `nav::EngineLibrary(std::shared_ptr<NavSource>)` and so on, each returning that descriptor.
+  2. In `anim`, `nav` and (moved out of `sdk`) an `ai` feature, expose `anim::EngineLibrary()`, `nav::EngineLibrary(std::shared_ptr<NavSource>)` and so on, each returning that descriptor. `nav::EngineLibrary(source)` captures the supplied `std::shared_ptr<NavSource>` in its `registerInto` (keeping it alive as long as the descriptor), and its nav events read the mesh from that retained source, never from a global or a function-static. `anim::EngineLibrary()` and the `ai` descriptor stay stateless.
   3. Change `ModuleHostDesc` to take `std::span<const EngineLibrary>` (plus the services they provide). Replace `ModuleHost.cpp:376-408` with a loop over the descriptors. Keep only `chain::CoreContracts()` and `sdk::PhysicsContracts()` built in, because those are part of the module contract itself.
   4. Move `NavSource` ownership and `NavigationService` from `hotreload` into `nav` or the composition root (`game`, see ARCH-002). Register the service through `ModuleHostDesc::services`, which already exists for this purpose. Remove `Navigation()` and the `nav` include from `ModuleHost.h`.
   5. Drop `interi::anim interi::nav` from `engine/hotreload/CMakeLists.txt:17`. Add them to `game` (which already has `nav`) and to `editor`.
@@ -37,6 +38,7 @@ Nothing here has been applied. These are instructions, not changes.
   - `grep -rE "#include <interi/(anim|nav)/" engine/hotreload` returns nothing.
   - The ARCH-004 layering check passes with the rule "hotreload must not depend on anim, nav, scene, game".
   - `ModuleHostTest`, `ModuleProjectTest`, `PhysicsEngineHostTests` and the starter sample tests pass under debug, asan and tsan.
+  - A test builds two `ModuleHost`s with `nav::EngineLibrary` descriptors holding different `NavSource`s and checks that `nav.FindPath` in each host uses its own mesh (no shared state).
   - Both out-of-tree modules build and load.
 - **Risks / trade-offs:**
   - This is an ABI bump.
@@ -164,7 +166,7 @@ Nothing here has been applied. These are instructions, not changes.
   2. Leave `EditorApp` as UI wiring: windows, dock layout, input routing and frame drawing.
   3. Register a CTest `integration` test that runs `level_editor --video-driver offscreen --frames 120` on lavapipe (`INTERI_REQUIRE_GPU` jobs only), plus `--project-file samples/... --play 1`.
 - **Verification:**
-  - `EditorApp.cpp` shrinks substantially (target < 800 lines).
+  - `EditorApp.cpp` shrinks substantially (target < 600 lines, matching Goal AC-11 and Refactoring AC-2).
   - `EditorSession` tests cover fallback registry selection and failed module load.
   - CI runs the smoke test.
 - **Risks / trade-offs:** The GPU smoke test adds CI time and needs lavapipe, which CI already uses for golden tests.

@@ -1,6 +1,6 @@
 # Content-Pipeline-Tools — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi) @ 4631f35
+**Project:** Interi @ 4631f35
 **Analyzed:** 2026-10-19
 **Scope:** `engine/assets` (Guid, Texture, Material, Skeleton, private `AssetIo.h`), `engine/asset_import` (AssetDatabase, glTF/OBJ/FBX/texture importers, ModelProcess, ModelManifest), the cooked or authored formats in `engine/scene` (Mesh, SceneFile), `engine/values` (CookData / IVAL), `engine/nav` (.inav), `engine/anim` (.skeleton.json / .clip.json), `engine/game` (GameSession, ProjectModules: the runtime consumer), the editor asset paths (`engine/editor` Prefabs/InstantiateModel, Thumbnails, AssetBrowser; `engine/editor_ui` extension API), `tools/` (editor, module_check, new_module, license_check), `data/`, `samples/modules/starter/templates`, `tests/asset_import` and `tests/assets` (test lists only), `vcpkg.json`, `.gitignore`. I only skimmed `modules/destruction/README.md` (a separate, unindexed repo) for context and did not audit it.
 **Summary:** 18 issues — Critical: 0 · High: 2 · Medium: 10 · Low: 5 · Info: 1

@@ -49,10 +49,10 @@ Baseline plan written before milestone M-01. These are instructions, not changes
 - **Severity / Effort:** Medium / L
 - **Depends on:** CPT-010; the Rendering discipline's UV and material work
 - **Steps:**
-  1. Add a `material` AssetRef (or per-slot `materials` list) to `MeshComponent`, keeping `colors` as an override. Bump the scene component version and migrate existing scenes (colours stay and override).
-  2. Change `InstantiateModel` to store material references (guid or path) instead of copying `baseColor`.
+  1. Add a `material` AssetRef (or per-slot `materials` list) to `MeshComponent`. An empty `colors` entry means "use the material"; a colour is an explicit override only when a per-slot override marker says so. Bump the scene component version and migrate existing scenes: a legacy instance's slot colour that equals the referenced material's cooked `baseColor` (a copy `InstantiateModel` made) becomes unset; a colour that differs is kept with the override marker, so genuinely authored overrides survive.
+  2. Change `InstantiateModel` to store material references (guid or path) and leave `colors` unset instead of copying `baseColor`, so later `.material.json` edits propagate to every instance without an override.
   3. In the editor renderer, resolve material to texture: load `.itex` through a texture cache that uploads with `UploadTexture` per mip and passes bindless indices to `ForwardRenderer`. Invalidate on `AssetWatcher` cooked paths.
-- **Verification:** an editor test edits a `.material.json` base colour, cooks, and checks that a previously instantiated model reflects the new colour. A golden image shows a textured cube once UVs land.
+- **Verification:** an editor test edits a `.material.json` base colour, cooks, and checks that a previously instantiated model (new and migrated legacy) reflects the new colour, while a slot with an authored override keeps it. A golden image shows a textured cube once UVs land.
 - **Risks / trade-offs:** blocked partly by the renderer having no UV path. The material reference can land first, with base colour only.
 
 ## CPT-004 — Imported skeletons, clips and skins are orphaned

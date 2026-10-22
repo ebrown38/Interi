@@ -83,8 +83,8 @@ Nothing here has been applied. These are instructions, not changes.
 - **Severity / Effort:** Medium / S
 - **Depends on:** None
 - **Steps:**
-  1. In `GpuParticleSystem::Create` (`engine/render/src/Particles.cpp:83`), reject the configuration at run time rather than with an assert only: return `MakeError(ErrorCode::InvalidArgument, "maxEmitPerFrame must not exceed capacity")` when `maxEmitPerFrame > capacity` or `capacity == 0`.
-  2. Alternatively, clamp in `Emit` to `min(maxEmitPerFrame, capacity)`.
+  1. In `GpuParticleSystem::Create` (`engine/render/src/Particles.cpp:83`), reject the configuration at run time rather than with an assert only: return `MakeError(ErrorCode::InvalidArgument, "maxEmitPerFrame must not exceed capacity")` when `maxEmitPerFrame > capacity` or `capacity == 0`. Put the check before the existing `INTERI_ASSERT` (and drop those terms from the assert) so a debug test sees the error instead of an assert.
+  2. Keep the valid path unchanged: configurations with `0 < maxEmitPerFrame <= capacity` create the system exactly as today. Clamping in `Emit` is not a substitute, because the invalid configuration would still be accepted (and the per-frame upload buffer sized from it).
   3. Document the constraint on `ParticleSettings` (`Particles.h:54-55`).
 - **Illustrative change (not applied):**
   ```cpp
@@ -93,7 +93,7 @@ Nothing here has been applied. These are instructions, not changes.
       return MakeError(ErrorCode::InvalidArgument, "particle capacity must be >= maxEmitPerFrame > 0");
   }
   ```
-- **Verification:** A unit test that creates the system with `capacity = 8, maxEmitPerFrame = 16` gets an error. Existing tests are unchanged.
+- **Verification:** Unit tests that create the system with `capacity = 8, maxEmitPerFrame = 16` and with `capacity = 0` get `ErrorCode::InvalidArgument` (in builds with asserts compiled out too). Existing tests, which use valid settings, are unchanged.
 - **Risks / trade-offs:** None. The default settings already satisfy the constraint.
 
 ## HLSL-006 — Shader reflection checks only set/binding numbers, not descriptor types, so a stray `cbuffer` or a wrong resource type passes

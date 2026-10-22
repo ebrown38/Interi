@@ -120,7 +120,8 @@ Result<void> ValidateTileData(std::span<const std::byte> data)
         return corrupt("section sizes do not match the data size");
     }
     const std::byte* base = data.data();
-    if (!FiniteFloats(base, offsetof(dtMeshHeader, bmin), 6) || !std::isfinite(h.bvQuantFactor) ||
+    if (!FiniteFloats(base, offsetof(dtMeshHeader, walkableHeight), 3) ||
+        !FiniteFloats(base, offsetof(dtMeshHeader, bmin), 6) || !std::isfinite(h.bvQuantFactor) ||
         !FiniteFloats(base, vertsAt, static_cast<std::size_t>(h.vertCount) * 3) ||
         !FiniteFloats(base, detailVertsAt, static_cast<std::size_t>(h.detailVertCount) * 3))
     {

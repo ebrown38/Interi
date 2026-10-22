@@ -149,11 +149,12 @@ Nothing here has been applied. These are instructions, not changes.
 - **Severity / Effort:** Medium / S
 - **Depends on:** PLAT-008 (the player is where the check runs first)
 - **Steps:**
-  1. In each executable's `main`, before any engine static constructor runs AVX2 code, check `__builtin_cpu_supports("avx2") && ("fma") && ("bmi2")` (Clang) or `__cpuid`/`IsProcessorFeaturePresent` (MSVC). Compile that translation unit without `-march`.
-  2. On failure, show `SDL_ShowSimpleMessageBox` or print to stderr: "This game requires a CPU with AVX2 (2013 or newer)". Exit cleanly.
-  3. Optionally ship an `INTERI_SIMD=OFF` build for a fallback launcher.
+  1. Primary check: a launcher stub that runs before any engine code loads. It is a small separate executable (the package's `.sh`/`.bat` launchers call it, or it is the user-facing executable) that links no engine library, is compiled without `-march`/`/arch:AVX2` at the x86-64 baseline (unoptimized, so the compiler can't emit newer instructions), and has no static initialisers that could. It checks `__builtin_cpu_supports("avx2")`, `("fma")` and `("bmi2")` (Clang) or `__cpuid` (MSVC), and only then starts the real executable (`exec` / `CreateProcess`). The shared engine libraries load as the real executable's dependencies, so their static constructors run before its `main`; the stub is the only place a check comes first.
+  2. On failure, the stub shows a message box (the OS's own `MessageBoxW` on Windows, `SDL_ShowSimpleMessageBox` only if loading SDL needs no AVX2) or prints to stderr: "This game requires a CPU with AVX2 (2013 or newer)", and exits cleanly with a non-zero code.
+  3. Secondary guard: keep the same check at the top of each executable's `main`, in a TU compiled without `-march`, for runs that bypass the stub.
+  4. Optionally ship an `INTERI_SIMD=OFF` build for a fallback launcher.
 - **Verification:** A unit test for the CPU-check function. A manual run under `qemu-x86_64 -cpu Nehalem` or the Intel SDE prints the message instead of SIGILL.
-- **Risks / trade-offs:** Static initialisers in engine DLLs could still run AVX2 code before `main`. Keep the check in a separately compiled launcher stub, or make sure no global constructor uses SIMD.
+- **Risks / trade-offs:** Static initialisers in engine DLLs could still run AVX2 code before `main`, which is why the primary check is the stub. The `main` check alone is not enough unless no global constructor in the executable or the shared engine uses SIMD.
 
 ## PLAT-012 — x86 intrinsics are outside the SIMD gate in the job system
 - **Severity / Effort:** Low / S

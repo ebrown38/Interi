@@ -1,6 +1,6 @@
 # Performance Optimization — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** First-party C++ under `engine/` (scene, chain, ecs, jobs, nav, render, rhi_vulkan, audio, hud, game, core profiling), `tools/editor/` (editor frame loop and renderer), `benchmarks/`, `tools/bench_compare/`, `CMakePresets.json`, `cmake/`, `.github/workflows/ci.yml`. Static reading only. The work follows the per-step simulation path (`GameSession::Step` → `SceneRuntime::Step` → `ChainExecutor::Step` → hierarchy, triggers and nav), the per-frame render path (`EditorRenderer::Render` → `FrameGraph` → `ForwardRenderer`), the audio mix thread and the job system. Skipped: `modules/` (separate projects, not indexed), `external/`, `build*/`.
 **Summary:** 14 issues — Critical: 0 · High: 4 · Medium: 5 · Low: 3 · Info: 2

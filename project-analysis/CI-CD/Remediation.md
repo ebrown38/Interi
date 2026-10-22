@@ -1,7 +1,9 @@
 # CI-CD — Remediation
 
 How to move from the issues in Issues.md to the end state in Goal.md.
-Nothing here has been applied. These are instructions, not changes.
+This is the pre-remediation plan, written 2026-10-19 against commit `0ad8f95`. These are instructions, not changes.
+
+**Status (2026-10-21):** `8006873` completed CICD-005 (pinned inputs), CICD-006 (toolchain validation), CICD-007 (cache keys and ccache, Linux only) and CICD-016 (shared setup action, JUnit results, aggregate `ci-ok`). Remaining: CICD-001–004, CICD-008–015, CICD-017, a Windows compiler cache (CICD-007), CICD-007's performance exit criteria (the second nightly TSan run restores its dependencies without rebuilding ports, and a no-op PR gets more than 80% ccache hits; both can only be observed on runs after the change is merged), and making `ci-ok` the only required check in branch protection (CICD-016).
 
 ## Recommended order
 1. **CICD-016 (composite setup action), CICD-008 (timeouts), CICD-005 (pinning):** cheap structural fixes. With one shared setup action, every later cache or toolchain change is made once.
@@ -82,6 +84,7 @@ Nothing here has been applied. These are instructions, not changes.
 - **Risks / trade-offs:** With option (a), required checks must be satisfied by the push run's statuses on the PR head SHA. GitHub attaches them to the commit, so this works, but confirm it in branch protection. Option (b) changes the working habit.
 
 ## CICD-005 — Actions and container images use floating tags
+- **Status:** Completed in `8006873`.
 - **Severity / Effort:** Medium / S
 - **Depends on:** None
 - **Steps:**
@@ -100,6 +103,7 @@ Nothing here has been applied. These are instructions, not changes.
 - **Risks / trade-offs:** More update PRs to review, but small ones.
 
 ## CICD-006 — Toolchain versions float
+- **Status:** Completed in `8006873` (`tools/ci/toolchain.env`, `tools/ci/check_toolchain.py`).
 - **Severity / Effort:** Medium / M
 - **Depends on:** CICD-005 (image digest)
 - **Steps:**
@@ -111,6 +115,7 @@ Nothing here has been applied. These are instructions, not changes.
 - **Risks / trade-offs:** Toolchain upgrades become explicit PRs, which is intended. The image must be rebuilt for security updates, and publishing it needs `packages: write` on a separate image-build workflow only.
 
 ## CICD-007 — vcpkg cache key misses and stale hits, no compiler cache
+- **Status:** Completed in `8006873` for Linux (keys, split restore/save, ccache). Windows still has no compiler cache (needs `/Z7`).
 - **Severity / Effort:** Medium / M
 - **Depends on:** CICD-016 (do it once in the composite action), CICD-006 (the compiler version is known)
 - **Steps:**
@@ -218,6 +223,7 @@ Nothing here has been applied. These are instructions, not changes.
 - **Risks / trade-offs:** Longer nightly runs. Findings need triage.
 
 ## CICD-016 — Workflow duplication, no test reporting, no aggregate check
+- **Status:** Completed in `8006873` (`.github/actions/setup-interi`, `save-caches`, `--output-junit` + `tools/ci/junit_summary.py`, `ci-ok`).
 - **Severity / Effort:** Low / S
 - **Depends on:** None
 - **Steps:**

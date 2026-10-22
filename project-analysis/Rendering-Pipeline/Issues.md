@@ -1,6 +1,6 @@
 # Rendering-Pipeline — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi) @ 4631f35
+**Project:** Interi (repository root) @ 4631f35
 **Analyzed:** 2026-10-19
 **Scope:** CPU-side rendering and graphics-API usage: `engine/rhi` (IDevice/ICommandList/ISwapchain, ResourceManager, CommandListPool, UploadQueue), `engine/rhi_vulkan/src` (VulkanDevice.cpp 1796 lines, VulkanSwapchain.cpp, VulkanImpl.h), `engine/render/src` (FrameGraph, ForwardRenderer, MeshPool, Particles, Decals, Texture), `engine/editor_ui/src/ImGuiRenderer.cpp`, `EditorExtensions.cpp` (render features), `tools/editor/EditorRenderer.cpp` and the render call site in `EditorApp.cpp`. I also checked which tests exist under `tests/rhi`, `tests/rhi_vulkan` and `tests/render`. HLSL source is out of scope (HLSL analyst). `modules/` (Destruction Module) is gitignored and not indexed, so I only reviewed it through the engine API it uses (`RenderFeatureContext`).
 **Summary:** 20 issues — Critical: 0 · High: 3 · Medium: 5 · Low: 10 · Info: 2

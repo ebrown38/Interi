@@ -63,22 +63,21 @@ Nothing here has been applied. These are instructions, not changes.
 - **Severity / Effort:** High / M
 - **Depends on:** PERF-008 (nav step benchmark)
 - **Steps:**
-  1. Stop allocating per call while keeping thread safety, which is why CLAUDE.md documents one query per call. Two options:
-     - Keep a `thread_local` cache of `dtNavMeshQuery` keyed by the owning `NavMesh` (pointer plus a generation counter that changes when the mesh is swapped).
-     - Keep a small mutex-protected free list of initialized queries inside `NavMesh`, handing one out per call and returning it afterwards.
+  1. Stop allocating per call while keeping thread safety, which is why CLAUDE.md documents one query per call. Preferred: keep a small mutex-protected free list (pool) of initialized `dtNavMeshQuery` objects inside `NavMesh`, handing one out per call (RAII lease) and returning it afterwards. The pool is owned by the mesh and destroyed with it, so no cached query can outlive or be confused with a destroyed mesh. A `thread_local` cache is acceptable only if its key is a process-unique lifetime token (e.g. a `NavMesh` id from a global `std::atomic<std::uint64_t>` counter, never reused), not the `dtNavMesh*` address plus a resettable generation: a destroyed mesh's address can be reused by a new mesh, and a stale query would then point at freed memory. Even with the token, thread-local slots keep a dead mesh's query alive until that thread's next call or exit, so the pool is simpler.
 
      Either way, `FindPath` results are unchanged.
   2. Optional behavior change, to be agreed with the maintainer because it changes trajectories: store each agent's straight path and corridor on the component or in a side table, and re-plan only when the destination changes, the agent leaves its corridor, the mesh generation changes, or every N steps. `dtPathCorridor` (`movePosition`/`optimizePathTopology`) is Detour's incremental tool for this. Document the new rule in `docs/animation-navigation-localization.md`.
-  3. If agent counts grow, evaluate agents in parallel with `ParallelFor` over the id-sorted `walkers`, writing results into per-index slots and merging in id order. This keeps determinism, since `FindPath` is const and thread-safe with per-thread queries.
+  3. If agent counts grow, evaluate agents in parallel with `ParallelFor` over the id-sorted `walkers`, writing results into per-index slots and merging in id order. This keeps determinism, since `FindPath` is const and thread-safe with per-call leased queries.
 - **Illustrative change (not applied):**
   ```cpp
-  // NavMesh.cpp (sketch)
-  dtNavMeshQuery& NavMesh::ThreadQuery() const {
-      thread_local struct { const dtNavMesh* mesh = nullptr; std::uint64_t gen = 0;
-                            std::unique_ptr<dtNavMeshQuery, QueryDeleter> q; } slot;
-      if (slot.mesh != m_mesh.get() || slot.gen != m_generation) { /* alloc + init(…, 2048) once */ }
-      return *slot.q;
-  }
+  // NavMesh.cpp (sketch): the pool lives in NavMesh and dies with it.
+  class QueryPool {
+      std::mutex m_mutex;
+      std::vector<std::unique_ptr<dtNavMeshQuery, QueryDeleter>> m_free;
+  public:
+      Lease Acquire(const dtNavMesh& mesh); // pop or alloc + init(&mesh, 2048); Lease returns it on destruction
+  };
+  std::unique_ptr<QueryPool> m_queries; // member of NavMesh; heap-held so NavMesh stays movable, moves with m_mesh
   ```
 - **Verification:**
   - The `NavAgentTests` and `GameSession` navigation tests pass unchanged for step 1.

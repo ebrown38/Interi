@@ -71,7 +71,7 @@ Nothing here has been applied. These are instructions, not changes.
 - **Severity / Effort:** Medium / M
 - **Depends on:** PY-008 (pick the target version first)
 - **Steps:**
-  1. Add a minimal `tools/pyproject.toml`, or a root one, with only `[tool.ruff]` (target version matching PY-008; rules `E,F,W,B,UP,SIM,I`; line length 120 to match `.clang-format`), `[tool.ruff.format]` and `[tool.mypy]` (`strict = true`, `files = ["tools"]`).
+  1. Add a minimal `tools/pyproject.toml`, or a root one, with only `[tool.ruff]` (target version matching PY-008; rules `E,F,W,B,UP,SIM,I` plus `PLW1514` (open/read_text/write_text without an explicit `encoding`; a preview rule in some Ruff versions, so enable preview for it if the pinned version requires that); line length 120 to match `.clang-format`), `[tool.ruff.format]` and `[tool.mypy]` (`strict = true`, `files = ["tools"]`).
   2. Annotate the untyped parameters: `is_allowed(expression: str | None, allowed_licenses: Iterable[str], allowed_exceptions: Iterable[str])`, and replace the bare `dict` with `dict[str, Any]` or a `TypedDict` for the policy.
   3. Add a step to the `lint` job in `.github/workflows/ci.yml`: `pip install ruff==<pinned> mypy==<pinned>` (or `dnf install`), then `ruff check tools`, `ruff format --check tools` and `mypy`.
 - **Verification:** The CI lint job runs ruff and mypy and fails on a deliberately introduced unused import.

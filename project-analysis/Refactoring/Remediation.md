@@ -3,7 +3,7 @@
 How to move from the issues in Issues.md to the end state in Goal.md.
 Nothing here has been applied. These are instructions, not changes.
 
-Ground rule for every step: no behaviour change and no new features. One refactoring per commit, with the full preset matrix (debug, release, asan, tsan, tidy) green before and after. Run `impact` (GitNexus) on each symbol before you touch it, as CLAUDE.md requires.
+Ground rule for every step: no behaviour change and no new features. One refactoring per commit, with the reduced refactoring preset matrix (`linux-clang-{debug,release,asan,tsan,tidy}`, the CLAUDE.md pre-commit set) green before and after; CI still covers the Windows presets (`windows-msvc-*`), and run `coverage` and `profile` locally when a step touches code they configure differently. Run `impact` (GitNexus) on each symbol before you touch it, as CLAUDE.md requires.
 
 ## Recommended order
 1. **REF-007** (Low, S) first. Add the complexity checks in warning-only mode, or with thresholds above today's worst offenders, so the baseline is measured and can't get worse while the rest proceeds.

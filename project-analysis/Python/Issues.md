@@ -1,6 +1,6 @@
 # Python — Issues
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** The 7 tracked first-party Python files under `tools/`: `bench_compare/compare_benchmarks.py`, `license_check/{check_licenses,check_spdx_headers,gen_notices}.py`, `license_check/tests/test_license_tools.py`, `new_module/new_module.py` and `new_module/tests/test_new_module.py`. Also how they are wired in (`tools/CMakeLists.txt`, `tools/license_check/CMakeLists.txt`, `tools/new_module/CMakeLists.txt`, root `CMakeLists.txt:49`, `.github/workflows/ci.yml`), plus `tools/license_check/license_policy.json` and the generated `THIRD_PARTY_NOTICES.md`. Excluded: the vcpkg Python under `external/`, build trees and the gitignored `modules/`.
 **Summary:** 11 issues — Critical: 0 · High: 0 · Medium: 5 · Low: 5 · Info: 1

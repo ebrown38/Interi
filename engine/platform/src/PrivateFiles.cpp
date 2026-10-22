@@ -164,9 +164,11 @@ Result<void> EnsurePrivateDirectory(const std::filesystem::path& directory)
     std::filesystem::create_directories(directory.parent_path(), error);
 #if defined(_WIN32)
     std::filesystem::create_directory(directory, error);
-    if (std::filesystem::is_symlink(std::filesystem::symlink_status(directory, error)))
+    // is_symlink misses junctions, so refuse every reparse point.
+    const DWORD attributes = ::GetFileAttributesW(directory.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
     {
-        return MakeError(ErrorCode::IoError, std::format("'{}' is a symbolic link", directory.string()));
+        return MakeError(ErrorCode::IoError, std::format("'{}' is a symbolic link or junction", directory.string()));
     }
     if (!std::filesystem::is_directory(directory, error))
     {
@@ -292,10 +294,13 @@ Result<bool> RemoveFileBeneath(const std::filesystem::path& base, std::string_vi
     };
     // Every directory on the way stays open without FILE_SHARE_DELETE, so none of them can be renamed or replaced
     // until the delete is done; each is opened as itself (FILE_FLAG_OPEN_REPARSE_POINT) and refused if it is a link.
+    // The directory handles ask for FILE_LIST_DIRECTORY: an open with attribute access only takes no part in share
+    // checks, so it would not block a rename.
     std::vector<ScopedHandle> held;
     std::filesystem::path path = base;
-    held.emplace_back(::CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+    held.emplace_back(::CreateFileW(path.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                                    FILE_FLAG_BACKUP_SEMANTICS, nullptr));
     if (held.back().Get() == INVALID_HANDLE_VALUE)
     {
         return missing() ? Result<bool>(false) : Result<bool>(fail("opening the base directory"));
@@ -305,7 +310,7 @@ Result<bool> RemoveFileBeneath(const std::filesystem::path& base, std::string_vi
         path /= parts[i];
         const bool leaf = i + 1 == parts.size();
         held.emplace_back(::CreateFileW(
-            path.c_str(), leaf ? DELETE | FILE_READ_ATTRIBUTES : FILE_READ_ATTRIBUTES,
+            path.c_str(), leaf ? DELETE | FILE_READ_ATTRIBUTES : FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
             leaf ? FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE : FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
             OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | (leaf ? 0 : FILE_FLAG_BACKUP_SEMANTICS), nullptr));
         if (held.back().Get() == INVALID_HANDLE_VALUE)

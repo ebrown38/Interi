@@ -130,20 +130,24 @@ Per CLAUDE.md, run `impact` (GitNexus) on each symbol before editing it, work te
 - **Steps:**
   1. In `ArchiveReader::Process` for `std::vector<T>`, bound the count by the minimum encoded size of an element. For `ArchivePrimitive` `T` this is `sizeof(ArchiveBits<T>)`; otherwise it is 1.
      - Reject `count > Remaining() / minEncoded`.
-     - For non-primitive `T`, grow incrementally instead of `resize(count)`: `reserve(min(count, Remaining()))`, then `emplace_back` and `Process` per element, stopping on the first failure. Allocation then tracks bytes actually consumed.
+     - For non-primitive `T`, never `resize(count)` or `reserve(min(count, Remaining()))` (that is one `T` per remaining byte, still amplified by `sizeof(T)`). Grow capacity only from parsed elements: `emplace_back` and `Process` one element at a time, check the element count and `capacity() * sizeof(T)` against the allocation cap (step 3) before each growth, and stop on the first failure. Allocation then tracks elements actually parsed.
   2. Do the same for `std::string`. It is already 1:1, so no change is needed.
-  3. Add an optional `ArchiveReader::SetMaxAllocation(bytes)` (default, e.g., 1 GiB) checked before each `reserve`, failing sticky with `Fail()`.
+  3. Add an optional `ArchiveReader::SetMaxAllocation(bytes)` (default, e.g., 1 GiB) plus an element-count cap, checked before each `reserve` or capacity growth, failing sticky with `Fail()`.
   4. Catch `std::bad_alloc` in `detail::ReadHashed` (`engine/assets/src/AssetIo.h:37`) and in the save and cooked-data readers, converting it to `ErrorCode::OutOfMemory`. This guarantees the `Result` contract.
   5. Extend the fuzz targets (`tests/asset_import/fuzz/FuzzTargets.*`) to the `.itex`/`.iskel`/`.ianim`/`.iskin`/`ISAV`/`IVAL` readers if they are not already covered, with ASan's `allocator_may_return_null=1` and `-rss_limit_mb=2048` in the libFuzzer harness.
 - **Illustrative change (not applied):**
   ```cpp
   else if constexpr (detail::IsStdVector<T>::value)
   {
-      const std::size_t count = ReadCount();
+      const std::size_t count = ReadCount(); // not trusted: nothing is reserved from it
       value.clear();
-      value.reserve(std::min(count, Remaining())); // never more than the bytes that remain
       for (std::size_t i = 0; i < count && m_ok; ++i)
       {
+          if (value.size() == value.capacity() && !CanGrow<typename T::value_type>(value.capacity()))
+          {
+              Fail(); // element-count or allocation-byte cap
+              break;
+          }
           Process(value.emplace_back());
       }
   }
@@ -159,8 +163,8 @@ Per CLAUDE.md, run `impact` (GitNexus) on each symbol before editing it, work te
 - **Depends on:** CPP-006 (same file)
 - **Steps:**
   1. Add an opt-in trait `template <class E> constexpr auto kEnumCount = ...;` (or a `kEnumMax` member via a concept). In `ArchiveReader::Process`, call `Fail()` when an enum with the trait reads a value `>= kEnumCount<E>`.
-  2. Declare the trait for every enum that is serialized: `TextureFormat`, `ColorSpace`, `ChannelPath`, `Interpolation`, `ValueType`, and the mesh and material enums.
-  3. Keep the existing validator checks, or replace their magic bounds with the trait.
+  2. Declare the trait for every enum that is serialized through `ArchiveReader`: `assets::TextureFormat` and `ColorSpace` (`.itex`), `assets::AlphaMode` (`.imat`), `assets::ChannelPath` and `Interpolation` (`.ianim`), and `values::ValueType` (`Value`, and `CookedAttribute::type` / `CookedColumn::type` in `IVAL`). `.imesh` serializes no enum. `ArchiveReader::Process` rejects any out-of-range value of these; an enum without the trait keeps today's behaviour.
+  3. Replace the validators' magic bounds (and the hand-written `kValueTypeCount` check in `Serialize(Archive&, Value&)`) with the same trait, so the reader and validators share one bound.
 - **Verification:** Unit test: a hand-built archive with `format = 0xFF` makes `ReadTextureAsset` return `Corrupt` because the reader failed, not only the validator. Grep shows no remaining `static_cast<std::uint8_t>(...) > N` magic bounds.
 - **Risks / trade-offs:** None for valid data. Enums without the trait keep today's behaviour.
 

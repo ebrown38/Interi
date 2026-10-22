@@ -1,6 +1,6 @@
 # Game-Platforms — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi) @ 4631f35
+**Project:** Interi (repository root) @ 4631f35
 **Analyzed:** 2026-10-19
 **Scope:** The first-party platform surface: `engine/platform`, `engine/platform_sdl`, `engine/rhi`, `engine/rhi_vulkan`, `engine/render` (shader build and embedding), `engine/jobs`, `engine/core` (allocator, Config), `engine/hotreload` (module loading), `engine/game` and `engine/runtime` (sessions and saves), `engine/audio`, `engine/asset_import` (cook key), `engine/editor` (preferences), `tools/editor`, `cmake/*.cmake`, `cmake/triplets`, `CMakePresets.json`, `vcpkg.json`, `.github/workflows/ci.yml` and `README.md`. I searched every tracked first-party `.h`/`.cpp` for platform and compiler preprocessor conditionals (29 sites in 14 files). `external/`, `build*/`, `modules/` and `project-analysis/` were skipped.
 **Summary:** 21 issues — Critical: 0 · High: 4 · Medium: 7 · Low: 8 · Info: 2

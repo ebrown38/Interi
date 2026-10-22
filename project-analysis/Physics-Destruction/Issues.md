@@ -1,6 +1,6 @@
 # Physics-Destruction — Issues
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`), plus the local module repositories `modules/physics` (Jolt Physics Engine, `com.interi.physics.jolt` 5.0.0) and `modules/destruction` (Destruction Module, `com.interi.destruction` 1.0.0)
+**Project:** Interi (repository root), plus the local module repositories `modules/physics` (Jolt Physics Engine, `com.interi.physics.jolt` 5.0.0) and `modules/destruction` (Destruction Module, `com.interi.destruction` 1.0.0)
 **Analyzed:** 2026-10-19
 **Scope:**
 - **Engine (this repo):** the physics contract and selection code (`engine/sdk` `PhysicsQueries.h`, `ModuleGraph`, `ContributionRegistry`; `engine/hotreload` `ModuleHost`, `ModuleApi.h`), the game loop (`engine/game/GameSession`), the physics-free triggers (`engine/runtime/TriggerVolumes`, `engine/scene` triggers), `docs/writing-a-physics-engine.md`, and the physics tests in `tests/sdk` and `tests/hotreload`.

@@ -81,7 +81,7 @@ graph BT
 - [ ] AC-8 `docs/architecture.md` exists with the module diagram, the dependency rules and the ownership model. `docs/adr/` holds at least 6 ADRs. README links to the architecture doc (resolves ARCH-005).
 - [ ] AC-9 A check confirms that the shared-module list in CLAUDE.md matches the `interi_add_module(... SHARED` set, and `AGENTS.md` cannot diverge from CLAUDE.md (generated or a pointer) (resolves ARCH-005).
 - [ ] AC-10 Changing the layout of an ABI-surface type without bumping `INTERI_MODULE_ABI_VERSION` makes a test fail or the loader reject the stale module (resolves ARCH-006).
-- [ ] AC-11 `EditorApp.cpp` is under 800 lines. Project, module host, registry selection and play orchestration live in a headless, tested `editor` class. A CTest `integration` test runs `level_editor --video-driver offscreen --frames 120` (resolves ARCH-007).
+- [ ] AC-11 `tools/editor/EditorApp.cpp` (1652 lines at the time of writing) is under 600 lines, the same threshold as Refactoring AC-2 (one target for both disciplines). Project, module host, registry selection and play orchestration live in a headless, tested `editor` class. A CTest `integration` test runs `level_editor --video-driver offscreen --frames 120` (resolves ARCH-007).
 - [ ] AC-12 `FileWatcher` lives outside `hotreload`, and `engine/asset_import/CMakeLists.txt` does not list `interi::hotreload` (resolves ARCH-008).
 - [ ] AC-13 The fixed step has one owner: `GameSession` passes its configured step to the scene executor and to navigation. A test with a non-default step passes (resolves ARCH-009).
 - [ ] AC-14 The milestone plan tracks the "not here yet" gaps listed in ARCH-010 (imported skeleton/clip conversion, renderer UVs, editor module systems) as backlog items (acknowledges ARCH-010).

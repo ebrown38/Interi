@@ -17,7 +17,7 @@ OSS-008 to OSS-011 are Info and need no action. Optional notes for OSS-008 are a
 - **Severity / Effort:** Medium / S
 - **Depends on:** OSS-002, OSS-003 (so the installed notices are complete)
 - **Steps:**
-  1. In `cmake/InteriPackage.cmake`, after the `install(TARGETS ...)` block (line 37), install `LICENSE` and `THIRD_PARTY_NOTICES.md` to `${CMAKE_INSTALL_DATADIR}/doc/interi` (`share/doc/interi`, the GNU convention).
+  1. In `cmake/InteriPackage.cmake`, install `LICENSE` and `THIRD_PARTY_NOTICES.md` to `${CMAKE_INSTALL_DATADIR}/doc/interi` (`share/doc/interi`, the GNU convention) *before* the `if(NOT INTERI_BUILD_SHARED) return()` guard (lines 6-8), with `include(GNUInstallDirs)` moved above it, so the two files install for both shared and static builds (and any install rule a static build gains later carries them).
   2. Do the same for any future game or editor packaging target (`level_editor` is not installed today, but a release zip of it would need the same two files next to the executable).
   3. Mention the installed location in `README.md` § Licensing.
 - **Illustrative change (not applied):**
@@ -26,7 +26,7 @@ OSS-008 to OSS-011 are Info and need no action. Optional notes for OSS-008 are a
       DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/interi)
   ```
 - **Verification:** Extend the `Package_*` integration tests (which already run `cmake --install`) to assert that `<prefix>/share/doc/interi/LICENSE` and `THIRD_PARTY_NOTICES.md` exist and match the source tree.
-- **Risks / trade-offs:** None. A static engine (`INTERI_BUILD_SHARED=OFF`) returns early at line 6 and installs nothing, which is fine.
+- **Risks / trade-offs:** None. A static engine (`INTERI_BUILD_SHARED=OFF`) still returns early for the libraries and CMake package, but now installs the license and notices, so AC-1 holds for every preset. The `Package_*` tests cover the shared presets; a static-preset install check (or a configure-time assertion that the rule sits above the guard) covers the other case.
 
 ## OSS-002 — Notices miss bundled sub-components (Tracy's libbacktrace, LZ4, rpmalloc; ImGui fonts)
 - **Severity / Effort:** Medium / M
@@ -104,10 +104,15 @@ OSS-008 to OSS-011 are Info and need no action. Optional notes for OSS-008 are a
 - **Severity / Effort:** Low / S
 - **Depends on:** None
 - **Steps:**
-  1. Pick one holder string. "The Interi Authors" matches `LICENSE:3`. Update `samples/modules/starter/module.json:8`, the generator default in `tools/new_module/new_module.py:57` (if it is meant for in-tree modules) and the plugin-stub fixtures. Then regenerate the stubs with `INTERI_UPDATE_GOLDEN=1`.
-  2. Add an `AUTHORS` file (or define "The Interi Authors" as "the contributors listed in the git history") and a `CONTRIBUTING.md` stating inbound = outbound MIT, optionally with a DCO sign-off requirement.
-- **Verification:** `git grep -n '"copyright"' -- samples tools` shows one consistent holder, and `CONTRIBUTING.md` exists.
-- **Risks / trade-offs:** The test fixtures under `tests/` can keep their dummy values; they are data, not claims.
+  1. Pick one holder string, "Copyright (c) 2026 The Interi Authors" (matches `LICENSE:3`), and use it in every location:
+     - `LICENSE:3` (already correct; keep it).
+     - `samples/modules/starter/module.json:8` (today "Interi contributors").
+     - `tools/new_module/new_module.py:57`: make the in-tree default the same holder string (today it is `{year} {args.author}`); keep an explicit option for out-of-tree authors to set their own.
+     - The plugin-stub fixtures `tests/editor/plugin_stubs/{event,hook}/module.json` (today "Copyright (c) Interi", built from the stub author by `engine/editor/src/PluginAuthoring.cpp:255`): give the fixture inputs the same holder, then regenerate the stubs with `INTERI_UPDATE_GOLDEN=1`.
+  2. Add a `CONTRIBUTING.md` stating inbound = outbound MIT (optionally with a DCO sign-off requirement). It is required, not optional.
+  3. Define "The Interi Authors": add an `AUTHORS` file, or state in `CONTRIBUTING.md` (and `README.md` § Licensing) that it means the contributors recorded in the git history. One of the two is required.
+- **Verification:** `git grep -n -i 'copyright (c)' -- LICENSE samples tools tests/editor/plugin_stubs engine/editor` shows the one holder string in every location above (the `PluginAuthoring.cpp` format string excepted, whose output the fixtures check); `CONTRIBUTING.md` exists, and either `AUTHORS` exists or the git-history definition appears in `CONTRIBUTING.md`; `PluginStub_*_LoadsOverStarter` and `new_module.py`'s tests still pass.
+- **Risks / trade-offs:** Other test data under `tests/` (e.g. `tests/sdk/modules`) can keep dummy values; they are data, not claims.
 
 ## Optional notes for Info items
 - **OSS-008:** if the notices size becomes a problem, have `gen_notices.py` keep only license blocks for ports whose copyright file embeds source (meshoptimizer), via a policy `notice_text` override. Optionally drop test-only ports (benchmark, gtest) by listing them as `test_only`.

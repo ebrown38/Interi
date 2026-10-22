@@ -95,7 +95,7 @@ Statuses: `Not started` · `In progress` · `Blocked` · `Done`. Progress = clos
 | Milestone | Title | Phase | Work items | Depends on | Effort | Status | Progress |
 |---|---|---|---|---|---|---|---|
 | M-01 | No known exploitable content or host vulnerabilities | 0 | WI-001, WI-002, WI-003 | — | 2×M + 1×S | Done | 3/3 |
-| M-02 | CI is reproducible, pinned and cached | 1 | WI-004, WI-005, WI-006, WI-007, WI-008 | — | 2×M + 3×S | Done | 5/5 |
+| M-02 | CI is reproducible, pinned and cached | 1 | WI-004, WI-005, WI-006, WI-007, WI-008 | — | 2×M + 3×S | In progress | 4/5 |
 | M-03 | CI merge gates catch races and hangs | 1 | WI-009, WI-010, WI-011, WI-012, WI-013 | M-02 | 1×M + 4×S | Not started | 0/5 |
 | M-04 | Shipping, static and scalar configurations build and test | 1 | WI-014, WI-015, WI-016, WI-017, WI-018 | M-02 | 1×L + 2×M + 2×S | Not started | 0/5 |
 | M-05 | Failure paths are covered by tests | 1 | WI-019, WI-020, WI-021, WI-022, WI-023, WI-024, WI-025 | M-03 | 4×M + 3×S | Not started | 0/7 |
@@ -352,7 +352,7 @@ Parallel group: items in group A have no dependency inside this phase and can st
 Parallel group: items in group A have no dependency inside this phase and can start together (subject to their milestone order); group B items wait for a group A item they depend on, and so on.
 
 #### M-02 — CI is reproducible, pinned and cached
-- **Status:** Done
+- **Status:** In progress (WI-007 still needs a Windows compiler cache)
 - **Outcome:** Every CI input (actions, container image, toolchains, vcpkg ports) is pinned and cached, and a dependency-vulnerability scan runs.
 - **Depends on:** —
 - **Effort:** 2×M + 3×S
@@ -360,7 +360,7 @@ Parallel group: items in group A have no dependency inside this phase and can st
   - [x] WI-004 — One composite setup action, JUnit results and a single aggregate ci-ok check
   - [x] WI-005 — Pin actions by SHA and the container image by digest; add Dependabot
   - [x] WI-006 — Pin Clang, clang-format and MSVC toolset versions in a tracked file
-  - [x] WI-007 — Fix vcpkg binary-cache keys and add a compiler cache
+  - [ ] WI-007 — Fix vcpkg binary-cache keys and add a compiler cache — *Linux done (keys, split restore/save, ccache); Windows still has no compiler cache, which needs MSVC `/Z7` so sccache or ccache can cache the objects.*
   - [x] WI-008 — Dependency-vulnerability scan over the vcpkg SBOM (stb_image and other decoders)
 - **Exit criteria:**
   - [ ] Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job is the only required status check. (resolves CICD-016) (CI-CD/Goal.md AC-16) — *`ci-ok` exists and aggregates every required job; switching branch protection to it alone is a maintainer action (QUESTIONS.md).*
@@ -369,7 +369,7 @@ Parallel group: items in group A have no dependency inside this phase and can st
   - [x] Every `uses:` in `.github/workflows/ci.yml` is pinned to a commit SHA, the container image is pinned by digest, and Dependabot updates them. (resolves SEC-017) (Security/Goal.md AC-17) — *Dependabot bumps the actions; the container digest is bumped by hand (QUESTIONS.md).*
   - [x] The Clang, clang-format and MSVC toolset versions used in CI are pinned in a tracked file, and each job fails if the installed version differs. (resolves CICD-006) (CI-CD/Goal.md AC-6)
   - [ ] Cache keys include the OS, triplet, compiler version and `cmake/ports/**`, and new cache entries are saved on every run. The second consecutive nightly TSan run builds zero vcpkg ports, and ccache or sccache reports a hit rate above 80 % on a no-op PR. … (CI-CD/Goal.md AC-7) — *Mechanism in place (cache path from the shell's `$GITHUB_WORKSPACE`, run-unique keys with split restore/save, `ccache --show-stats` in every Linux leg); the nightly zero-port-build and >80 % hit-rate observations are post-merge checks (QUESTIONS.md).*
-  - [x] All work items above closed
+  - [ ] All work items above closed
 
 ##### WI-004 — One composite setup action, JUnit results and a single aggregate ci-ok check
 - **Sources:** CICD-016 (Low)
@@ -3679,7 +3679,7 @@ Every acceptance criterion from every Goal.md, grouped by discipline and tagged 
 - [ ] **AC-6** `reuse lint` passes: a `LICENSES/MIT.txt` exists, and `REUSE.toml` covers golden images, fuzz corpus, sample content, docs and CI files. (resolves OSS-006) (WI-176 · M-35)
 - [ ] **AC-7** One copyright-holder string is used in `LICENSE`, sample manifests and the `new_module.py` default; `CONTRIBUTING.md` states that contributions are accepted under MIT (inbound = outbound), and "The Interi Authors" is defined (AUTHORS file or git history). (resolves OSS-007) (WI-175 · M-35)
 - [ ] **AC-8** (preserve) `ctest -L license` passes on both platforms; the allowlist still excludes all GPL/LGPL/AGPL/MPL/SSPL/BUSL/NC licenses; `LicenseCheck_GplDepInjected_Fails` still runs in CI. (keeps OSS-011 true; context for OSS-008 and OSS-010) (guardrail · no WI)
-- [ ] **AC-9** (preserve) No console SDK, NDA or prebuilt proprietary binary is tracked: `git ls-files | grep -Ei '\.(a|so|lib|dll|dylib)$'` is empty and no PS5/Xbox/Switch SDK headers appear in the tree. (keeps OSS-011 true) (guardrail · no WI)
+- [ ] **AC-9** (preserve) No console SDK, NDA or prebuilt proprietary binary is tracked: a scan of every tracked regular file's content (gitlinks skipped, e.g. `git ls-files -s -z` filtered to modes other than `160000`, then `grep -IL .`) finds no binary outside a reviewed allowlist (today `tests/asset_import/fuzz/corpus/*`), so extension-less binaries are caught too; the `external/vcpkg` gitlink is validated separately; and no PS5/Xbox/Switch SDK headers appear in the tree. (keeps OSS-011 true) (guardrail · no WI)
 - [ ] **AC-10** (preserve) `directx-dxc` stays in `build_tools` and nothing links or packages `libdxil`/`dxil.dll`. Any change to that triggers a license re-review. (OSS-010) (guardrail · no WI)
 - [ ] **AC-11** (before publication only) `modules/physics` and `modules/destruction` each carry a `LICENSE` and notices for Jolt before they are published as separate repositories. (OSS-009) (guardrail · no WI)
 

@@ -27,6 +27,32 @@ env:
     libXtst-devel wayland-devel wayland-protocols-devel libxkbcommon-devel mesa-libEGL-devel libdecor-devel
 
 jobs:
+  # The files this push or pull request changed (a branch push: everything since it left the default branch). The build
+  # jobs run only the tests those files can reach in the build graph (tools/ci/select_tests.py); scheduled and manual
+  # runs, tag pushes, and changes it can't trace, run everything.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      files: ${{ steps.diff.outputs.files }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the diff needs the base commit, and later fetches have no credentials
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          python3 tools/ci/select_tests.py changes --event "$EVENT" --base "$BASE" --before "$BEFORE" \
+            --branch "$BRANCH" --default-branch "$DEFAULT_BRANCH" --ref-type "$REF_TYPE" > changes.txt
+          cat changes.txt
+          { echo "files<<CHANGED_FILES_END"; cat changes.txt; echo "CHANGED_FILES_END"; } >> "$GITHUB_OUTPUT"
+
   lint:
     runs-on: ubuntu-24.04
     container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
@@ -45,6 +71,7 @@ jobs:
         run: python3 tools/license_check/check_spdx_headers.py
 
   linux:
+    needs: changes
     runs-on: ubuntu-24.04
     container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     strategy:
@@ -66,11 +93,20 @@ jobs:
         if: matrix.preset == 'linux-clang-debug'
         run: python3 tools/ci/osv_scan.py --installed-dir build/${{ matrix.preset }}/vcpkg_installed/x64-linux
       - run: cmake --build --preset ${{ matrix.preset }}
+      - name: Select the tests the change can reach
+        if: matrix.preset != 'linux-clang-tidy'
+        env:
+          CHANGED_FILES: ${{ needs.changes.outputs.files }}
+        run: >-
+          python3 tools/ci/select_tests.py select --build-dir build/${{ matrix.preset }} --changes-env CHANGED_FILES
+          --output build/${{ matrix.preset }}/selected-tests.txt --summary "$GITHUB_STEP_SUMMARY"
       - name: Unit, stress, benchmark smoke and GPU (lavapipe) tests
         if: matrix.preset != 'linux-clang-tidy'
         env:
           INTERI_REQUIRE_GPU: 1
-        run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" --output-junit ctest-junit.xml
+        run: >-
+          ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" --no-tests=ignore
+          --tests-from-file "$GITHUB_WORKSPACE/build/${{ matrix.preset }}/selected-tests.txt" --output-junit ctest-junit.xml
       - name: Test summary
         if: always() && matrix.preset != 'linux-clang-tidy'
         run: python3 tools/ci/junit_summary.py "${{ matrix.preset }}" build/${{ matrix.preset }}/ctest-junit.xml >> "$GITHUB_STEP_SUMMARY"
@@ -108,6 +144,7 @@ jobs:
           ccache-key: ${{ steps.setup.outputs.ccache-key }}
 
   windows:
+    needs: changes
     runs-on: windows-2025
     strategy:
       fail-fast: false
@@ -124,7 +161,18 @@ jobs:
           preset: ${{ matrix.preset }}
       - run: cmake --preset ${{ matrix.preset }}
       - run: cmake --build --preset ${{ matrix.preset }}
-      - run: ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" --output-junit ctest-junit.xml # GPU tests skip: no Vulkan driver
+      - name: Select the tests the change can reach
+        shell: bash
+        env:
+          CHANGED_FILES: ${{ needs.changes.outputs.files }}
+        run: >-
+          python tools/ci/select_tests.py select --build-dir build/${{ matrix.preset }} --changes-env CHANGED_FILES
+          --output build/${{ matrix.preset }}/selected-tests.txt --summary "$GITHUB_STEP_SUMMARY"
+      - name: Tests (GPU tests skip, no Vulkan driver)
+        run: >-
+          ctest --preset ${{ matrix.preset }} -L "unit|stress|benchmark|integration|golden" --no-tests=ignore
+          --tests-from-file "$env:GITHUB_WORKSPACE/build/${{ matrix.preset }}/selected-tests.txt"
+          --output-junit ctest-junit.xml
       - name: Test summary
         if: always()
         shell: bash
@@ -142,6 +190,7 @@ jobs:
           vcpkg-key: ${{ steps.setup.outputs.vcpkg-key }}
 
   coverage:
+    needs: changes
     runs-on: ubuntu-24.04
     container: fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80
     steps:
@@ -156,14 +205,29 @@ jobs:
           preset: linux-clang-coverage
       - run: cmake --preset linux-clang-coverage
       - run: cmake --build --preset linux-clang-coverage
-      - run: ctest --preset linux-clang-coverage --output-junit ctest-junit.xml
+      - name: Select the tests the change can reach (the report covers only those on pushes and pull requests)
+        env:
+          CHANGED_FILES: ${{ needs.changes.outputs.files }}
+        run: >-
+          python3 tools/ci/select_tests.py select --build-dir build/linux-clang-coverage --changes-env CHANGED_FILES
+          --output build/linux-clang-coverage/selected-tests.txt --summary "$GITHUB_STEP_SUMMARY"
+      - run: >-
+          ctest --preset linux-clang-coverage -L "unit|stress|benchmark|integration|golden" --no-tests=ignore
+          --tests-from-file "$GITHUB_WORKSPACE/build/linux-clang-coverage/selected-tests.txt" --output-junit ctest-junit.xml
         env:
           INTERI_REQUIRE_GPU: 1
       - name: Test summary
         if: always()
         run: python3 tools/ci/junit_summary.py linux-clang-coverage build/linux-clang-coverage/ctest-junit.xml >> "$GITHUB_STEP_SUMMARY"
-      - run: cmake --build --preset linux-clang-coverage --target coverage
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Any coverage profiles (none when no instrumented test was selected)
+        id: profiles
+        run: |
+          if ls build/linux-clang-coverage/profiles/*.profraw > /dev/null 2>&1; then any=true; else any=false; fi
+          echo "any=$any" >> "$GITHUB_OUTPUT"
+      - if: steps.profiles.outputs.any == 'true'
+        run: cmake --build --preset linux-clang-coverage --target coverage
+      - if: steps.profiles.outputs.any == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-html
           path: build/linux-clang-coverage/coverage/html
@@ -218,7 +282,7 @@ jobs:
   # The one status check branch protection needs: adding or renaming a job or matrix leg changes nothing there.
   ci-ok:
     if: always()
-    needs: [lint, linux, windows, coverage]
+    needs: [changes, lint, linux, windows, coverage]
     runs-on: ubuntu-24.04
     steps:
       - env:

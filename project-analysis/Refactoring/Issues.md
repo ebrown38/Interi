@@ -1,6 +1,6 @@
 # Refactoring — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** First-party C++ under `engine/` (375 files), `tools/` (editor, module_check) and the matching `tests/<module>/` suites, used to find safety nets. I looked at god classes (method counts from the graph), long functions (line spans from the graph), duplication across parsers and binary containers, dead-code markers, path and id validation helpers, guardrails in `.clang-tidy`, the `HeaderCheck.cpp` lists, git churn and import cycles. Excluded: `external/`, `build/`, `cmake-build-*/`, `modules/` (not indexed, gitignored), `project-analysis/`.
 **Summary:** 11 issues — Critical: 0 · High: 1 · Medium: 5 · Low: 4 · Info: 1

@@ -2,7 +2,7 @@
 
 *This is an engineering license review, not legal advice.*
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`), branch `autoflow/003-goal-implement-milestone-21-8367f0` @ 4631f35
+**Project:** Interi (repository root), branch `autoflow/003-goal-implement-milestone-21-8367f0` @ 4631f35
 **Analyzed:** 2026-10-19
 **Scope:** The project license (`LICENSE`, `README.md` § Licensing, SPDX headers). The vcpkg manifest (`vcpkg.json`), the `external/vcpkg` submodule, the overlay port `cmake/ports/ufbx`, triplets `cmake/triplets/*`, the license gates `tools/license_check/*` (policy, checker, notices generator, CTest wiring), `THIRD_PARTY_NOTICES.md` (19,295 lines). The installed port metadata `build/linux-clang-debug/vcpkg_installed/x64-linux/share/*/vcpkg.spdx.json` (24 ports) and vendored sources under `external/vcpkg/buildtrees/{tracy,imgui,sdl3,manifold,...}`. The install rules (`cmake/InteriPackage.cmake`), all 781 tracked files (binary assets, fuzz corpus, golden images, sample content, docs, CI). Literal searches for third-party banners and NDA/console SDK material in first-party code. A light look at the gitignored `modules/physics` and `modules/destruction`.
 **Summary:** 11 issues — Critical: 0 · High: 0 · Medium: 2 · Low: 5 · Info: 4

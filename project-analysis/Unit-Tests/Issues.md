@@ -1,6 +1,6 @@
 # Unit Tests — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** All first-party tests: `tests/` (206 C++ files, about 1,290 `TEST`/`TEST_F`/`TEST_P` cases in the 25 per-module test folders, plus `tests/samples`, `tests/package`, `tests/meta` and `tests/smoke`), the shared helpers in `testing/`, the Python `unittest` suites in `tools/license_check/tests` and `tools/new_module/tests`, test registration (`engine/*/CMakeLists.txt`, `tests/CMakeLists.txt`), `CMakePresets.json` and `.github/workflows/ci.yml`. Tests were read next to the production code they target (`engine/*/src`). No tests were run.
 **Summary:** 15 issues — Critical: 0 · High: 1 · Medium: 7 · Low: 6 · Info: 1

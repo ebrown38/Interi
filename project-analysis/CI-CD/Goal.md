@@ -1,7 +1,7 @@
 # CI-CD — Goal State
 
 ## Vision
-Every push to a working branch (`main`, `milestone-*`, `autoflow/*`) and every PR builds and tests every supported configuration. That covers Linux Clang debug, release, shipping, ASan, TSan, tidy, profile, scalar-SIMD and static, plus Windows MSVC debug, release, shipping and profile with real Vulkan execution. Each change runs exactly once, and a single required check blocks merge on any failure. The pipeline is pinned, least-privilege, cached and parallel, so a warm PR run finishes in well under an hour and a hang fails fast with a named test. Tagged releases are produced by CI from a pinned toolchain, with checksums, symbols, an SBOM and provenance, and downstream module projects learn about API breaks automatically.
+Every push to a working branch (`main`, `milestone-*`, `autoflow/*`) and every PR builds and tests the regular CI matrix: Linux Clang debug, release, shipping, ASan, TSan, tidy and profile, plus Windows MSVC debug, release, shipping and profile with real Vulkan execution. The scalar-SIMD (`INTERI_SIMD=OFF`) and static (`INTERI_BUILD_SHARED=OFF`) variants are built at least nightly. Each change runs exactly once, and a single required check blocks merge on any failure. The pipeline is pinned, least-privilege, cached and parallel, so a warm PR run finishes in well under an hour and a hang fails fast with a named test. Tagged releases are produced by CI from a pinned toolchain, with checksums, symbols, an SBOM and provenance, and downstream module projects learn about API breaks automatically.
 
 ## Acceptance criteria
 - [ ] AC-1: The PR/push matrix includes `linux-clang-tsan`, and a PR with a deliberate data race in a stress test cannot be merged. (resolves CICD-001)
@@ -19,12 +19,12 @@ Every push to a working branch (`main`, `milestone-*`, `autoflow/*`) and every P
 - [ ] AC-13: No blocking CI job filters tests with a `-L` allowlist (only `-LE pending` or the preset exclusion). `interi_add_module_load_test` sets a default label, and a test enforces that every CTest test has at least one label. (resolves CICD-013)
 - [ ] AC-14: CodeQL (C++ and Python), `ruff` on `tools/`, and `actionlint`/`zizmor` on workflows run in CI and fail on new findings. (resolves CICD-014)
 - [ ] AC-15: The nightly run fuzzes the importers for at least 15 minutes with a non-fixed seed and uploads crash inputs on failure. (resolves CICD-015)
-- [ ] AC-16: Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job is the only required status check. (resolves CICD-016)
+- [x] AC-16: Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job is the only required status check. (resolves CICD-016)
 - [ ] AC-17: A change to `engine/hotreload/include/interi/hotreload/ModuleApi.h` on `main` automatically triggers a build of `modules/physics` and `modules/destruction` against the new engine, and its result is visible to the maintainer. (resolves CICD-017)
 - [ ] AC-18: The strengths in CICD-018 still hold: `permissions: contents: read` at workflow level (write scopes only on the release job), no `pull_request_target`, `INTERI_REQUIRE_GPU=1` on Linux, the pending-test gate on PRs and `main`, license and SPDX gates on both OSes, and DXC shader compilation in the build. (preserves CICD-018)
 
 ## Guardrails to keep it that way
-- An aggregate `ci-ok` required check, so new matrix legs are gated automatically.
+- An aggregate `ci-ok` required check over the push/PR jobs (`changes`, `lint`, `linux`, `windows`, `coverage`), so new legs of those jobs are gated automatically. A new required job must be added to its `needs:`; the `nightly` job is not a `ci-ok` dependency (it doesn't run on pushes or PRs).
 - `zizmor` and `actionlint` in `lint` reject unpinned actions, missing `permissions`, missing timeouts and template injection.
 - Dependabot PRs for action, image and toolchain pins. Toolchain bumps are explicit PRs that also refresh golden images and the clang-format baseline.
 - A CTest that fails when any test lacks a label (alongside the existing `Ci_PendingLabelFilter_ExcludesSample`).

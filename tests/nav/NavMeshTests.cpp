@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <thread>
 
 using namespace interi;
@@ -183,6 +184,20 @@ TEST(NavMesh, Read_FlatTileBounds_Corrupt)
             float bmax[3];
             std::memcpy(bmax, payload.data() + tile + 84, sizeof bmax);
             std::memcpy(payload.data() + tile + 72, bmax, sizeof bmax);
+        });
+    const auto mesh = NavMesh::Read(bytes);
+    ASSERT_FALSE(mesh.has_value());
+    EXPECT_EQ(mesh.error().code, ErrorCode::Corrupt);
+}
+
+TEST(NavMesh, Read_NonFiniteWalkableClimb_Corrupt)
+{
+    // walkableHeight, walkableRadius and walkableClimb are the floats at bytes 60, 64 and 68 of the header.
+    const auto bytes = WithEditedTile(
+        [](auto& payload, std::size_t tile)
+        {
+            const float nan = std::numeric_limits<float>::quiet_NaN();
+            std::memcpy(payload.data() + tile + 68, &nan, sizeof nan);
         });
     const auto mesh = NavMesh::Read(bytes);
     ASSERT_FALSE(mesh.has_value());

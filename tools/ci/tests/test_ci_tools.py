@@ -125,6 +125,11 @@ class OsvScanTests(unittest.TestCase):
         self.assertEqual(results, {COMMIT_A: ["OSV-1", "OSV-2"], COMMIT_B: []})
         self.assertEqual(len(calls), 2)
 
+    def test_querybatch_short_response_fails(self):
+        for response in ({"results": [{}]}, {}, {"results": None}):
+            with self.subTest(response=response), self.assertRaises(RuntimeError):
+                osv_scan.query_osv([COMMIT_A, COMMIT_B], lambda url, payload, r=response: r)
+
     def test_waivers_match_by_id_and_port(self):
         waivers = {"CVE-1": {"id": "CVE-1", "port": "lib", "reason": "not reachable"},
                    "CVE-9": {"id": "CVE-9", "port": "lib", "reason": "old"}}

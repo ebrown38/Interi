@@ -113,8 +113,12 @@ def query_osv(commits, post=None):
                 query["page_token"] = token
             queries.append(query)
         response = post(f"{OSV_API}/querybatch", {"queries": queries})
+        batch = response.get("results") if isinstance(response, dict) else None
+        if not isinstance(batch, list) or len(batch) != len(pending):
+            count = len(batch) if isinstance(batch, list) else "no"
+            raise RuntimeError(f"OSV querybatch returned {count} results for {len(pending)} queries")
         next_pending = []
-        for (commit, _), result in zip(pending, response.get("results", [])):
+        for (commit, _), result in zip(pending, batch):
             results[commit].extend(vuln["id"] for vuln in result.get("vulns", []) or [])
             if result.get("next_page_token"):
                 next_pending.append((commit, result["next_page_token"]))

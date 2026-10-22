@@ -1,6 +1,6 @@
 # Security — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** This was a static review of first-party code: `engine/` (375 files), `tools/` (the C++ editor and module_check, plus 7 Python scripts), `samples/` and `testing/`, the CMake build (`CMakeLists.txt`, `cmake/*.cmake`, `CMakePresets.json`), `vcpkg.json` and the versions it resolves in `external/vcpkg/buildtrees`, and `.github/workflows/ci.yml`. I modelled these trust boundaries:
 - cooked binary assets (`.imesh`, `.itex`, `.imat`, `.iskel`, `.ianim`, `.iskin`, `.inav`, `IVAL`);
@@ -13,12 +13,14 @@
 - CI.
 
 `modules/` (Physics and Destruction) and vendored third-party code were not reviewed. The exceptions are the Detour and Tracy lines cited as sinks.
-**Summary:** 18 issues — Critical: 2 · High: 2 · Medium: 5 · Low: 8 · Info: 1
+**Summary:** 18 issues — Critical: 2 · High: 2 · Medium: 5 · Low: 8 · Info: 1 (as found at 4631f35)
+**Status (re-checked against the current tree):** 5 resolved — SEC-001 (`.inav` tiles validated by `ValidateTileData` before `dtNavMesh::init`), SEC-002 (`.meta` product paths must lie under the imported folder and are deleted only through `RemoveFileBeneath`), SEC-003 (private per-user shadow directory), SEC-006 (expression nesting and size limits), SEC-017 (actions pinned by SHA, container by digest). Still active: 13 — Critical: 0 · High: 1 · Medium: 4 · Low: 7 · Info: 1.
 
 ## Findings
 
 ### SEC-001 — Detour navigation tile from `.inav` is handed to `dtNavMesh::init` without bounds validation (heap out-of-bounds write)
 - **Severity:** Critical
+- **Status:** Resolved. `NavMesh::FromData` now calls `ValidateTileData` (`engine/nav/src/NavMesh.cpp:73`, called at line 318), which checks the blob size against every header count, alignment, `INT_MAX` and finite floats before Detour sees it, and returns `Corrupt` otherwise.
 - **Confidence:** High
 - **Category:** Memory safety / untrusted binary parsing
 - **Location:** `engine/nav/src/NavMesh.cpp:123-138`, `engine/nav/src/NavMesh.cpp:302-323`, `engine/game/src/GameSession.cpp:49-62`, `external/vcpkg/buildtrees/recastnavigation/src/v1.6.0-fcf1526bd5.clean/Detour/Source/DetourNavMesh.cpp:267-287,908-1005`
@@ -35,6 +37,7 @@
 
 ### SEC-002 — The asset database deletes files at paths read from `.meta` files without validating them (arbitrary file deletion when a project opens)
 - **Severity:** Critical
+- **Status:** Resolved. `ReadMeta` drops product paths that are not normalised paths under the imported folder (`IsContainedProduct`, `engine/asset_import/src/AssetDatabase.cpp:184`), and `RemoveProduct` deletes only through `RemoveFileBeneath` (no link followed below the project root).
 - **Confidence:** High
 - **Category:** Path traversal / untrusted data driving file-system operations
 - **Location:** `engine/asset_import/src/AssetDatabase.cpp:233-252`, `engine/asset_import/src/AssetDatabase.cpp:694-700`, `engine/asset_import/src/AssetDatabase.cpp:805-816`, `engine/asset_import/src/AssetDatabase.cpp:965-970`, `tools/editor/EditorApp.cpp:569-584`, `tools/editor/EditorApp.cpp:664-668`
@@ -47,6 +50,7 @@
 
 ### SEC-003 — Module shadow copies go to a shared, predictable `/tmp/interi_modules` directory before `dlopen` (Linux)
 - **Severity:** High
+- **Status:** Resolved. The shadow directory defaults to `PerUserDataDirectory()/modules` and must pass `EnsurePrivateDirectory` (`engine/hotreload/src/ModuleHost.cpp:421,467`); copies use `CopyFileExclusive` under random names.
 - **Confidence:** High
 - **Category:** Insecure temporary files / native plugin loading
 - **Location:** `engine/hotreload/src/ModuleHost.cpp:409-412`, `engine/hotreload/src/ModuleHost.cpp:447-458`, `engine/game/src/ProjectModules.cpp:44`, `tools/editor/EditorApp.cpp:262-264`
@@ -71,6 +75,7 @@
 
 ### SEC-006 — Unbounded recursion in the chain expression parser and evaluator (stack exhaustion from `.chain.json`)
 - **Severity:** Medium
+- **Status:** Resolved. The parser bounds nesting (`kMaxExpressionDepth`, 64) and program size (2048 nodes) (`engine/chain/src/Expression.cpp:475`).
 - **Confidence:** High
 - **Category:** Untrusted input parsing / denial of service
 - **Location:** `engine/chain/src/Expression.cpp:541-560`, `engine/chain/src/Expression.cpp:668-677`, `engine/chain/src/Expression.cpp:765-767`, `engine/chain/src/Expression.cpp:1152-1200`, `engine/chain/src/Compiler.cpp:293,406`
@@ -159,6 +164,7 @@
 
 ### SEC-017 — CI references actions by mutable tags and uses an unpinned container image
 - **Severity:** Low
+- **Status:** Resolved. Every action in `.github/workflows/ci.yml` is pinned by commit SHA and the Fedora container by digest; `tools/ci/check_toolchain.py` pins compiler versions.
 - **Confidence:** High
 - **Category:** CI supply chain
 - **Location:** `.github/workflows/ci.yml:31,34,58,73,102`
@@ -206,7 +212,7 @@
 
 ## Analysis limitations
 - This was a static review only. Nothing was built or run, so the hardening state of real binaries (checksec, dumpbin `/DEPENDENTS`/`/HEADERS`) could not be checked (SEC-007).
-- The status of dependency CVEs (stb_image, tinyobjloader rc13, miniaudio 0.11.25, cgltf 1.15, ufbx 0.23.1, recastnavigation 1.6.0, SDL3 3.4.18, Tracy 0.14.1, nlohmann-json 3.12.0, imgui) is based on knowledge as of 2026-10-19 and was not checked against a live advisory database. Confirm with OSV-Scanner or a vcpkg SBOM scan.
+- The status of dependency CVEs (stb_image, tinyobjloader rc13, miniaudio 0.11.25, cgltf 1.15, ufbx 0.23.1, recastnavigation 1.6.0, SDL3 3.4.18, Tracy 0.14.1, nlohmann-json 3.12.0, imgui) is based on knowledge as of 2026-10-19 and was not checked against a live advisory database. Since then CI runs `tools/ci/osv_scan.py` (step "Dependency vulnerabilities (OSV, vcpkg SBOM)" on the `linux-clang-debug` leg), which resolves every port's upstream ref from the vcpkg SBOM and queries OSV; each advisory needs a reasoned waiver in `tools/ci/osv_waivers.json` or the leg fails. Advisories against these versions are now tracked there rather than here.
 - `modules/` (Jolt Physics Engine, Destruction Module, including its `com.interi.destruction:state` save section) is not indexed and is out of scope.
 - The index has no PDG layer, so `explain` and `pdg_query` taint analysis was unavailable. Source-to-sink paths were traced by hand.
 - The GitNexus BM25 index had not been built, so concept queries mostly returned vendored code. Cypher name filters over `engine/` were used instead.
@@ -215,4 +221,4 @@
 ## Cross-discipline notes
 - C++/Robustness: `engine/` has no `catch` blocks. Any throw while handling malformed input (`std::bad_alloc` from SEC-010 or SEC-011, nlohmann `type_error` from an unchecked `get<>`, or `std::filesystem` calls without `error_code`, as in `EditorServices.cpp:142` and `EditorApp.cpp:90`) terminates the process.
 - Testing: the libFuzzer and stress fuzz harness (`tests/asset_import/fuzz`) should be extended to the runtime formats (see SEC-008).
-- Build/CI: no SBOM or dependency-scanning step exists in `.github/workflows/ci.yml`. The license check (`ctest -L license`) does not cover vulnerabilities.
+- Build/CI: resolved since the analysis: the `linux-clang-debug` leg of `.github/workflows/ci.yml` scans the vcpkg SBOM against OSV (`tools/ci/osv_scan.py`, waivers in `tools/ci/osv_waivers.json`, offline tests in `CiTools_PythonUnitTests`). Remaining gap: the scan covers the Linux triplet only, and no SBOM artifact is published (see Open-Source-Validation OSS-005).

@@ -95,7 +95,9 @@ Nothing here has been applied. These are instructions, not changes.
 - **Depends on:** None
 - **Steps:**
   1. In `cmake/InteriArch.cmake`, add `/fp:precise` to `INTERI_ABI_COMPILE_OPTIONS` for MSVC (and `/fp:contract-` where the toolset supports it), so installed consumers inherit it through `interi::build_settings`.
-  2. Add a configure-time check that fails when `CMAKE_CXX_FLAGS` (or a target's options) contain `-ffast-math`, `-funsafe-math-optimizations`, `-Ofast` or `/fp:fast`.
+  2. Fail the build on `-ffast-math`, `-funsafe-math-optimizations`, `-Ofast` or `/fp:fast` from any source, not only `CMAKE_CXX_FLAGS`:
+     - A compile probe in a header every engine TU includes (`Config.h`): `#error` when `__FAST_MATH__` (Clang: `-ffast-math`, `-Ofast`) or `_M_FP_FAST` (MSVC: `/fp:fast`) is defined. It sees the flags each target actually compiles with, whatever their source: config-specific flags, toolchain-file or `*_INIT` flags, presets, or target and interface `COMPILE_OPTIONS`.
+     - `-funsafe-math-optimizations` defines no macro, so also scan at configure time: `CMAKE_CXX_FLAGS` and `CMAKE_CXX_FLAGS_<CONFIG>` for every config in `CMAKE_CONFIGURATION_TYPES` (or `CMAKE_BUILD_TYPE`), and, in `interi_add_module`, each target's `COMPILE_OPTIONS` and `INTERFACE_COMPILE_OPTIONS`.
   3. Optionally add `-fno-fast-math` for Clang as a belt-and-braces measure.
 - **Illustrative change (not applied):**
   ```cmake
@@ -104,11 +106,22 @@ Nothing here has been applied. These are instructions, not changes.
   else()
       list(APPEND INTERI_ABI_COMPILE_OPTIONS -ffp-contract=off)
   endif()
-  if(CMAKE_CXX_FLAGS MATCHES "fast-math|fp:fast|Ofast|unsafe-math")
+  set(_flags "${CMAKE_CXX_FLAGS}")
+  foreach(config IN LISTS CMAKE_CONFIGURATION_TYPES CMAKE_BUILD_TYPE)
+      string(TOUPPER "${config}" config)
+      string(APPEND _flags " ${CMAKE_CXX_FLAGS_${config}}")
+  endforeach()
+  if(_flags MATCHES "fast-math|fp:fast|Ofast|unsafe-math") # target COMPILE_OPTIONS: same check in interi_add_module
       message(FATAL_ERROR "fast-math breaks Interi's determinism contract")
   endif()
   ```
-- **Verification:** `cmake --preset windows-msvc-release` shows `/fp:precise` in the compile commands. Configuring with `-DCMAKE_CXX_FLAGS=-ffast-math` fails.
+  ```cpp
+  // Config.h: catches flags from every source, per target and per config
+  #if defined(__FAST_MATH__) || defined(_M_FP_FAST)
+  #error "fast-math breaks Interi's determinism contract"
+  #endif
+  ```
+- **Verification:** `cmake --preset windows-msvc-release` shows `/fp:precise` in the compile commands. Configuring with `-DCMAKE_CXX_FLAGS=-ffast-math`, `-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-funsafe-math-optimizations` or a toolchain file adding `-Ofast` fails, and so does building a target given `target_compile_options(... -ffast-math)`.
 - **Risks / trade-offs:** Adding to the ABI options changes the toolchain fingerprint inputs only if they are hashed. Check `Toolchain.h`.
 
 ## DET-008 — Nav stepping uses the default step length and per-toolchain math

@@ -190,10 +190,10 @@ Project rules apply to every step: run `impact` before editing a symbol, and whe
 - **Severity / Effort:** Low / M
 - **Depends on:** None
 - **Steps:**
-  1. When `VK_EXT_swapchain_maintenance1` is available, attach a present fence (`VkSwapchainPresentFenceInfoEXT`) and only destroy, reuse or retire semaphores and old swapchains after their fences signal. Otherwise, keep old swapchains and their semaphores in a retire list for a few frames.
-  2. Drop the `vkQueueWaitIdle` in `Recreate` once retirement is tracked.
+  1. When `VK_EXT_swapchain_maintenance1` is available, attach a present fence (`VkSwapchainPresentFenceInfoEXT`) to every present and only destroy or reuse semaphores and old swapchains after their present fences signal, which proves presentation finished. A fixed frame-count retire delay alone is not proof (core Vulkan gives no completion signal for a present) and must not replace the wait.
+  2. Drop the `vkQueueWaitIdle` in `Recreate` (`VulkanSwapchain.cpp:100`) only on the present-fence path. Without the extension, keep the conservative `vkQueueWaitIdle` before destroying or reusing those objects.
   3. Later: an HDR colour-space choice (`VK_COLOR_SPACE_HDR10_ST2084_EXT`) behind a setting.
-- **Verification:** The swapchain resize test (`Swapchain_Resize_Recreates`) is extended to 100 resizes with presents in between and is clean under validation, including the WSI semaphore checks.
+- **Verification:** The swapchain resize test (`Swapchain_Resize_Recreates`) is extended to 100 resizes with presents in between and is clean under validation, including the WSI semaphore checks, on both paths (present fences, and the `vkQueueWaitIdle` fallback with the extension disabled).
 - **Risks / trade-offs:** Extension availability varies. Keep the conservative fallback.
 
 ## RND-016 — FrameGraph accesses carry one ResourceState, and reading a resource in two states in one pass produces unordered barriers

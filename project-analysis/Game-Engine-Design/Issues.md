@@ -1,6 +1,6 @@
 # Game-Engine-Design — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi), custom C++23 modular engine
+**Project:** Interi (repository root), custom C++23 modular engine
 **Analyzed:** 2026-10-19
 **Scope:** First-party engine code under `engine/` (runtime, game, scene, ecs, chain, nav, anim, assets, asset_import, render, rhi, rhi_vulkan, core allocators, hotreload, editor), `tools/editor` (the only shipped executable that drives a frame loop), `samples/modules/starter`. Read with the GitNexus graph first, then targeted reads of about 25 files. `modules/` (physics, destruction), `external/`, `build/` and third-party code were out of scope.
 **Summary:** 12 issues — Critical: 0 · High: 1 · Medium: 7 · Low: 3 · Info: 1

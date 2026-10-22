@@ -1,6 +1,6 @@
 # CMake — Issues
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** Every tracked CMake file: root `CMakeLists.txt`, `CMakePresets.json`, `vcpkg.json`, 13 modules in `cmake/` (`InteriModule`, `InteriArch`, `InteriWarnings`, `InteriSanitizers`, `InteriBuildSettings`, `InteriShaders`, `EmbedSpirv`, `InteriPackage`, `InteriConfig.cmake.in`, `InteriGameplayModule`, `InteriVulkanTesting`, `InteriCoverage`, `MergeProfiles`), the overlay port `cmake/ports/ufbx`, both triplets in `cmake/triplets`, all 25 `engine/*/CMakeLists.txt`, plus `testing/`, `tests/` (including `tests/package`, `tests/meta`, `tests/cmake`), `tools/*`, `benchmarks/*` and `samples/modules/starter`. I also read `.github/workflows/ci.yml` to see how presets are used, and `engine/sdk/include/interi/sdk/Toolchain.h` because the build flags feed the module ABI fingerprint. I did not read `modules/` (separate projects) or vendored vcpkg sources. CMake 4.3.0 is on the host; nothing was configured or built.
 **Summary:** 15 issues — Critical: 0 · High: 0 · Medium: 3 · Low: 9 · Info: 3

@@ -1,7 +1,8 @@
 # CI-CD — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
+**Baseline:** commit `0ad8f95` (2026-10-19), with the 175-line `ci.yml` from before `8006873`. Findings describe that baseline; a **Status** line marks those the workflow resolves since.
 **Scope:** The single workflow `.github/workflows/ci.yml` (173 lines, 5 jobs). `CMakePresets.json` (10 configure, 10 build and 9 test presets). Test registration in every first-party `CMakeLists.txt` and `cmake/*.cmake` (20 `add_test` sites plus `gtest_discover_tests` via `cmake/InteriModule.cmake`). Release and packaging tooling: `cmake/InteriPackage.cmake`, `tests/package/`, `tools/license_check/`, `tools/bench_compare/`, `tools/new_module/`. Also `vcpkg.json`, `.gitmodules`, `.gitignore`, `README.md` and `CLAUDE.md`. Excluded: `external/`, `build/`, `cmake-build-*`, `modules/` (separate repos) and `project-analysis/`.
 **Summary:** 18 issues — Critical: 0 · High: 2 · Medium: 8 · Low: 7 · Info: 1
 
@@ -64,6 +65,7 @@
 - **Impact:** Nightly sanitizer coverage, already the only TSan signal (CICD-001), can be silently cancelled. Runner minutes roughly double for PRs, which lengthens queues on the Windows runners.
 
 ### CICD-005 — Actions and container images use floating tags, and nothing updates them
+- **Status:** Resolved in `8006873`: actions pinned by commit SHA, the Fedora container by `@sha256:` digest, `.github/dependabot.yml` covers `github-actions` (workflows and `.github/actions/*`), every checkout sets `persist-credentials: false`, and `safe.directory` lists only the workspace and its submodules.
 - **Severity:** Medium
 - **Confidence:** High
 - **Category:** Pipeline supply-chain security
@@ -77,6 +79,7 @@
 - **Impact:** `permissions: contents: read` (`ci.yml:4-5`) limits the blast radius, which is why this is Medium rather than High. A re-tagged or compromised action, or a changed base image, still runs arbitrary code in every job. It can also poison the shared `.vcpkg-cache` binary cache, which later jobs trust and link into test binaries.
 
 ### CICD-006 — Toolchain versions float, so builds, lint and module fingerprints are not reproducible
+- **Status:** Resolved in `8006873`: `tools/ci/toolchain.env` pins Clang, clang-format and the MSVC toolset (major.minor), and `tools/ci/check_toolchain.py` fails `lint` and every build job on a mismatch. Mesa/lavapipe still come unpinned from `dnf` inside the pinned image.
 - **Severity:** Medium
 - **Confidence:** High
 - **Category:** Reproducibility
@@ -93,6 +96,7 @@
   - A failure can't be reproduced locally with certainty.
 
 ### CICD-007 — The vcpkg binary cache key causes permanent misses (TSan) and stale hits, and there is no compiler cache
+- **Status:** Resolved in `8006873` for Linux: run-unique keys with OS, triplet, compiler version, vcpkg commit and a hash of `vcpkg.json`, `cmake/triplets/**` and `cmake/ports/**`, split restore/save (saved with `if: always()`), and ccache on Linux. Windows still has no compiler cache.
 - **Severity:** Medium
 - **Confidence:** Medium
 - **Category:** Pipeline caching
@@ -195,6 +199,7 @@
 - **Impact:** The fixed seed and tiny budget re-verify the corpus but explore almost nothing new. The importers are the engine's main untrusted-input surface.
 
 ### CICD-016 — Workflow duplication, no test-result reporting, no single aggregate status check
+- **Status:** Resolved in `8006873`: shared setup is `.github/actions/setup-interi` (plus `save-caches`), every test leg writes `ctest --output-junit` and a job summary, and `ci-ok` aggregates `changes`, `lint`, `linux`, `windows` and `coverage`.
 - **Severity:** Low
 - **Confidence:** High
 - **Category:** Maintainability / developer experience

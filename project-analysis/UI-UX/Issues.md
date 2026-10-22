@@ -1,6 +1,6 @@
 # UI-UX — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** In-game HUD and menus (`engine/hud/**`, 5 sources), input binding and rebinding (`engine/platform/include/interi/platform/InputConfig.h`, `engine/platform/src/InputConfig.cpp`), localization (`engine/loc/include/interi/loc/Localization.h`), the Dear ImGui editor (`engine/editor_ui/src/*.cpp`, 13 files, and `tools/editor/EditorApp.cpp`, 1652 lines), editor preferences (`engine/editor/include/interi/editor/EditorServices.h`), the starter sample's HUD, menus and input config (`samples/modules/starter/templates/coins/content/{ui/*.hud.json,input.json}`) and the tests that drive them (`tests/hud/*`, `tests/samples/StarterSampleTests.cpp`). This is static reading only. Nothing was run or looked at on screen.
 **Summary:** 19 issues — Critical: 0 · High: 3 · Medium: 10 · Low: 4 · Info: 2

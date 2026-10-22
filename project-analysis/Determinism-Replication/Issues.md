@@ -1,6 +1,6 @@
 # Determinism-Replication — Issues
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`, HEAD 4631f35)
+**Project:** Interi (repository root, HEAD 4631f35)
 **Analyzed:** 2026-10-19
 **Scope:** First-party engine code that feeds simulation state or saves: `engine/chain` (Executor, CoreLibrary, Expression), `engine/scene` (SceneRuntime, SceneSave, Prefab, Triggers), `engine/game` (GameSession), `engine/runtime` (FixedStepClock, SaveGame, TriggerVolumes), `engine/core` (Random, math kernels used by chains), `engine/ecs` (CommandBuffers, Scheduler keys, World containers), `engine/nav` (as called from GameSession), `testing/StateHasher.h`, the determinism tests (`tests/chain/stress`, `tests/scene`, `tests/game`), `cmake/InteriArch.cmake` and `.github/workflows/ci.yml`. I used the module projects' docs (`modules/physics`, `modules/destruction`) for context only, and the milestone plan to see what determinism level the project promises. Editor, renderer, RHI, audio and asset import are out of scope except where they share code with simulation.
 **Summary:** 11 issues — Critical: 0 · High: 2 · Medium: 4 · Low: 4 · Info: 1

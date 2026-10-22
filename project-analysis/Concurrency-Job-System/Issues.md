@@ -1,6 +1,6 @@
 # Concurrency & Job System — Issues
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`, branch `autoflow/003-goal-implement-milestone-21-8367f0` @ 4631f35)
+**Project:** Interi (repository root, branch `autoflow/003-goal-implement-milestone-21-8367f0` @ 4631f35)
 **Analyzed:** 2026-10-19
 **Scope:** First-party concurrent code: `engine/jobs` (JobSystem, WorkStealingDeque, TaskGraph, ParallelAlgorithms), `engine/core` (MPMCQueue, SPSCQueue, PoolAllocator, FrameAllocators, Logger, StringId, ComponentRegistry), `engine/ecs` (Scheduler, Query::ParallelForEachChunk, CommandBuffers, World ticks), `engine/audio/src/AudioEngine.cpp`, `engine/runtime/FramePipeline.h`, `engine/platform/AsyncFileReader`, `engine/rhi/CommandListPool`, `engine/chain/src/Executor.cpp` (parallel waves), `engine/hotreload/ModuleHost.cpp` (unload order), `engine/game/GameSession`, `tools/editor/main.cpp`, `.github/workflows/ci.yml`, plus the unindexed module projects `modules/physics/src/JoltJobSystem.cpp` and the job usage in `modules/destruction/libs/destruction/src`. About 25 source files read in full or in part. Static reading only.
 **Summary:** 18 issues — Critical: 0 · High: 1 · Medium: 8 · Low: 6 · Info: 3

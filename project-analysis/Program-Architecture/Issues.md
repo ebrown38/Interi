@@ -1,6 +1,6 @@
 # Program Architecture — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi) @ 4631f35
+**Project:** Interi (repository root) @ 4631f35
 **Analyzed:** 2026-10-19
 **Scope:** System-level structure of the 25 first-party modules under `engine/` (their `CMakeLists.txt` target graph and `#include <interi/...>` graph), `tools/editor` (level_editor), `engine/game`, `engine/hotreload`, `engine/sdk`, `cmake/InteriModule.cmake`, README.md, CLAUDE.md, AGENTS.md, `docs/` (3 files), and the milestone plan `~/.claude/plans/create-a-plan-for-starry-dove.md` for stated goals. `modules/`, `external/`, `build*/`, `cmake-build-*/` are excluded.
 **Summary:** 10 issues — Critical: 0 · High: 2 · Medium: 5 · Low: 2 · Info: 1

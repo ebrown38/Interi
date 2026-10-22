@@ -1,6 +1,6 @@
 # HLSL — Issues
 
-**Project:** Interi (/home/eric/CLionProjects/Interi)
+**Project:** Interi (repository root)
 **Analyzed:** 2026-10-19
 **Scope:** All 26 tracked shader files (19 `.hlsl`, 7 `.hlsli`, 1,097 lines): `engine/shaders/include/interi/Bindless.hlsli`, `engine/render/shaders/*` (culling, Hi-Z, clustered light culling, shadows, PBR forward, particles, decals), `engine/editor_ui/shaders/*` (ImGui), and the test shaders under `tests/render/shaders` and `tests/rhi_vulkan/shaders`. The shader build (`cmake/InteriShaders.cmake`, `cmake/EmbedSpirv.cmake`), and the C++ side of the CPU/GPU contract: `engine/rhi_vulkan/src/ShaderReflection.cpp`, `engine/rhi_vulkan/src/VulkanDevice.cpp` (bindless set, pipeline layout, push constants, pipeline creation, samplers, device features), `engine/rhi/include/interi/rhi/{Types.h,Device.h}`, `engine/render/src/{ForwardRenderer.cpp,Particles.cpp,Decals.cpp}`, `engine/render/include/interi/render/{Clusters.h,Particles.h,Shadows.h}`, `engine/editor_ui/src/ImGuiRenderer.cpp`. `modules/` (destruction and physics, not indexed and separate projects) was not analyzed.
 **Summary:** 14 issues — Critical: 0 · High: 0 · Medium: 6 · Low: 6 · Info: 2

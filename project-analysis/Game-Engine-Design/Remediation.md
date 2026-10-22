@@ -106,7 +106,7 @@ Nothing here has been applied. These are instructions, not changes.
   2. Have the cook (`AssetDatabase`) emit an asset table (`guid → cooked path, kind, dependencies`) that the player package ships.
   3. Allow `AssetRef` to hold a GUID (a new `Value` encoding, or a sibling `AssetGuid` type appended to `ValueType`), with path fallback for hand-written scenes. The editor writes GUIDs.
   4. Load the nav mesh and scene meshes through it, not ad hoc in `GameSession::Open`.
-- **Verification:** A test renames a source model in a scratch project, re-imports, and checks that the scene still resolves its meshes by GUID. A test loads 100 meshes asynchronously while stepping, and the step never blocks on IO (`WaitFor` is not called from jobs).
+- **Verification:** A test renames a source model in a scratch project, re-imports, and checks that the scene still resolves its meshes by GUID. A test loads 100 meshes asynchronously while stepping, and the step never blocks on IO: the test instruments `GameSession::Step` (an "in fixed step" scope) and fails if `AsyncFileReader::WaitAll` or any wait on resource-loading work (Low-priority IO jobs or their counters) runs inside it, from the main thread as well as from jobs. The fork-join waits of `ParallelFor` and the ECS `Scheduler` stay allowed.
 - **Risks / trade-offs:** This is a large API surface. Start with meshes and textures only. Hot reload of cooked assets should reuse `AssetWatcher`.
 
 ## ENG-008 — The MeshPool is append-only, and editor uploads stall the GPU per mesh

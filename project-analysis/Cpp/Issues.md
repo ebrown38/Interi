@@ -1,6 +1,6 @@
 # Cpp — Issues
 
-**Project:** Interi (`/home/eric/CLionProjects/Interi`), branch `autoflow/003-goal-implement-milestone-21-8367f0` @ 4631f35
+**Project:** Interi (repository root), branch `autoflow/003-goal-implement-milestone-21-8367f0` @ 4631f35
 **Analyzed:** 2026-10-19
 **Scope:** First-party C++23 under `engine/` (public headers `engine/*/include/interi/**`, sources `engine/*/src`), plus build and tooling config that governs it (`cmake/InteriWarnings.cmake`, `cmake/InteriSanitizers.cmake`, `.clang-tidy`, `CMakePresets.json`, `.github/workflows/ci.yml`). Reviewed in depth: core (Archive, Assert, Config, Log, PoolAllocator, StlAllocator, SmallVector, HashMap), ecs (Component, World, CommandBuffer), jobs (JobSystem, WorkStealingDeque), sdk (Hooks, ContributionRegistry), hotreload (ModuleApi, ModuleHost), assets (AssetIo, Texture, Skeleton), chain (Expression evaluator), anim (Animation, Animator JSON), hud (HudDocument), runtime (CameraRig), values (Value JSON), audio (AudioEngine queues), rhi_vulkan (CheckVk, Submit, bindless slots), platform/platform_sdl RAII wrappers. Out of scope: `external/`, `build*/`, `cmake-build-*/`, `modules/` (separate projects, not indexed), `project-analysis/`. Tests were read only to confirm coverage gaps.
 **Summary:** 12 issues — Critical: 0 · High: 3 · Medium: 3 · Low: 4 · Info: 2

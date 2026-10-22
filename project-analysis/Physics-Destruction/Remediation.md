@@ -45,16 +45,18 @@ Repository labels: **engine** means this repo; **physics** means `modules/physic
 - **Severity / Effort:** High / S
 - **Depends on:** PHYS-001 (the natural place to build the world)
 - **Steps:**
-  1. **physics:** build the world from the rules when the runtime is created: `MakeWorldDesc(ReadPhysicsRules(data), &hooks)`. Configure the step from `rules.stepRate` (`FixedStepConfig{.step = 1s / stepRate}`), or give the engine one authority for the step and log a warning when the two differ.
+  1. **physics:** build the world from the rules when the runtime is created: `MakeWorldDesc(ReadPhysicsRules(data), &hooks)`. The engine's session step (`ExecutorDesc::stepNanoseconds`, the same step `GameSession::Step` uses at `GameSession.cpp:100`) is the only physics clock: pass it into the physics config and step `PhysicsWorld` with exactly that `dt`, so physics stays in lockstep with chains, navigation and destruction. `rules.stepRate` never drives an independent `dt` or clock; it only validates (or, at project load, configures) that same session step: when `1s / stepRate` differs from the session step, log a warning (or fail the load) and keep the session step.
   2. **physics:** call `ApplyPhysicsMaterial` while bodies are created, wherever a component names a `PhysicsMaterials` row. Add a material row field to `RigidBodyComponent` if needed.
-  3. **destruction:** in the sandbox (`main.cpp:375`), construct `PhysicsWorld` after `modules.LoadProject` with the desc built from the rules. In `PlaySession`, accept `PhysicsWorldDesc`/`DestructionSettings` built from the project's `DataRegistry` instead of defaults (`PlaySession.cpp:16-21`).
+  3. **destruction:** in the sandbox (`main.cpp:375`), construct `PhysicsWorld` after `modules.LoadProject` with the desc built from the rules and the session step. In `PlaySession`, accept `PhysicsWorldDesc`/`DestructionSettings` built from the project's `DataRegistry` instead of defaults (`PlaySession.cpp:16-21`), and take the step from the session rather than from the rules.
 - **Illustrative change (not applied):**
   ```cpp
   const auto rules = interi::physics::ReadPhysicsRules(modules.Data());
   interi::physics::PhysicsWorld physics(jobs, interi::physics::MakeWorldDesc(rules, &modules.Hooks()));
-  interi::FixedStepClock clock({.step = std::chrono::nanoseconds(1'000'000'000 / rules.stepRate)});
+  const std::int64_t stepNs = interi::chain::ExecutorDesc{}.stepNanoseconds; // the session's step, the only clock
+  if (rules.stepRate != 0 && 1'000'000'000 / rules.stepRate != stepNs) { INTERI_LOG_WARN("stepRate ignored: ..."); }
+  interi::FixedStepClock clock({.step = std::chrono::nanoseconds(stepNs)}); // shared with chains, nav, destruction
   ```
-- **Verification:** a module test sets the project Values `gravity = (0,-1,0)` and `stepRate = 120` and checks that a dropped body's velocity after one simulated second matches. A test with a `Layers` row that disables Debris and Static shows debris falling through the floor. A grep in CI (or a review check) confirms that production code calls `MakeWorldDesc`.
+- **Verification:** a module test sets the project Value `gravity = (0,-1,0)` and checks that a dropped body's velocity after one simulated second (session steps) matches; a `stepRate` that disagrees with the session step leaves the step unchanged and logs (or fails the load), and physics, chain and nav step counts stay equal. A test with a `Layers` row that disables Debris and Static shows debris falling through the floor. A grep in CI (or a review check) confirms that production code calls `MakeWorldDesc`.
 - **Risks / trade-offs:** the sandbox keeps the default rules, so goldens shouldn't change. Projects that already set non-default Values will now behave differently, which is the intended fix.
 
 ## PHYS-003 — Contact and explosion damage visit every bond with no culling or cap

@@ -40,8 +40,8 @@ CONC-016, CONC-017 and CONC-018 are Info items: document them only (see the note
 - **Depends on:** CONC-012
 - **Steps:**
   1. Count exhaustion: add an atomic `m_inlineRuns` with a `Stats()` accessor and log a one-time warning per system.
-  2. Do not run Low jobs inline on exhaustion. Instead, make the caller help (run one High/Normal job through `FindJob`) and retry the allocation, falling back to inline only after N attempts.
-  3. In `TaskGraph::SubmitNode`, avoid recursion. When `Submit` would run inline, push the successor onto a local worklist processed iteratively by the finishing job. A cleaner fix is to give `TaskGraph` preallocated per-node job storage, since the graph is static, so it never touches the shared pool.
+  2. Never run a Low job inline on exhaustion while workers exist (AC-2). Let the caller help (run one High/Normal job through `FindJob`, bounded by `waitDepth`) and retry the allocation; if the pool is still full, queue the job without the pool (a heap-allocated overflow `Job` on a per-priority overflow list that workers drain), never inline. Inline execution stays only for a system with zero workers.
+  3. In `TaskGraph::SubmitNode`, avoid recursion: the finishing job collects ready successors into a local worklist and submits them iteratively, and exhaustion takes step 2's non-inline fallback, so a successor (Low ones included) never runs inline on the finishing thread. A cleaner fix is to give `TaskGraph` preallocated per-node job storage, since the graph is static, so it never touches the shared pool.
   4. Size `maxJobs` from the peak observed in the stress and benchmark runs, and document the sizing.
 - **Illustrative change (not applied):**
   ```cpp
@@ -49,7 +49,7 @@ CONC-016, CONC-017 and CONC-018 are Info items: document them only (see the note
   SmallVector<NodeId, 8> ready;
   for (NodeId s : m_nodes[node].successors)
       if (m_remaining[s].fetch_sub(1, std::memory_order_acq_rel) == 1) ready.push_back(s);
-  for (NodeId s : ready) SubmitNode(jobs, counter, s); // SubmitNode never recurses into Run
+  for (NodeId s : ready) SubmitNode(jobs, counter, s); // queues (pool or overflow), never runs inline
   ```
 - **Verification:** A stress test with `maxJobs = 4` and a 10,000-node chain TaskGraph must complete on the Windows MSVC debug preset (1 MB stack), and a test must assert that Low jobs are never executed on the submitting thread while workers exist.
 - **Risks / trade-offs:** Helping on exhaustion can itself nest. Bound it with the same `waitDepth` counter.

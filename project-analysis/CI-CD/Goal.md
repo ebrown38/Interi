@@ -19,7 +19,8 @@ Every push to a working branch (`main`, `milestone-*`, `autoflow/*`) and every P
 - [ ] AC-13: No blocking CI job filters tests with a `-L` allowlist (only `-LE pending` or the preset exclusion). `interi_add_module_load_test` sets a default label, and a test enforces that every CTest test has at least one label. (resolves CICD-013)
 - [ ] AC-14: CodeQL (C++ and Python), `ruff` on `tools/`, and `actionlint`/`zizmor` on workflows run in CI and fail on new findings. (resolves CICD-014)
 - [ ] AC-15: The nightly run fuzzes the importers for at least 15 minutes with a non-fixed seed and uploads crash inputs on failure. (resolves CICD-015)
-- [x] AC-16: Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job is the only required status check. (resolves CICD-016)
+- [x] AC-16: Shared setup lives in one composite action, CTest JUnit results are published, and a single aggregate `ci-ok` job exists. (resolves CICD-016)
+- [ ] AC-16b: Branch protection on `main` requires `ci-ok` as its only status check (today it still lists the individual `lint`, `linux`, `windows` and `coverage` legs). (completes CICD-016)
 - [ ] AC-17: A change to `engine/hotreload/include/interi/hotreload/ModuleApi.h` on `main` automatically triggers a build of `modules/physics` and `modules/destruction` against the new engine, and its result is visible to the maintainer. (resolves CICD-017)
 - [ ] AC-18: The strengths in CICD-018 still hold: `permissions: contents: read` at workflow level (write scopes only on the release job), no `pull_request_target`, `INTERI_REQUIRE_GPU=1` on Linux, the pending-test gate on PRs and `main`, license and SPDX gates on both OSes, and DXC shader compilation in the build. (preserves CICD-018)
 

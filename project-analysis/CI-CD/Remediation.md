@@ -3,7 +3,7 @@
 How to move from the issues in Issues.md to the end state in Goal.md.
 This is the pre-remediation plan, written 2026-10-19 against commit `0ad8f95`. These are instructions, not changes.
 
-**Status (2026-10-21):** `8006873` completed CICD-005 (pinned inputs), CICD-006 (toolchain validation), CICD-007 (cache keys and ccache, Linux only) and CICD-016 (shared setup action, JUnit results, aggregate `ci-ok`). Remaining: CICD-001–004, CICD-008–015, CICD-017, and a Windows compiler cache (CICD-007).
+**Status (2026-10-21):** `8006873` completed CICD-005 (pinned inputs), CICD-006 (toolchain validation), CICD-007 (cache keys and ccache, Linux only) and CICD-016 (shared setup action, JUnit results, aggregate `ci-ok`). Remaining: CICD-001–004, CICD-008–015, CICD-017, a Windows compiler cache (CICD-007), CICD-007's performance exit criteria (the second nightly TSan run restores its dependencies without rebuilding ports, and a no-op PR gets more than 80% ccache hits; both can only be observed on runs after the change is merged), and making `ci-ok` the only required check in branch protection (CICD-016).
 
 ## Recommended order
 1. **CICD-016 (composite setup action), CICD-008 (timeouts), CICD-005 (pinning):** cheap structural fixes. With one shared setup action, every later cache or toolchain change is made once.
